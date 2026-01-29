@@ -1,0 +1,65 @@
+/* 1. RESET EVERYTHING */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* html,
+body,
+#root {
+  width: 100% !important;
+  min-height: 100vh;
+  display: block !important; 
+  background: white;
+} */
+
+/* 2. THE DEBUG CLASSES */
+.debug-wrapper {
+  width: 100%;
+}
+
+.debug-nav {
+  height: 60px;
+  border-bottom: 2px solid red; /* Red line to see width */
+  width: 100%;
+}
+
+.debug-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 100%;
+}
+
+.debug-hero {
+  background: #f0f0f0;
+  padding: 50px 0;
+  width: 100%;
+  text-align: center;
+}
+
+.debug-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  padding: 20px 0;
+}
+
+.debug-card {
+  background: white;
+  border: 1px solid #ddd;
+  padding: 40px;
+  text-align: center;
+}
+
+h1 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+ul {
+  list-style: none;
+}
