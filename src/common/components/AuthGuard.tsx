@@ -2,6 +2,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { Alert, Button, Center, Loader } from "@mantine/core";
 import { useAuth, type UserRole } from "../hooks/useAuth";
 import { useEffect, useState } from "react";
+import { PATHS } from "../../routes/paths";
 // import { IconAlertCircle } from "@tabler/icons-react";
 
 interface AuthGuardProps {
@@ -61,7 +62,7 @@ export const AuthGuard = ({ children, requiredRole }: AuthGuardProps) => {
   if (!initialized) {
     return (
       <Center style={{ height: "100vh" }}>
-        <Loader color="blue" size="xl" type="dots" />
+        <Loader color="blue" size="xl" type="oval" />
       </Center>
     );
   }
@@ -74,7 +75,9 @@ export const AuthGuard = ({ children, requiredRole }: AuthGuardProps) => {
 
   // 3. If logged in but lacks the required role
   if (requiredRole && !hasRole(requiredRole)) {
-    return <Navigate to="/unauthorized" state={{ from: location }} replace />;
+    return (
+      <Navigate to={PATHS.UNAUTHORIZED} state={{ from: location }} replace />
+    );
   }
 
   // 4. Authorized: Render the protected content

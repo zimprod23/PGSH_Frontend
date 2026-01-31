@@ -1,4 +1,5 @@
 import "@mantine/core/styles.css";
+import "@mantine/notifications/styles.css";
 import "./index.css";
 
 import React from "react";
@@ -13,11 +14,12 @@ import App from "./App";
 
 import { CONFIG } from "./app/config";
 import { MaintenancePage } from "./features/errors/MaintenancePage";
+import { theme } from "./common/components/Theme";
 
 const initOptions = {
-  onLoad: "check-sso", // Checks if user is already logged in without forcing redirect immediately
+  // onLoad: "check-sso", // Checks if user is already logged in without forcing redirect immediately
   pkceMethod: "S256", // Best practice for performance and security in 2026
-  silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
+  // silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
 };
 
 const onKeycloakTokens = (tokens: any) => {
@@ -30,9 +32,9 @@ const onKeycloakTokens = (tokens: any) => {
 const root = ReactDOM.createRoot(document.getElementById("root")!);
 if (CONFIG.isMaintenanceMode) {
   root.render(
-    <MantineProvider>
+    <MantineProvider theme={theme}>
       <MaintenancePage />
-    </MantineProvider>
+    </MantineProvider>,
   );
 } else {
   root.render(
@@ -43,11 +45,11 @@ if (CONFIG.isMaintenanceMode) {
         onTokens={onKeycloakTokens}
       >
         <Provider store={store}>
-          <MantineProvider defaultColorScheme="light">
+          <MantineProvider theme={theme}>
             <App />
           </MantineProvider>
         </Provider>
       </ReactKeycloakProvider>
-    </React.StrictMode>
+    </React.StrictMode>,
   );
 }

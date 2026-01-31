@@ -15,8 +15,10 @@ import HistoryPage from "../features/student/pages/HistoryPage";
 import DemandsPage from "../features/student/pages/DemandsPage";
 import StageListPage from "../features/student/pages/stages/StageListPage";
 import StageDetailsPage from "../features/student/pages/stages/StageDetailsPage";
+import { AuthGuard } from "../common/components/AuthGuard";
+import { UnauthorizedPage } from "../features/errors/UnauthorizedPage";
 
-const Placeholder = (title: string) => <div>{title} Section</div>;
+// const Placeholder = (title: string) => <div>{title} Section</div>;
 
 export const router = createBrowserRouter([
   {
@@ -38,9 +40,9 @@ export const router = createBrowserRouter([
       {
         path: PATHS.STUDENT.ROOT,
         element: (
-          // <AuthGuard requiredRole="Student">
-          <StudentLayout />
-          // </AuthGuard>
+          <AuthGuard requiredRole="Student">
+            <StudentLayout />
+          </AuthGuard>
         ),
         children: [
           {
@@ -82,7 +84,7 @@ export const router = createBrowserRouter([
         children: [
           {
             path: PATHS.UNAUTHORIZED,
-            element: <ErrorPage />,
+            element: <UnauthorizedPage />, // Use the specific page here
           },
           // REMOVED path: "*" from here.
           // Unmatched URLs now bubble up to the top-level errorElement automatically.

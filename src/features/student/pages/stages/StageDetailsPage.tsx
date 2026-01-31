@@ -13,11 +13,11 @@ import {
   ThemeIcon,
   Divider,
   Avatar,
-  Tooltip,
   Table,
   Progress,
   Button,
-  ActionIcon,
+  rem,
+  Center,
 } from "@mantine/core";
 import {
   IconInfoCircle,
@@ -25,36 +25,82 @@ import {
   IconCheck,
   IconMapPin,
   IconAlertCircle,
-  IconCalendarExclamation,
   IconPlus,
   IconExternalLink,
-  IconTimeline,
   IconUsers,
   IconBadge,
-  IconClock,
   IconStethoscope,
+  IconUserStar,
+  IconShieldCheck,
 } from "@tabler/icons-react";
 
 export default function StageDetailsPage() {
   return (
-    <Stack gap="lg">
-      {/* Header Section */}
-      <Group justify="space-between" align="flex-start">
-        <Box>
-          <Title order={2} fw={800} style={{ letterSpacing: "-0.5px" }}>
-            Pédiatrie - CHU Agadir
-          </Title>
-          <Text c="dimmed" size="sm">
-            3ème Année de Médecine • Semestre 1 • Année 2025-2026
-          </Text>
-        </Box>
-        <Badge size="xl" variant="filled" color="teal" radius="sm">
-          Validé
-        </Badge>
-      </Group>
+    <Stack gap="xl">
+      {/* --- HEADER SECTION --- */}
+      <Paper
+        p="xl"
+        radius="lg"
+        style={{
+          color: "white",
+          position: "relative",
+          overflow: "hidden",
+          backgroundImage: "linear-gradient(135deg, #1c7ed6 0%, #0b7285 100%)",
+          boxShadow: "0 4px 15px rgba(0, 0, 0, 0.1)",
+        }}
+      >
+        <Group justify="space-between" align="center">
+          <Box>
+            <Group gap="xs" mb={4}>
+              <IconStethoscope size={18} stroke={2.5} />
+              <Text
+                size="xs"
+                fw={700}
+                style={{
+                  opacity: 0.9,
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                }}
+              >
+                Fiche de Stage Hospitalier
+              </Text>
+            </Group>
+            <Title
+              order={1}
+              fw={900}
+              style={{ letterSpacing: "-1px", fontSize: rem(30) }}
+            >
+              Pédiatrie — CHU Agadir
+            </Title>
+            <Text size="sm" fw={500} style={{ opacity: 0.85 }}>
+              3ème Année de Médecine • Semestre 1 • 2025-2026
+            </Text>
+          </Box>
 
-      <Tabs defaultValue="service" variant="outline" radius="md">
-        <Tabs.List>
+          <Badge
+            size="xl"
+            variant="white"
+            color="blue"
+            radius="md"
+            p="md"
+            h={45}
+            style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
+          >
+            <Group gap={6}>
+              <IconShieldCheck size={18} />
+              VALIDÉ
+            </Group>
+          </Badge>
+        </Group>
+      </Paper>
+
+      {/* --- TABS NAVIGATION --- */}
+      <Tabs defaultValue="service" variant="pills" radius="xl" color="blue">
+        <Tabs.List
+          bg="gray.1"
+          p={4}
+          style={{ borderRadius: "50px", width: "fit-content" }}
+        >
           <Tabs.Tab value="service" leftSection={<IconInfoCircle size={16} />}>
             Service & Localisation
           </Tabs.Tab>
@@ -63,11 +109,11 @@ export default function StageDetailsPage() {
           </Tabs.Tab>
         </Tabs.List>
 
-        <Tabs.Panel value="service" pt="xl">
+        <Tabs.Panel value="service" pt="lg">
           <ServiceAndLocationSection />
         </Tabs.Panel>
 
-        <Tabs.Panel value="evaluation" pt="xl">
+        <Tabs.Panel value="evaluation" pt="lg">
           <EvaluationAndAbsenceSection />
         </Tabs.Panel>
       </Tabs>
@@ -75,231 +121,186 @@ export default function StageDetailsPage() {
   );
 }
 
-// --- 1. Combined Service & Location Section ---
+// --- 1. SERVICE & LOCATION SECTION ---
 function ServiceAndLocationSection() {
-  const chefDeService = {
-    name: "Pr. Ait Ahmed",
-    role: "Chef de Service",
-    specialty: "Pédiatrie Néonatale & Réanimation",
-    img: "https://i.pravatar.cc/150?u=1",
-  };
-
   const staff = [
     {
+      name: "Pr. Ait Ahmed",
+      role: "Chef de Service",
+      specialty: "Néonatalogie & Réanimation",
+      img: "https://i.pravatar.cc/150?u=1",
+      type: "head",
+    },
+    {
       name: "Dr. Belamine",
-      role: "Encadrant",
+      role: "Maître Assistant",
+      specialty: "Pédiatrie Générale",
       img: "https://i.pravatar.cc/150?u=2",
-      color: "blue",
+      type: "senior",
     },
     {
       name: "Dr. Sofia",
-      role: "Interne P1",
+      role: "Résidente P3",
+      specialty: "Urgences Pédiatriques",
       img: "https://i.pravatar.cc/150?u=3",
-      color: "blue",
+      type: "senior",
     },
     {
       name: "Mme. Fatimi",
       role: "Infirmière Major",
+      specialty: "Coordination de Soins",
       img: "https://i.pravatar.cc/150?u=9",
-      color: "teal",
-    },
-    {
-      name: "Mr. Driss",
-      role: "Infirmier",
-      img: "https://i.pravatar.cc/150?u=10",
-      color: "teal",
+      type: "para",
     },
   ];
 
   return (
-    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
-      {/* LEFT COLUMN: TEAM & PRESENTATION */}
-      <Stack gap="lg">
-        <Paper withBorder p="lg" radius="md" shadow="sm">
-          <Group justify="space-between" mb="lg">
+    <SimpleGrid cols={{ base: 1, md: 5 }} spacing="xl">
+      {/* Left Column: Team (3/5 width) */}
+      <Box style={{ gridColumn: "span 3" }}>
+        <Paper withBorder p="xl" radius="md" shadow="xs">
+          <Group justify="space-between" mb="xl">
             <Group gap="sm">
-              <ThemeIcon variant="light" color="blue" size="md">
-                <IconUsers size={18} />
+              <ThemeIcon variant="light" color="blue" radius="md" size="lg">
+                <IconUsers size={22} />
               </ThemeIcon>
-              <Title order={4}>Équipe Médicale</Title>
+              <Title order={3} fw={800}>
+                Équipe Médicale
+              </Title>
             </Group>
-            <Badge variant="dot">8 Membres</Badge>
+            <Badge variant="outline" color="blue">
+              {staff.length} Responsables
+            </Badge>
           </Group>
 
-          {/* Chef de Service Highlight */}
-          <Paper
-            withBorder
-            p="md"
-            radius="md"
-            bg="gray.0"
-            mb="xl"
-            style={{ borderLeft: "4px solid var(--mantine-color-blue-6)" }}
-          >
-            <Group wrap="nowrap">
-              <Avatar src={chefDeService.img} size={70} radius="md" />
-              <Box>
-                <Badge
-                  color="blue"
-                  variant="filled"
-                  size="xs"
-                  mb={4}
-                  leftSection={<IconBadge size={10} />}
-                >
-                  Chef de Service
-                </Badge>
-                <Text fw={800} size="lg" style={{ lineHeight: 1.2 }}>
-                  {chefDeService.name}
-                </Text>
-                <Text size="xs" c="dimmed" fw={600} mb={2}>
-                  {chefDeService.role}
-                </Text>
-                <Text size="xs" c="blue.7" fw={700}>
-                  {chefDeService.specialty}
-                </Text>
-              </Box>
-            </Group>
-          </Paper>
-
-          <Divider
-            my="md"
-            label="Staff Médical & Paramédical"
-            labelPosition="center"
-          />
-
-          {/* Staff Grid */}
-          <SimpleGrid cols={2} spacing="md" mt="md">
+          <Stack gap="md">
             {staff.map((person) => (
               <Paper
                 key={person.name}
+                p="md"
+                radius="md"
                 withBorder
-                p="xs"
-                radius="sm"
-                shadow="none"
+                style={{
+                  borderLeft:
+                    person.type === "head"
+                      ? "4px solid #1c7ed6"
+                      : "1px solid #e9ecef",
+                  backgroundColor:
+                    person.type === "head"
+                      ? "var(--mantine-color-blue-0)"
+                      : "white",
+                  transition: "transform 0.2s ease",
+                }}
               >
-                <Group wrap="nowrap" gap="sm">
-                  <Avatar src={person.img} radius="xl" size="sm" />
-                  <Box style={{ overflow: "hidden" }}>
-                    <Text size="xs" fw={700} truncate>
-                      {person.name}
-                    </Text>
-                    <Text
-                      size="9px"
-                      c={person.color}
-                      fw={800}
-                      style={{ textTransform: "uppercase" }}
-                    >
-                      {person.role}
-                    </Text>
-                  </Box>
+                <Group justify="space-between" wrap="nowrap">
+                  <Group gap="md">
+                    <Avatar src={person.img} size="lg" radius="md" />
+                    <Box>
+                      <Group gap={6}>
+                        <Text
+                          fw={800}
+                          size="md"
+                          c={person.type === "head" ? "blue.9" : "gray.9"}
+                        >
+                          {person.name}
+                        </Text>
+                        {person.type === "head" && (
+                          <IconUserStar size={16} color="#1c7ed6" />
+                        )}
+                      </Group>
+                      <Text size="xs" c="dimmed" fw={600}>
+                        {person.specialty}
+                      </Text>
+                    </Box>
+                  </Group>
+                  <Badge
+                    variant={person.type === "para" ? "light" : "filled"}
+                    color={person.type === "para" ? "teal" : "blue"}
+                    radius="sm"
+                    size="sm"
+                  >
+                    {person.role}
+                  </Badge>
                 </Group>
               </Paper>
             ))}
-          </SimpleGrid>
+          </Stack>
         </Paper>
+      </Box>
 
-        <Paper withBorder p="lg" radius="md">
-          <Title order={4} mb="sm">
-            À propos du Service
-          </Title>
-          <Text size="sm" c="dimmed" style={{ lineHeight: 1.6 }}>
-            Le service prend en charge les pathologies pédiatriques aiguës et
-            chroniques. Il est reconnu pour son unité de néonatalogie de niveau
-            III. Les étudiants sont intégrés aux activités quotidiennes de soins
-            et de garde.
-          </Text>
-        </Paper>
-      </Stack>
-
-      {/* RIGHT COLUMN: LOCATION & RULES */}
-      <Stack gap="lg">
-        {/* Location Card */}
-        <Paper withBorder p="lg" radius="md" shadow="sm">
-          <Group justify="space-between" mb="md">
-            <Group gap="xs">
-              <ThemeIcon variant="light" color="red">
-                <IconMapPin size={18} />
-              </ThemeIcon>
-              <Title order={4}>Localisation</Title>
-            </Group>
-            <Button
-              variant="subtle"
-              size="xs"
-              rightSection={<IconExternalLink size={14} />}
-              component="a"
-              href="https://maps.google.com"
-              target="_blank"
-            >
-              Itinéraire
-            </Button>
-          </Group>
-
-          <Box
-            h={200}
-            bg="gray.1"
+      {/* Right Column: Location & Rules (2/5 width) */}
+      <Stack gap="lg" style={{ gridColumn: "span 2" }}>
+        <Paper withBorder p="xl" radius="md" shadow="xs">
+          <Title
+            order={4}
             mb="md"
-            style={{
-              borderRadius: "8px",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "1px solid var(--mantine-color-gray-2)",
-            }}
+            style={{ display: "flex", alignItems: "center", gap: "8px" }}
           >
-            <IconMapPin size={40} color="var(--mantine-color-red-6)" />
-            <Text fw={700} size="sm" mt="sm">
-              CHU Souss Massa
-            </Text>
-            <Text size="xs" c="dimmed">
-              Bâtiment Mère-Enfant • 2ème Étage
-            </Text>
-          </Box>
+            <IconMapPin size={20} color="var(--mantine-color-red-6)" />{" "}
+            Localisation
+          </Title>
 
-          <Group gap="xs" p="xs" bg="gray.0" style={{ borderRadius: "4px" }}>
-            <IconClock size={16} color="gray" />
-            <Text size="xs" fw={500}>
-              Accès: Entrée principale via Avenue des Facultés
-            </Text>
-          </Group>
+          <Paper
+            h={150}
+            bg="gray.0"
+            radius="md"
+            withBorder
+            style={{ overflow: "hidden" }}
+          >
+            <Center h="100%" style={{ flexDirection: "column" }}>
+              <IconMapPin size={32} color="var(--mantine-color-red-6)" />
+              <Text fw={700} size="sm" mt={5}>
+                Bâtiment Mère-Enfant
+              </Text>
+              <Text size="xs" c="dimmed">
+                2ème Étage, Aile Nord
+              </Text>
+            </Center>
+          </Paper>
+
+          <Button
+            fullWidth
+            mt="md"
+            variant="light"
+            color="blue"
+            component="a"
+            href="https://maps.google.com"
+            target="_blank"
+            rightSection={<IconExternalLink size={14} />}
+          >
+            Itinéraire Google Maps
+          </Button>
         </Paper>
 
-        {/* Rules Card */}
         <Paper
           withBorder
-          p="lg"
+          p="xl"
           radius="md"
           bg="blue.0"
-          style={{ borderColor: "var(--mantine-color-blue-2)" }}
+          style={{ borderLeft: "6px solid #1c7ed6" }}
         >
           <Group mb="md">
-            <ThemeIcon color="blue" variant="filled" radius="xl">
-              <IconStethoscope size={18} />
-            </ThemeIcon>
-            <Text fw={700}>Règles du Service</Text>
+            <IconBadge size={22} color="#1c7ed6" />
+            <Text fw={800} size="lg">
+              Règles du Service
+            </Text>
           </Group>
           <List
-            spacing="sm"
+            spacing="xs"
             size="sm"
-            icon={
-              <ThemeIcon color="blue" size={20} radius="xl">
-                <IconCheck size={12} />
-              </ThemeIcon>
-            }
+            center
+            icon={<IconCheck size={14} color="green" />}
           >
             <List.Item>
               <Text size="sm">
-                <b>Contre-visite:</b> Obligatoire à 16h30.
+                Contre-visite obligatoire à <b>16:30</b>
               </Text>
             </List.Item>
             <List.Item>
-              <Text size="sm">
-                <b>Gardes:</b> Présence requise jusqu'à 08h00 le lendemain.
-              </Text>
+              <Text size="sm">Tenue blanche et badge visibles</Text>
             </List.Item>
             <List.Item>
-              <Text size="sm">
-                <b>Tenue:</b> Blouse blanche, badge, et chaussures fermées.
-              </Text>
+              <Text size="sm">Gardes de 24h avec repos encadré</Text>
             </List.Item>
           </List>
         </Paper>
@@ -308,141 +309,132 @@ function ServiceAndLocationSection() {
   );
 }
 
-// --- 2. Evaluation & Absence Registry Section ---
+// --- 2. EVALUATION & ABSENCE SECTION ---
 function EvaluationAndAbsenceSection() {
-  const objectives = [
-    { label: "Anamnèse et interrogatoire", rating: 18, max: 20, color: "teal" },
-    { label: "Examen clinique", rating: 15, max: 20, color: "teal" },
-    { label: "Raisonnement diagnostique", rating: 14, max: 20, color: "blue" },
-    { label: "Assiduité et Ponctualité", rating: 12, max: 20, color: "orange" },
-  ];
-
   return (
     <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
-      {/* Detailed Marks */}
-      <Stack gap="md">
-        <Paper withBorder p="xl" radius="md">
-          <Group justify="space-between" mb="xl">
-            <Box>
-              <Title order={3}>Note Globale</Title>
-              <Text c="dimmed" size="sm">
-                Validé par le jury de service
-              </Text>
-            </Box>
-            <RingProgress
-              size={120}
-              roundCaps
-              thickness={12}
-              sections={[{ value: 85, color: "teal" }]}
-              label={
-                <Text ta="center" fw={700} size="xl">
-                  17/20
+      <Paper withBorder p="xl" radius="md" shadow="xs">
+        <Title order={3} mb="xl">
+          Performance Clinique
+        </Title>
+        <Group justify="center" mb="xl">
+          <RingProgress
+            size={180}
+            thickness={16}
+            roundCaps
+            sections={[{ value: 85, color: "blue" }]}
+            label={
+              <Center style={{ flexDirection: "column" }}>
+                <Text size="2.2rem" fw={900} style={{ lineHeight: 1 }}>
+                  17
                 </Text>
-              }
-            />
-          </Group>
+                <Text size="xs" c="dimmed" fw={800}>
+                  SUR 20
+                </Text>
+              </Center>
+            }
+          />
+        </Group>
+        <Stack gap="md">
+          <StatProgress
+            label="Anamnèse et Interrogatoire"
+            value={90}
+            color="blue"
+          />
+          <StatProgress label="Examen Clinique" value={75} color="cyan" />
+          <StatProgress
+            label="Raisonnement Diagnostique"
+            value={70}
+            color="indigo"
+          />
+        </Stack>
+      </Paper>
 
-          <Stack gap="md">
-            {objectives.map((obj, index) => (
-              <Box key={index}>
-                <Group justify="space-between" mb={4}>
-                  <Text size="sm" fw={600}>
-                    {obj.label}
-                  </Text>
-                  <Text size="sm" fw={700}>
-                    {obj.rating}/{obj.max}
-                  </Text>
-                </Group>
-                <Progress
-                  value={(obj.rating / obj.max) * 100}
-                  color={obj.color}
-                  size="sm"
-                  radius="xl"
-                />
-              </Box>
-            ))}
-          </Stack>
-        </Paper>
-      </Stack>
-
-      {/* Absence Management */}
-      <Stack gap="md">
-        <Paper withBorder p="lg" radius="md">
-          <Group justify="space-between" mb="md">
-            <Group gap="xs">
-              <IconCalendarExclamation size={20} color="orange" />
-              <Title order={4}>Registre des Absences</Title>
-            </Group>
-            <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconPlus size={14} />}
-            >
-              Déclarer
-            </Button>
-          </Group>
-
-          <Table verticalSpacing="sm">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Date</Table.Th>
-                <Table.Th>Type</Table.Th>
-                <Table.Th>Status</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              <Table.Tr>
-                <Table.Td>
-                  <Text size="sm">14/01/2026</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Badge size="xs" variant="light" color="gray">
-                    Garde
-                  </Badge>
-                </Table.Td>
-                <Table.Td>
-                  <Badge color="green" size="xs">
-                    Justifié
-                  </Badge>
-                </Table.Td>
-              </Table.Tr>
-              <Table.Tr>
-                <Table.Td>
-                  <Text size="sm">20/01/2026</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Badge size="xs" variant="light" color="red">
-                    Cours
-                  </Badge>
-                </Table.Td>
-                <Table.Td>
-                  <Badge color="red" size="xs">
-                    Non Justifié
-                  </Badge>
-                </Table.Td>
-              </Table.Tr>
-            </Table.Tbody>
-          </Table>
-
-          <Box
-            mt="xl"
-            p="md"
-            bg="orange.0"
-            style={{
-              borderRadius: "8px",
-              border: "1px dashed var(--mantine-color-orange-4)",
-            }}
+      <Paper withBorder p="xl" radius="md" shadow="xs">
+        <Group justify="space-between" mb="xl">
+          <Title order={3}>Registre de Présence</Title>
+          <Button
+            variant="light"
+            color="blue"
+            size="xs"
+            leftSection={<IconPlus size={14} />}
           >
-            <Group gap="xs">
-              <IconAlertCircle size={16} color="orange" />
-              <Text size="xs" fw={700} c="orange.9">
-                Attention: L'absence non justifiée a entraîné un malus de -2
-                points sur la note d'assiduité.
-              </Text>
-            </Group>
-          </Box>
+            Justifier Absence
+          </Button>
+        </Group>
+
+        <Table variant="vertical" withRowBorders verticalSpacing="sm">
+          <Table.Tbody>
+            <Table.Tr>
+              <Table.Td fw={700}>14 Janvier</Table.Td>
+              <Table.Td>
+                <Badge variant="dot" color="gray">
+                  Service
+                </Badge>
+              </Table.Td>
+              <Table.Td>
+                <Text size="xs" c="green" fw={700}>
+                  PRÉSENT
+                </Text>
+              </Table.Td>
+            </Table.Tr>
+            <Table.Tr>
+              <Table.Td fw={700}>20 Janvier</Table.Td>
+              <Table.Td>
+                <Badge variant="dot" color="red">
+                  Garde
+                </Badge>
+              </Table.Td>
+              <Table.Td>
+                <Text size="xs" c="red" fw={700}>
+                  ABSENT (NON JUST.)
+                </Text>
+              </Table.Td>
+            </Table.Tr>
+          </Table.Tbody>
+        </Table>
+
+        <Paper
+          p="md"
+          mt="xl"
+          bg="red.0"
+          radius="md"
+          style={{ border: "1px dashed var(--mantine-color-red-4)" }}
+        >
+          <Group wrap="nowrap" gap="sm" align="flex-start">
+            <IconAlertCircle color="var(--mantine-color-red-7)" size={20} />
+            <Text size="xs" fw={600} c="red.9" style={{ lineHeight: 1.4 }}>
+              Attention : Une absence non justifiée a été détectée. Cela
+              entraîne un malus automatique sur la note d'assiduité finale.
+            </Text>
+          </Group>
         </Paper>
-      </Stack>
+      </Paper>
     </SimpleGrid>
+  );
+}
+
+// --- HELPER COMPONENTS ---
+function StatProgress({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: string;
+}) {
+  return (
+    <Box>
+      <Group justify="space-between" mb={6}>
+        <Text size="sm" fw={700}>
+          {label}
+        </Text>
+        <Text size="sm" fw={800} c={color}>
+          {value}%
+        </Text>
+      </Group>
+      <Progress value={value} color={color} size="lg" radius="xl" />
+    </Box>
   );
 }

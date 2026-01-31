@@ -104,15 +104,76 @@ export interface StageService {
   };
 }
 
-export interface StudentStage {
+// export interface StudentStage {
+//   id: string;
+//   title: string;
+//   academicYear: string;
+//   status: "COMPLETED" | "IN_PROGRESS" | "UPCOMING";
+//   startDate: string;
+//   endDate: string;
+//   mark?: number;
+//   totalMark?: number;
+//   objectives?: StageObjective[];
+//   service?: StageService;
+// }
+
+// export interface Rotation {
+//   id: string;
+//   serviceName: string; // e.g., "Cardiologie"
+//   period: string; // e.g., "Jan - Fév"
+//   status: "COMPLETED" | "IN_PROGRESS" | "PENDING";
+//   evaluation?: {
+//     grade: number;
+//     comment: string;
+//     validatedBy: string;
+//   };
+// }
+
+// export interface StudentStage {
+//   id: string;
+//   title: string;
+//   academicYear: string;
+//   status: "COMPLETED" | "IN_PROGRESS" | "UPCOMING";
+//   startDate: string;
+//   endDate: string;
+//   rotations?: Rotation[]; // Optional: only for multi-period stages
+// }
+
+// src/features/student/types/index.ts
+
+// 1. Define atomic types first
+export type EvaluationStatus =
+  | "COMPLETED"
+  | "IN_PROGRESS"
+  | "PENDING"
+  | "UPCOMING";
+export type ObjectiveCategory = "KNOWLEDGE" | "SKILL" | "ATTITUDE";
+
+export interface LearningObjective {
+  id: string;
+  label: string;
+  score: number;
+  maxScore: number;
+  category: ObjectiveCategory; // Required field
+}
+
+export interface InternshipUnit {
   id: string;
   title: string;
+  status: EvaluationStatus;
+  objectives: LearningObjective[];
+  comment?: string;
+  validatedBy?: string;
+}
+
+export interface Rotation extends InternshipUnit {
+  serviceName: string;
+  period: string;
+}
+
+export interface StudentStage extends InternshipUnit {
   academicYear: string;
-  status: "COMPLETED" | "IN_PROGRESS" | "UPCOMING";
   startDate: string;
   endDate: string;
-  mark?: number;
-  totalMark?: number;
-  objectives?: StageObjective[];
-  service?: StageService;
+  rotations?: Rotation[];
 }

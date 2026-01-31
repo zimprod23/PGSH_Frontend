@@ -8,22 +8,23 @@ export const studentApiSlice = apiSlice.injectEndpoints({
       query: () => "/students/me",
       providesTags: ["Student"],
       transformResponse: (response: ApiResponse<StudentProfile>) => {
+        console.log("Response from getStudentProfile:", response);
         if (!response?.data) {
-          return {
-            success: true,
-            data: {
-              id: "std-001",
-              firstName: "Yassine",
-              lastName: "Benkirane",
-              email: "y.benkirane@uiz.ac.ma",
-              cne: "G134055221",
-              currentLevel: "Master 2 - Génie Logiciel",
-              // Fix: Type 'number' is required here based on your error
-              academicYear: 2026,
-              location: "Agadir, Maroc",
-              phone: "+212 600-000000",
-            },
-          };
+          // return {
+          //   success: true,
+          //   data: {
+          //     id: "std-001",
+          //     firstName: "Yassine",
+          //     lastName: "Benkirane",
+          //     email: "y.benkirane@uiz.ac.ma",
+          //     cne: "G134055221",
+          //     currentLevel: "Master 2 - Génie Logiciel",
+          //     // Fix: Type 'number' is required here based on your error
+          //     academicYear: 2026,
+          //     location: "Agadir, Maroc",
+          //     phone: "+212 600-000000",
+          //   },
+          // };
         }
         return response;
       },

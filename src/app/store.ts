@@ -6,8 +6,10 @@ import {
 } from "react-redux";
 import { apiSlice } from "./apiSlice";
 import errorReducer from "./state/errorSlice";
+import loadingReducer from "./loadingSlice";
 import { createLogger } from "redux-logger";
-import { rtkQueryErrorLogger } from "./errorMiddleware";
+import { errorMiddleware } from "./errorMiddleware";
+import { loadingMiddleware } from "./loadingMiddleware";
 
 const loggerMiddleware = createLogger({
   collapsed: true,
@@ -24,14 +26,13 @@ export const store = configureStore({
   reducer: {
     [apiSlice.reducerPath]: apiSlice.reducer,
     error: errorReducer,
+    loading: loadingReducer,
     // Add your other slices here as we build them (e.g., UI, local state)
   },
   middleware: (getDefaultMiddleware) => {
     const middleware = getDefaultMiddleware({
       serializableCheck: false, // Cleaner for dev with Keycloak objects
-    })
-      .concat(apiSlice.middleware)
-      .concat(rtkQueryErrorLogger);
+    }).concat(apiSlice.middleware, errorMiddleware, loadingMiddleware);
 
     // Only log in development for performance
     return import.meta.env.DEV

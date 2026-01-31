@@ -13,9 +13,9 @@ const errorSlice = createSlice({
   reducers: {
     setError: (
       state,
-      action: PayloadAction<{ message: string; status?: number }>
+      action: PayloadAction<{ title: string; status?: number }>,
     ) => {
-      state.message = action.payload.message;
+      state.message = action.payload.title;
       state.status = action.payload.status ?? null;
     },
     clearError: (state) => {

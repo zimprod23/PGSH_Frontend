@@ -7,9 +7,9 @@ export const CONFIG = {
     baseUrl: import.meta.env.VITE_API_BASE_URL,
   },
   keycloak: {
-    url: import.meta.env.VITE_KEYCLOAK_URL,
-    realm: import.meta.env.VITE_KEYCLOAK_REALM,
-    clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID,
+    url: "http://localhost:8082", //import.meta.env.VITE_KEYCLOAK_URL,
+    realm: "pgsh", // import.meta.env.VITE_KEYCLOAK_REALM,
+    clientId: "pgsh-frontend", //import.meta.env.VITE_KEYCLOAK_CLIENT_ID,
   },
   isDevelopment: import.meta.env.DEV,
   isProduction: import.meta.env.PROD,

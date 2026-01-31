@@ -11,72 +11,99 @@ import {
   Group,
   Stack,
   Box,
+  Paper,
+  ThemeIcon,
+  rem,
 } from "@mantine/core";
+import { IconAlertTriangle, IconSearch, IconLock } from "@tabler/icons-react";
 
-export function ErrorPage() {
+interface ErrorPageProps {
+  status?: "403" | "404" | "500" | (string & {});
+}
+
+export function ErrorPage({ status }: ErrorPageProps) {
   const error = useRouteError();
   const navigate = useNavigate();
 
-  // 1. Set standard defaults
-  let title = "Something went wrong";
-  let description = "An unexpected error occurred.";
-  let code = "500";
+  let title = "Oups !";
+  let description = "Une erreur inattendue est survenue.";
+  let code: string = status || "500";
+  let Icon = IconAlertTriangle;
 
-  // 2. If it's a thrown Router Error (404, 403, etc.)
   if (isRouteErrorResponse(error)) {
     code = error.status.toString();
     if (error.status === 404) {
-      title = "Page Not Found";
-      description = "The page you're looking for doesn't exist.";
-    } else if (error.status === 403) {
-      title = "Forbidden";
-      description = "You don't have permission to access this resource.";
+      title = "Page Introuvable";
+      description = "Désolé, nous ne trouvons pas la page que vous cherchez.";
+      Icon = IconSearch;
     }
-  }
-  // 3. If it's a code crash (ReferenceError, etc.)
-  else if (error instanceof Error) {
-    title = "Application Error";
-    description = error.message;
-    code = "BUG";
-  }
-  // 4. FALLBACK: If useRouteError() is undefined, but the page is showing,
-  // it's almost certainly a 404 catch-all situation.
-  else if (!error) {
-    title = "Page Not Found";
-    description = "The page you're looking for doesn't exist.";
-    code = "404";
+  } else if (code === "403") {
+    title = "Espace Restreint";
+    description = "Cet espace est réservé aux étudiants enregistrés.";
+    Icon = IconLock;
   }
 
   return (
     <Box
-      py={80}
-      style={{ minHeight: "60vh", display: "flex", alignItems: "center" }}
+      style={{
+        height: "100dvh",
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        // Consistent Background for both Layout and Global Catch
+        background:
+          "radial-gradient(circle at top left, #f0f7ff 0%, #ffffff 100%)",
+      }}
     >
-      <Container size="md">
-        <Stack align="center" gap="xl">
-          <Text
-            fw={900}
-            size="clamp(80px, 20vw, 120px)" // Responsive font size
-            c="gray.3"
-            style={{ lineHeight: 1 }}
-          >
-            {code}
-          </Text>
-          <Title order={1} ta="center">
-            {title}
-          </Title>
-          <Text c="dimmed" size="lg" ta="center" maw={500}>
-            {description}
-          </Text>
-          <Group justify="center">
-            <Button variant="subtle" size="md" onClick={() => navigate(-1)}>
-              Retour
-            </Button>
-            <Button size="md" onClick={() => navigate("/")}>
-              Accueil
-            </Button>
-          </Group>
-        </Stack>
+      <Container size="xs" w="100%">
+        <Paper
+          shadow="xl"
+          radius="lg"
+          p={rem(40)}
+          withBorder
+          style={{
+            backgroundColor: "white",
+            borderTop: `${rem(4)} solid #228be6`, // Your primary blue
+          }}
+        >
+          <Stack align="center" gap="xl">
+            <ThemeIcon
+              variant="gradient"
+              size={80}
+              radius={80}
+              gradient={{ from: "blue", to: "cyan" }} // Your brand gradient
+            >
+              <Icon style={{ width: rem(40), height: rem(40) }} />
+            </ThemeIcon>
+
+            <Stack gap={5} align="center">
+              <Text fw={800} size="sm" c="blue.6" style={{ letterSpacing: 1 }}>
+                ERREUR {code}
+              </Text>
+              <Title order={1} ta="center" size="h2">
+                {title}
+              </Title>
+            </Stack>
+
+            <Text c="dimmed" ta="center" size="md">
+              {description}
+            </Text>
+
+            <Group grow w="100%" mt="md">
+              <Button variant="default" onClick={() => navigate(-1)}>
+                Retour
+              </Button>
+              <Button
+                variant="gradient"
+                gradient={{ from: "blue", to: "cyan" }}
+                onClick={() => navigate("/")}
+              >
+                Accueil
+              </Button>
+            </Group>
+          </Stack>
+        </Paper>
       </Container>
     </Box>
   );
