@@ -1,5 +1,5 @@
-// src/api/baseQuery.ts
 import {
+  createApi,
   fetchBaseQuery,
   type BaseQueryFn,
   type FetchArgs,
@@ -7,7 +7,13 @@ import {
 } from "@reduxjs/toolkit/query/react";
 import keycloak from "../services/keycloak";
 import type { ApiResult } from "../common/types";
-import { createApi } from "@reduxjs/toolkit/query";
+
+// Keep your standard response interface
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
 
 const baseQuery = fetchBaseQuery({
   baseUrl: "/api",

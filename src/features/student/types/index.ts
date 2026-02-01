@@ -40,30 +40,6 @@ export interface InternshipStage {
   objectives: StageObjective[];
 }
 
-export interface StudentHistory {
-  id: string;
-  eventType:
-    | "ValidationStage"
-    | "Inscription"
-    | "NonValidation"
-    | "Fraud"
-    | "Revalidation";
-  createdAt: string;
-  metadata: any; // Or a more specific union type if you know the metadata shapes
-}
-
-export interface StudentProfile {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  cne: string;
-  currentLevel: string;
-  location: string;
-  phone: string;
-  academicYear: number;
-}
-
 export interface UpdateProfileRequest {
   firstName: string;
   lastName: string;

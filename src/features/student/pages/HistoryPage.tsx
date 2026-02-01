@@ -21,7 +21,7 @@ import {
   IconBriefcase,
   IconCircleCheck,
 } from "@tabler/icons-react";
-import type { StudentHistory } from "../types";
+import type { StudentHistory } from "../types/student.types";
 import { useGetStudentHistoryQuery } from "../api/studentApi";
 
 // --- SOLID: Config uses the exact keys from your StudentHistory interface ---
@@ -98,7 +98,7 @@ export default function HistoryPage() {
                   EVENT_MAPPING[item.eventType] || EVENT_MAPPING.Default;
                 // Simple date formatting
                 const formattedDate = new Date(
-                  item.createdAt
+                  item.createdAt,
                 ).toLocaleDateString("fr-FR", {
                   day: "numeric",
                   month: "short",

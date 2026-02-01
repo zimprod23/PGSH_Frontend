@@ -25,6 +25,8 @@ export function ErrorPage({ status }: ErrorPageProps) {
   const error = useRouteError();
   const navigate = useNavigate();
 
+  console.error(error);
+
   let title = "Oups !";
   let description = "Une erreur inattendue est survenue.";
   let code: string = status || "500";
