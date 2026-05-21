@@ -1,17 +1,15 @@
-import { Navigate, useLocation } from "react-router-dom";
-import { Alert, Button, Center, Loader } from "@mantine/core";
-import { useAuth, type UserRole } from "../hooks/useAuth";
-import { useEffect, useState } from "react";
-import { PATHS } from "../../routes/paths";
-// import { IconAlertCircle } from "@tabler/icons-react";
+import { Navigate, useLocation } from 'react-router-dom';
+import { Alert, Button, Center, Loader } from '@mantine/core';
+import { useEffect, useState } from 'react';
+import { useAuth, type UserRole } from '../hooks/useAuth';
+import { PATHS } from '../../routes/paths';
 
-interface AuthGuardProps {
+interface Props {
   children: React.ReactNode;
-  /** If provided, checks if the user has this specific role */
-  requiredRole?: UserRole;
+  requiredRole?: UserRole | UserRole[];
 }
 
-export const AuthGuard = ({ children, requiredRole }: AuthGuardProps) => {
+export function AuthGuard({ children, requiredRole }: Props) {
   const { isAuthenticated, initialized, hasRole, login } = useAuth();
   const location = useLocation();
   const [timedOut, setTimedOut] = useState(false);
@@ -19,36 +17,14 @@ export const AuthGuard = ({ children, requiredRole }: AuthGuardProps) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       if (!initialized) setTimedOut(true);
-    }, 8000); // 8 seconds timeout
-
+    }, 8000);
     return () => clearTimeout(timer);
   }, [initialized]);
 
   if (timedOut && !initialized) {
     return (
-      // <Center h="100vh">
-      //   <Alert
-      //     icon={<IconAlertCircle size="1rem" />}
-      //     title="Service d'authentification indisponible"
-      //     color="red"
-      //   >
-      //     <Stack gap="sm">
-      //       <Text>
-      //         Nous n'avons pas pu contacter le service d'authentification.
-      //         Veuillez vérifier votre connexion ou réessayer plus tard.
-      //       </Text>
-      //       <Button
-      //         variant="outline"
-      //         color="red"
-      //         onClick={() => window.location.reload()}
-      //       >
-      //         Réessayer
-      //       </Button>
-      //     </Stack>
-      //   </Alert>
-      // </Center>
       <Center h="100vh">
-        <Alert color="red" title="Authentification Indisponible" maw={400}>
+        <Alert color="red" title="Authentification indisponible" maw={400}>
           Le serveur d'authentification ne répond pas.
           <Button mt="md" fullWidth onClick={() => window.location.reload()}>
             Réessayer
@@ -58,28 +34,25 @@ export const AuthGuard = ({ children, requiredRole }: AuthGuardProps) => {
     );
   }
 
-  // 1. Wait for Keycloak to initialize (Performance: avoid flickering)
   if (!initialized) {
     return (
-      <Center style={{ height: "100vh" }}>
-        <Loader color="blue" size="xl" type="oval" />
+      <Center h="100vh">
+        <Loader color="navy" size="xl" type="oval" />
       </Center>
     );
   }
 
-  // 2. If not logged in, redirect to Keycloak Login
   if (!isAuthenticated) {
     login();
     return null;
   }
 
-  // 3. If logged in but lacks the required role
-  if (requiredRole && !hasRole(requiredRole)) {
-    return (
-      <Navigate to={PATHS.UNAUTHORIZED} state={{ from: location }} replace />
-    );
+  if (requiredRole) {
+    const roles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    if (!roles.some((r) => hasRole(r))) {
+      return <Navigate to={PATHS.UNAUTHORIZED} state={{ from: location }} replace />;
+    }
   }
 
-  // 4. Authorized: Render the protected content
   return <>{children}</>;
-};
+}

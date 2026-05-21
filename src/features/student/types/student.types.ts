@@ -32,6 +32,7 @@ export interface StudentRegistrationSummary {
 }
 
 export interface LevelSummary {
+  id: number;
   label: string | null;
   year: number;
   academicProgram: AcademicProgram;
@@ -81,6 +82,19 @@ export interface CreateStudentRequest {
   academy?: string;
   province?: string;
   ranking?: number;
+}
+
+// ─── GET /students/{studentId}/registrations ──────────────────────────────────
+
+export interface StudentRegistrationResponse {
+  id: string;
+  academicYearId: number;
+  academicYear: string;
+  levelId: number;
+  levelLabel: string | null;
+  status: RegistrationStatus;
+  hasFailures: boolean;
+  failureDescription: string | null;
 }
 
 // ─── GET /students  query params ──────────────────────────────────────────────

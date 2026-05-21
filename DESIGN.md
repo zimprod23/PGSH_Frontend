@@ -134,6 +134,168 @@ Cards use `sm` shadow at rest, transition to `md` on hover.
 
 ---
 
+## Shell Layout (from `design_images/`)
+
+### Sidebar (`AppShell.Navbar`)
+
+```
+Width:            220px
+Background:       #FFFFFF
+Border-right:     1px solid #E2E8F0
+
+── Logo area (top) ──────────────────────────────
+Avatar:           34×34, radius md, gradient (135deg #0F4C81 → #0EA5E9), "PS" in white 800
+Title:            "PGSH", 14px 800, color navy.6
+Subtitle:         "Stages Hospitaliers", 11px 500, muted
+
+── "MENU" label ─────────────────────────────────
+Text:             xs, 600, dimmed, uppercase, letter-spacing 0.8px
+
+── Nav items ────────────────────────────────────
+Height:           38px
+Padding:          8px 10px
+Border-radius:    8px
+Icon:             18px, stroke 1.5
+  • Inactive: color #94A3B8
+  • Active:   color #0F4C81
+Label:            14px 500 inactive / 600 active
+Background:
+  • Inactive: transparent
+  • Hover:    #F8FAFC
+  • Active:   #E8F1FB (navy[0])
+Text color active: #0F4C81 (navy[6])
+"Bientôt" badge: xs, warning color, light variant, xl radius (right side)
+
+Nav items (in order):
+  Tableau de bord   IconLayoutDashboard  /student (exact match)
+  Mon Profil        IconUser             /student/profile
+  Mes Stages        IconStethoscope      /student/stages
+  Historique        IconTimeline         /student/history
+  Demandes          IconFileText         /student/demands  [Bientôt]
+  Messages          IconMessage          —                 [Bientôt]
+
+── Bottom user card ─────────────────────────────
+Border-top:       1px solid #E2E8F0
+Avatar:           32×32, gradient background, initials
+Name:             13px 600
+Role:             11px, dimmed ("Étudiant")
+Logout icon:      IconLogout, 16px, subtle action icon
+```
+
+### Header (`AppShell.Header`)
+
+```
+Height:           60px
+Background:       #FFFFFF
+Border-bottom:    1px solid #E2E8F0
+
+Left:
+  Burger (mobile only) + Breadcrumb:
+    "PGSH" dimmed  /  "Page name" navy.6 600 sm
+
+Right (left → right):
+  IconSearch        18px, subtle gray action icon
+  IconBell          18px, subtle gray action icon
+  Language switcher:
+    Three buttons: 🇫🇷 FR | 🇲🇦 AR | 🇬🇧 EN
+    Active (FR):  background #E8F1FB, text navy, xs 600
+    Inactive:     transparent, text muted, xs 600
+  Avatar:           32×32, gradient background, initials, xl radius
+```
+
+### Main content area
+
+```
+Background:   #F8FAFC (bg.page)
+Padding:      xl (32px) all sides
+```
+
+---
+
+## Page Layouts (from `design_images/`)
+
+### Dashboard Home (`dashboard-home.png`)
+
+```
+Greeting:
+  "Hello, {name} 👋"  — display size (~28-32px), 800 weight
+  Subtitle in text.muted
+
+4-stat card row (SimpleGrid cols=4, gap md):
+  Each stat card:
+    • Icon in colored circle (24×24, variant=light, specific color per stat)
+    • Large number (rem(28), 700)
+    • Label below in text.muted (xs)
+  Stats: Academic Year | Enrollment Status | Internships Completed | Absences
+
+2-col section (gap md):
+  Left (~60%): "Mon stage actuel" card — gradient header
+  Right (~40%): "Activité récente" timeline list
+
+Stage row card (full width, below 2-col):
+  Compact horizontal layout with hospital + service + dates + CTA buttons
+```
+
+### Profile Page (`profile-page.png`, `Cursus.png`)
+
+```
+Layout: 2-column (280px fixed left | rest right)
+
+Left panel (Card, no padding, radius lg):
+  Header:          160px tall, gradient (135deg #0F4C81 → #0EA5E9)
+  Avatar:          60×60, centered, gradient bg, initials white 700, circle
+  Name:            16px 700, centered, mt sm
+  CNE:             12px, dimmed, mono font
+  Program badge:   navy outline, "Médecine — Année 6", xs, radius xl
+  Action buttons:  3 icon buttons (edit / download / share), subtle, centered row
+  Stats row:       "2/4 Stages" | "17.0 Moy." — sm numbers, xs labels below
+
+Right panel:
+  Tabs: Informations personnelles | Cursus académique | Documents
+  
+  Personal info tab — 2-col grid of field cells:
+    Each cell:
+      • Icon (16px, specific color per field type)
+      • LABEL in uppercase muted xs
+      • Value in text.primary sm
+      • Card: white, bordered, radius md, padding sm md
+
+  Academic record tab — same 2-col grid:
+    Filière | Année | CNE | Apogée | Série bac | Année bac | Mention bac | Statut convention
+    Each cell has a colored tinted icon circle (teal, blue, yellow, green per category)
+    "À jour" green badge top-right of section
+```
+
+### Stages List (`stages-list.png`)
+
+```
+Page header:
+  Title: "Mes Stages", h2
+  Subtitle: "Suivez vos stages passés, en cours et à venir."
+
+Filter tabs (SegmentedControl or custom pills):
+  Tous (5) | En cours (1) | Terminés (2) | Planifiés (2)
+  Count shown as number directly in the tab label
+
+Stage cards (SimpleGrid cols=3, gap md):
+  Card structure:
+    Top: hospital building icon + hospital name (dimmed sm) | status badge (right)
+    Service name: h3 weight, 16px 600
+    Info row: calendar icon + date range ("15 mai → 15 juin 2026") | city | duration
+    
+    If "En cours":
+      Progress bar (sky blue, thin ~6px) + "Progression 42%" label
+    
+    If "Terminés":
+      Score display: "NOTE FINALE" label (xs dimmed) + "16.5 / 20" (xl 700 navy)
+    
+    Button row:
+      "Détails"      — outline variant, sm
+      "Évaluation →" — filled navy, sm
+```
+
+---
+
 ## Component Patterns
 
 ### Cards

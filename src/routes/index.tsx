@@ -1,42 +1,53 @@
-import { createBrowserRouter, Navigate } from "react-router-dom";
-import { PATHS } from "./paths";
+import { createBrowserRouter } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
+import { Loader, Center } from '@mantine/core';
+import { PATHS } from './paths';
 
-// Layouts
-import { StudentLayout } from "../layouts/StudentLayout";
-import { SimpleLayout } from "../layouts/SimpleLayout";
+import { StudentLayout }    from '../layouts/StudentLayout';
+import { AdminLayout }      from '../layouts/AdminLayout';
+import { SimpleLayout }     from '../layouts/SimpleLayout';
+import { AuthGuard }        from '../common/components/AuthGuard';
 
-// Error & Public Pages
-import { ErrorPage } from "../features/errors/ErrorPage";
-import { LandingPage } from "../features/public/pages/LandingPage";
-// import { AuthGuard } from "../common/components/AuthGuard";
-import { AboutPage } from "../features/public/pages/AboutPage";
-import ProfilePage from "../features/student/pages/ProfilePage";
-import HistoryPage from "../features/student/pages/HistoryPage";
-import DemandsPage from "../features/student/pages/DemandsPage";
-import StageListPage from "../features/student/pages/stages/StageListPage";
-import StageDetailsPage from "../features/student/pages/stages/StageDetailsPage";
-import { AuthGuard } from "../common/components/AuthGuard";
-import { UnauthorizedPage } from "../features/errors/UnauthorizedPage";
+import { ErrorPage }        from '../features/errors/ErrorPage';
+import { LandingPage }      from '../features/public/pages/LandingPage';
+import { AboutPage }        from '../features/public/pages/AboutPage';
+import { UnauthorizedPage } from '../features/errors/UnauthorizedPage';
 
-// const Placeholder = (title: string) => <div>{title} Section</div>;
+// ─── Lazy-loaded student pages ────────────────────────────────────────────────
+const DashboardHomePage = lazy(() => import('../features/student/pages/DashboardHomePage'));
+const ProfilePage       = lazy(() => import('../features/student/pages/ProfilePage'));
+const StageListPage     = lazy(() => import('../features/student/pages/stages/StageListPage'));
+const StageDetailsPage  = lazy(() => import('../features/student/pages/stages/StageDetailsPage'));
+const HistoryPage       = lazy(() => import('../features/student/pages/HistoryPage'));
+const DemandsPage       = lazy(() => import('../features/student/pages/DemandsPage'));
+
+// ─── Lazy-loaded admin pages ──────────────────────────────────────────────────
+const AdminDashboardPage      = lazy(() => import('../features/admin/pages/AdminDashboardPage'));
+const StudentListPage         = lazy(() => import('../features/admin/pages/students/StudentListPage'));
+const AdminStudentDetailPage  = lazy(() => import('../features/admin/pages/students/AdminStudentDetailPage'));
+
+// ─── Lazy-loaded employee pages ───────────────────────────────────────────────
+const EmployeePage = lazy(() => import('../features/employee/pages/EmployeePage'));
+
+// ─── Suspense fallback ────────────────────────────────────────────────────────
+const PageLoader = () => (
+  <Center h="100vh">
+    <Loader color="navy" size="md" />
+  </Center>
+);
+
+const wrap = (el: React.ReactNode) => <Suspense fallback={<PageLoader />}>{el}</Suspense>;
 
 export const router = createBrowserRouter([
   {
     path: PATHS.ROOT,
-    // THE BOUNCER: This catches all 404s and code crashes for everything below it
     errorElement: <ErrorPage />,
     children: [
-      // 1. PUBLIC ZONE
-      {
-        index: true,
-        element: <LandingPage />,
-      },
-      {
-        path: "about",
-        element: <AboutPage />,
-      },
+      // ── Public ───────────────────────────────────────────────────────────
+      { index: true, element: <LandingPage /> },
+      { path: 'about', element: <AboutPage /> },
 
-      // 2. PROTECTED STUDENT ZONE
+      // ── Student zone ──────────────────────────────────────────────────────
       {
         path: PATHS.STUDENT.ROOT,
         element: (
@@ -45,49 +56,43 @@ export const router = createBrowserRouter([
           </AuthGuard>
         ),
         children: [
-          {
-            index: true,
-            element: <Navigate to={PATHS.STUDENT.PROFILE} replace />,
-          },
+          { index: true,                        element: wrap(<DashboardHomePage />) },
+          { path: PATHS.STUDENT.PROFILE,        element: wrap(<ProfilePage />)       },
+          { path: PATHS.STUDENT.HISTORY,        element: wrap(<HistoryPage />)       },
+          { path: PATHS.STUDENT.DEMANDS,        element: wrap(<DemandsPage />)       },
           {
             path: PATHS.STUDENT.STAGES,
             children: [
-              {
-                index: true, // Matches /student/stages
-                element: <StageListPage />,
-              },
-              {
-                path: ":id", // Matches /student/stages/123
-                element: <StageDetailsPage />,
-              },
+              { index: true, element: wrap(<StageListPage />)    },
+              { path: ':id',  element: wrap(<StageDetailsPage />) },
             ],
-          },
-          {
-            path: PATHS.STUDENT.PROFILE,
-            element: <ProfilePage />,
-          },
-          {
-            path: PATHS.STUDENT.DEMANDS,
-            element: <DemandsPage />,
-          },
-
-          {
-            path: PATHS.STUDENT.HISTORY,
-            element: <HistoryPage />,
           },
         ],
       },
 
-      // 3. UTILITY ZONE
+      // ── Admin zone ────────────────────────────────────────────────────────
+      {
+        path: PATHS.ADMIN.ROOT,
+        element: (
+          <AuthGuard requiredRole={['Scolarite', 'SuperUser', 'Secretaire']}>
+            <AdminLayout />
+          </AuthGuard>
+        ),
+        children: [
+          { index: true,                          element: wrap(<AdminDashboardPage />)     },
+          { path: PATHS.ADMIN.STUDENTS,           element: wrap(<StudentListPage />)         },
+          { path: PATHS.ADMIN.STUDENT_DETAIL,     element: wrap(<AdminStudentDetailPage />) },
+        ],
+      },
+
+      // ── Employee zone (coming soon — no auth required) ───────────────────
+      { path: PATHS.EMPLOYEE, element: wrap(<EmployeePage />) },
+
+      // ── Utility ───────────────────────────────────────────────────────────
       {
         element: <SimpleLayout />,
         children: [
-          {
-            path: PATHS.UNAUTHORIZED,
-            element: <UnauthorizedPage />, // Use the specific page here
-          },
-          // REMOVED path: "*" from here.
-          // Unmatched URLs now bubble up to the top-level errorElement automatically.
+          { path: PATHS.UNAUTHORIZED, element: <UnauthorizedPage /> },
         ],
       },
     ],

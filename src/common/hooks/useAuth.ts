@@ -19,6 +19,6 @@ export const useAuth = () => {
     username: keycloak.tokenParsed?.['preferred_username'] as string | undefined,
     hasRole:  (role: UserRole) => keycloak.hasRealmRole(role),
     login:    () => keycloak.login(),
-    logout:   () => keycloak.logout(),
+    logout:   () => keycloak.logout({ redirectUri: window.location.origin }),
   };
 };
