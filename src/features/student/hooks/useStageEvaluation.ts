@@ -1,39 +1,22 @@
-import { useState, useCallback } from "react";
-import { useDisclosure } from "@mantine/hooks";
-import { type StudentStage } from "../types";
+import { useState, useCallback } from 'react';
+import { useDisclosure } from '@mantine/hooks';
 
-/**
- * useStageEvaluation Hook
- * * Logic abstraction for handling the selection and modal state
- * of stage evaluations. Decouples UI from state logic.
- */
+// Placeholder type until Phase 2 rebuilds the stage data model
+interface StageStub { id: string; name: string }
+
 export function useStageEvaluation() {
-  // 1. Manage Modal Visibility (using Mantine's high-performance disclosure)
   const [opened, { open, close }] = useDisclosure(false);
+  const [selectedStage, setSelectedStage] = useState<StageStub | null>(null);
 
-  // 2. Track the currently active stage for evaluation
-  const [selectedStage, setSelectedStage] = useState<StudentStage | null>(null);
-
-  // 3. Memoize handlers to prevent unnecessary re-renders in parent components
-  const handleOpenEvaluation = useCallback(
-    (stage: StudentStage) => {
-      setSelectedStage(stage);
-      open();
-    },
-    [open],
-  );
+  const handleOpenEvaluation = useCallback((stage: StageStub) => {
+    setSelectedStage(stage);
+    open();
+  }, [open]);
 
   const handleClose = useCallback(() => {
-    // We delay clearing the selected stage slightly to avoid
-    // visual glitches during the modal exit animation
     close();
     setTimeout(() => setSelectedStage(null), 200);
   }, [close]);
 
-  return {
-    opened,
-    selectedStage,
-    handleOpenEvaluation,
-    handleClose,
-  };
+  return { opened, selectedStage, handleOpenEvaluation, handleClose };
 }

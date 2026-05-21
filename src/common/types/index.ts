@@ -1,30 +1,84 @@
-export interface PGSHToken {
-  realm_access?: {
-    roles: string[];
+// ─── Domain enum string unions ───────────────────────────────────────────────
+
+export type AcademicProgram = 'Medecine' | 'Pharmacie' | 'Master' | 'Doctorat';
+
+export type RegistrationStatus = 'Pending' | 'Active' | 'Validated' | 'Failed' | 'Withdrawn';
+
+export type InternshipStatus =
+  | 'Planned'
+  | 'Ongoing'
+  | 'Completed'
+  | 'Evaluated'
+  | 'Validated'
+  | 'Rejected';
+
+export type StageAssignmentResult = 'NonÉvalué' | 'Validé' | 'NonValidé';
+
+export type AttendanceStatus = 'Present' | 'Absent' | 'JustifiedAbsent' | 'Late';
+
+export type HistoryType =
+  | 'Inscription'
+  | 'ValidationStage'
+  | 'NonValidation'
+  | 'Fraud'
+  | 'Revalidation';
+
+export type HospitalType = 'None' | 'Autre' | 'Spetialité' | 'Central' | 'CHU' | 'LHOMA';
+
+export type CenterType = 'None' | 'Militaire' | 'Regional' | 'CHU';
+
+export type ServiceType = 'Biologie' | 'Chirurgie' | 'Medical';
+
+export type Gender = 'Male' | 'Female';
+
+export type Grade = 'MC' | 'PES' | 'PH' | 'Nurse' | 'Administrator';
+
+// ─── Pagination ───────────────────────────────────────────────────────────────
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  pageNumber: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+// ─── API error — RFC 7807 ProblemDetails ─────────────────────────────────────
+
+export interface ApiError {
+  type?: string;
+  title?: string;
+  status?: number;
+  detail?: string;
+  extensions?: {
+    errors?: Array<{ code: string; description: string }>;
   };
-  preferred_username: string;
+}
+
+// ─── Bulk operations ─────────────────────────────────────────────────────────
+
+export interface BulkItemResult<TId, TResult> {
+  id: TId;
+  result: TResult;
+  isSuccess: boolean;
+  error?: ApiError;
+}
+
+export interface BulkResponse<TId, TResult> {
+  items: Array<BulkItemResult<TId, TResult>>;
+  totalProcessed: number;
+  successCount: number;
+  failureCount: number;
+  hasFailures: boolean;
+}
+
+// ─── Keycloak token claims ────────────────────────────────────────────────────
+
+export interface PGSHToken {
+  sub: string;
   email: string;
-  // Add other custom claims you set in Keycloak here
+  preferred_username: string;
+  realm_access?: { roles: string[] };
 }
-
-// src/types/api.ts
-
-// Matches your backend ProblemDetails
-export interface ApiProblemDetails {
-  type?: string; // RFC link or custom type
-  title?: string; // Human-readable short message
-  status?: number; // HTTP status
-  detail?: string; // Optional detailed message
-  errors?: Record<string, string[] | string>; // Validation errors
-}
-
-// Generic frontend result type
-export type ApiResult<T = unknown> =
-  | {
-      ok: true; // Successful API call
-      data: T; // Could be undefined for 204 No Content
-    }
-  | {
-      ok: false; // Failed API call
-      error: ApiProblemDetails; // RFC7807 ProblemDetails
-    };
