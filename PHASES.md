@@ -120,27 +120,74 @@ All pages rebuilt with real API data and design system applied.
 
 ## 🔄 Phase 3 — Administration Dashboards
 
-**Status: Current focus**
+**Status: In progress**
 
 Separate layouts and pages per admin role. All behind `AuthGuard`.
 
-### Scolarité
-- Student management: search, create, view, edit
-- Registration management: bulk register, validate, update status
-- Academic year + group management, auto-arrange groups
-- Stage/Cohort management
+---
 
-### Secrétaire
-- Attendance recording only
-- Read-only student profiles
+### 3a — Shared infrastructure ✅
+- `AdminLayout.tsx`: sidebar (220px), header (60px), gradient PS logo, nav items, user card with logout
+- `adminApi.ts`: all admin RTK Query endpoints in one slice (students, academic-years, levels, registrations)
+- `admin.types.ts`: all admin TypeScript interfaces matching API.md exactly
+- Routes: `/admin/*` zone with `AuthGuard requiredRole={['Scolarite','SuperUser','Secretaire']}`
 
-### Professors / Employees
-- View assigned services
-- Submit evaluations and objective scores
-- View attendance
+---
 
-### Super User
-- All Scolarité permissions + hospital/center/service management + user accounts
+### 3b — Student management ✅
+- **Route**: `/admin/students`
+- `StudentListPage`: single search input (debounced 350ms), page size selector, paginated table (avatar + name + email / CNE / Appogee / Filière badge / CIN), skeleton rows while loading, empty state
+- **Route**: `/admin/students/:id`
+- `AdminStudentDetailPage`: Inscriptions tab (primary) + Profile tab (secondary)
+  - Inscriptions tab: registration cards (year label + level + status badge), inline status Select per card, "Nouvelle inscription" button → `CreateRegistrationModal`
+  - `CreateRegistrationModal`: year Select (from `GET /academic-years`), level Select filtered by student's program (from `GET /levels`), status Select — backend enforces program-mismatch and chronological-consistency rules
+
+---
+
+### 3c — Reference data management ✅
+- **Route**: `/admin/academic-years`
+- `AcademicYearsPage`: table (label / start / end / isCurrent badge), "Nouvelle année" button → create modal (label + date inputs + isCurrent checkbox); backend `POST /academic-years` created — auto-unsets other current years when `IsCurrent: true`
+- **Route**: `/admin/levels`
+- `LevelsPage`: SegmentedControl filter by program (Tous/Médecine/Pharmacie/Master/Doctorat), table (label / year / program badge / edit icon), "Nouveau niveau" → create modal, edit icon → edit modal; shared `LevelFormModal` component; level `AcademicProgram` enum type fixed across backend (was `int`, now proper enum)
+
+---
+
+### 3d — Group management ✅
+- **Route**: `/admin/groups`
+- `GroupsPage`: year Select + level Select (searchable, grouped by program) + group size NumberInput (2–60) → "Lancer la répartition" → result card (groups created / students assigned / failures)
+- Warning alert in form: re-running creates additional groups on top of existing ones
+- `AutoArrangeGroupsCommandHandler` step-comments removed (clean code)
+- Groups list (GET /groups) not built — backend endpoint does not exist yet; add when needed
+
+---
+
+### 3e — Stage & Cohort management ✅
+- **Route**: `/admin/stages` → `StagesPage`
+  - Search + level filter (Select), paginated table (name / level badge / duration / coefficient)
+  - Row actions: Cohortes (→ detail), Modifier (drawer), Supprimer (confirm dialog)
+  - `StageFormDrawer`: right-side drawer with basic fields + dynamic objectives list (add/remove rows with label, weight, isMandatory)
+- **Route**: `/admin/stages/:id` → `StageDetailPage`
+  - Stage info card (duration, coefficient, description) + objectives list (weight badges, mandatory flag)
+  - Cohorts panel: list with student count + rotation count, "Nouvelle cohorte" button → modal
+  - Delete cohort with confirmation
+- `CreateStageCommand` stray `using System.Windows.Input` removed
+- Nav: new "Formation" group containing Stages
+
+---
+
+### 3f — Hospital / Center / Service management ✅
+- **Route**: `/admin/hospitals` → `InfrastructurePage` (3-tab layout: Centres | Hôpitaux | Services)
+- **Centres tab**: search, paginated table (name / type badge / city), create/edit modal (name + type Select + city)
+- **Hôpitaux tab**: search + center filter dropdown, paginated table (name / center / type / city), create/edit modal (name + center Select + type + city + email + description)
+- **Services tab**: search + hospital filter dropdown, paginated table (name / hospital / type / capacité / chef de service), create/edit modal (name + hospital Select + type + capacity + description)
+- Each tab has skeleton loading, empty state, edit + delete row actions (confirm dialog on delete)
+- `GetServicesQuery.ServiceType` fixed from `int?` to `ServiceType?`; handler cast removed; `ToPaginatedResponseAsync` used
+
+---
+
+### 3g — Secrétaire / Employee views 🔲
+- Attendance recording page (Secrétaire only)
+- Employee: view assigned services, submit evaluations (Phase 5 backend required)
 
 ---
 

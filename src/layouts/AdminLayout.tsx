@@ -19,9 +19,11 @@ import {
   IconLayoutDashboard,
   IconUsers,
   IconClipboardList,
-  IconUsersGroup,
+  IconCalendar,
   IconSchool,
+  IconUsersGroup,
   IconBuildingHospital,
+  IconStethoscope,
   IconBell,
   IconSearch,
   IconLogout,
@@ -30,21 +32,71 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../common/hooks/useAuth';
 import { PATHS } from '../routes/paths';
 
-interface NavItem {
+type Icon = React.ComponentType<{ size?: number; stroke?: number; color?: string }>;
+
+interface NavLeaf {
+  kind: 'leaf';
   label: string;
-  icon: React.ComponentType<{ size?: number; stroke?: number; color?: string }>;
+  icon: Icon;
   path: string;
   exact?: boolean;
   soon?: boolean;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { label: 'Tableau de bord', icon: IconLayoutDashboard, path: PATHS.ADMIN.ROOT,                           exact: true },
-  { label: 'Étudiants',       icon: IconUsers,            path: `${PATHS.ADMIN.ROOT}/students`                         },
-  { label: 'Inscriptions',    icon: IconClipboardList,    path: `${PATHS.ADMIN.ROOT}/registrations`,       soon: true  },
-  { label: 'Groupes',         icon: IconUsersGroup,       path: `${PATHS.ADMIN.ROOT}/groups`,              soon: true  },
-  { label: 'Niveaux',         icon: IconSchool,           path: `${PATHS.ADMIN.ROOT}/levels`,              soon: true  },
-  { label: 'Hôpitaux',        icon: IconBuildingHospital, path: `${PATHS.ADMIN.ROOT}/hospitals`,           soon: true  },
+interface NavGroup {
+  kind: 'group';
+  label: string;
+  icon: Icon;
+  items: NavLeaf[];
+}
+
+type NavEntry = NavLeaf | NavGroup;
+
+const ROOT = PATHS.ADMIN.ROOT;
+
+const NAV: NavEntry[] = [
+  {
+    kind: 'leaf',
+    label: 'Tableau de bord',
+    icon: IconLayoutDashboard,
+    path: ROOT,
+    exact: true,
+  },
+  {
+    kind: 'group',
+    label: 'Étudiants',
+    icon: IconUsers,
+    items: [
+      { kind: 'leaf', label: 'Liste des étudiants', icon: IconUsers,         path: `${ROOT}/students`       },
+      { kind: 'leaf', label: 'Inscriptions',         icon: IconClipboardList, path: `${ROOT}/registrations`, soon: true },
+    ],
+  },
+  {
+    kind: 'group',
+    label: 'Académique',
+    icon: IconSchool,
+    items: [
+      { kind: 'leaf', label: 'Années académiques', icon: IconCalendar,   path: `${ROOT}/academic-years` },
+      { kind: 'leaf', label: 'Niveaux',            icon: IconSchool,     path: `${ROOT}/levels`         },
+      { kind: 'leaf', label: 'Groupes',            icon: IconUsersGroup, path: `${ROOT}/groups`             },
+    ],
+  },
+  {
+    kind: 'group',
+    label: 'Formation',
+    icon: IconStethoscope,
+    items: [
+      { kind: 'leaf', label: 'Stages',   icon: IconStethoscope, path: `${ROOT}/stages`   },
+    ],
+  },
+  {
+    kind: 'group',
+    label: 'Infrastructure',
+    icon: IconBuildingHospital,
+    items: [
+      { kind: 'leaf', label: 'Centres / Hôpitaux / Services', icon: IconBuildingHospital, path: `${ROOT}/hospitals` },
+    ],
+  },
 ];
 
 const LANGS = [
@@ -53,11 +105,42 @@ const LANGS = [
   { code: 'EN', flag: '🇬🇧' },
 ] as const;
 
+const leafStyles = (active: boolean) => ({
+  root: {
+    borderRadius: rem(8),
+    padding: `${rem(7)} ${rem(10)}`,
+    backgroundColor: active ? '#E8F1FB' : 'transparent',
+    color: active ? '#0F4C81' : '#475569',
+  },
+});
+
+const groupStyles = (active: boolean) => ({
+  root: {
+    borderRadius: rem(8),
+    padding: `${rem(7)} ${rem(10)}`,
+    backgroundColor: active ? '#F0F6FF' : 'transparent',
+    color: active ? '#0F4C81' : '#475569',
+  },
+  children: {
+    paddingLeft: rem(8),
+    borderLeft: '2px solid #E2E8F0',
+    marginLeft: rem(14),
+    marginTop: rem(2),
+    marginBottom: rem(2),
+  },
+});
+
 export function AdminLayout() {
   const [opened, { toggle }] = useDisclosure();
   const { username, email, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const isActive = (path: string, exact = false) =>
+    exact ? location.pathname === path : location.pathname.startsWith(path);
+
+  const isGroupActive = (group: NavGroup) =>
+    group.items.some((i) => isActive(i.path, i.exact));
 
   const initStr = (username ?? email ?? 'A')
     .split(/[\s.@]/)
@@ -65,13 +148,54 @@ export function AdminLayout() {
     .map((s) => s[0]?.toUpperCase() ?? '')
     .join('');
 
-  const isActive = (path: string, exact = false) =>
-    exact
-      ? location.pathname === path
-      : location.pathname.startsWith(path) && path !== '#';
+  const currentLeafLabel = (() => {
+    for (const entry of NAV) {
+      if (entry.kind === 'leaf' && isActive(entry.path, entry.exact)) return entry.label;
+      if (entry.kind === 'group') {
+        const match = entry.items.find((i) => isActive(i.path, i.exact));
+        if (match) return match.label;
+      }
+    }
+    return 'Administration';
+  })();
 
-  const pageLabel =
-    NAV_ITEMS.find((n) => isActive(n.path, n.exact))?.label ?? 'Administration';
+  const renderLeaf = (item: NavLeaf) => {
+    const active = isActive(item.path, item.exact);
+    return (
+      <NavLink
+        key={item.path}
+        label={
+          <Group justify="space-between" wrap="nowrap">
+            <Text size="sm" fw={active ? 600 : 500} inherit>{item.label}</Text>
+            {item.soon && (
+              <Badge size="xs" variant="light" color="warning" radius="xl">Bientôt</Badge>
+            )}
+          </Group>
+        }
+        leftSection={<item.icon size={16} stroke={1.5} color={active ? '#0F4C81' : '#94A3B8'} />}
+        active={active}
+        styles={leafStyles(active)}
+        onClick={() => { if (!item.soon) { navigate(item.path); if (opened) toggle(); } }}
+      />
+    );
+  };
+
+  const renderGroup = (group: NavGroup) => {
+    const active = isGroupActive(group);
+    return (
+      <NavLink
+        key={group.label}
+        label={<Text size="sm" fw={active ? 600 : 500} inherit>{group.label}</Text>}
+        leftSection={<group.icon size={16} stroke={1.5} color={active ? '#0F4C81' : '#94A3B8'} />}
+        active={active}
+        defaultOpened={active}
+        styles={groupStyles(active)}
+        childrenOffset={0}
+      >
+        {group.items.map(renderLeaf)}
+      </NavLink>
+    );
+  };
 
   return (
     <AppShell
@@ -79,7 +203,7 @@ export function AdminLayout() {
       navbar={{ width: 220, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding={0}
     >
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* ── Header ─────────────────────────────────────────────────────── */}
       <AppShell.Header style={{ background: '#ffffff', borderBottom: '1px solid #E2E8F0' }}>
         <Group h="100%" px="md" justify="space-between">
           <Group gap="xs">
@@ -87,7 +211,7 @@ export function AdminLayout() {
             <Group gap={6} visibleFrom="sm">
               <Text size="sm" c="dimmed">Admin</Text>
               <Text size="sm" c="dimmed">/</Text>
-              <Text size="sm" fw={600} c="navy.6">{pageLabel}</Text>
+              <Text size="sm" fw={600} c="navy.6">{currentLeafLabel}</Text>
             </Group>
           </Group>
 
@@ -106,12 +230,9 @@ export function AdminLayout() {
               {LANGS.map((lang) => (
                 <UnstyledButton
                   key={lang.code}
-                  px={6}
-                  py={2}
+                  px={6} py={2}
                   style={{
-                    borderRadius: rem(6),
-                    fontSize: rem(12),
-                    fontWeight: 600,
+                    borderRadius: rem(6), fontSize: rem(12), fontWeight: 600,
                     color: lang.code === 'FR' ? 'var(--color-navy)' : '#94A3B8',
                     background: lang.code === 'FR' ? '#E8F1FB' : 'transparent',
                     cursor: 'pointer',
@@ -121,41 +242,27 @@ export function AdminLayout() {
                 </UnstyledButton>
               ))}
             </Group>
-            <Avatar
-              size={32}
-              radius="xl"
-              style={{
-                background: 'linear-gradient(135deg, #0F4C81 0%, #0EA5E9 100%)',
-                color: '#fff',
-                fontWeight: 700,
-                fontSize: rem(13),
-                cursor: 'pointer',
-              }}
-            >
+            <Avatar size={32} radius="xl" style={{
+              background: 'linear-gradient(135deg, #0F4C81 0%, #0EA5E9 100%)',
+              color: '#fff', fontWeight: 700, fontSize: rem(13), cursor: 'pointer',
+            }}>
               {initStr}
             </Avatar>
           </Group>
         </Group>
       </AppShell.Header>
 
-      {/* ── Sidebar ────────────────────────────────────────────────────────── */}
+      {/* ── Sidebar ────────────────────────────────────────────────────── */}
       <AppShell.Navbar
         style={{ background: '#ffffff', borderRight: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column' }}
         p="md"
       >
         {/* Logo */}
         <Group gap="sm" mb="xl">
-          <Avatar
-            size={34}
-            radius="md"
-            style={{
-              background: 'linear-gradient(135deg, #0F4C81 0%, #0EA5E9 100%)',
-              color: '#fff',
-              fontWeight: 800,
-              fontSize: rem(13),
-              flexShrink: 0,
-            }}
-          >
+          <Avatar size={34} radius="md" style={{
+            background: 'linear-gradient(135deg, #0F4C81 0%, #0EA5E9 100%)',
+            color: '#fff', fontWeight: 800, fontSize: rem(13), flexShrink: 0,
+          }}>
             PS
           </Avatar>
           <Stack gap={0}>
@@ -168,42 +275,11 @@ export function AdminLayout() {
           Menu
         </Text>
 
-        {/* Nav items */}
-        <AppShell.Section grow>
+        <AppShell.Section grow style={{ overflowY: 'auto' }}>
           <Stack gap={2}>
-            {NAV_ITEMS.map((item) => {
-              const active = isActive(item.path, item.exact);
-              return (
-                <NavLink
-                  key={item.label}
-                  label={
-                    <Group justify="space-between" wrap="nowrap">
-                      <Text size="sm" fw={active ? 600 : 500} inherit>{item.label}</Text>
-                      {item.soon && (
-                        <Badge size="xs" variant="light" color="warning" radius="xl">Bientôt</Badge>
-                      )}
-                    </Group>
-                  }
-                  leftSection={
-                    <item.icon size={18} stroke={1.5} color={active ? '#0F4C81' : '#94A3B8'} />
-                  }
-                  active={active}
-                  onClick={() => {
-                    if (!item.soon) navigate(item.path);
-                    if (opened) toggle();
-                  }}
-                  styles={{
-                    root: {
-                      borderRadius: rem(8),
-                      padding: `${rem(8)} ${rem(10)}`,
-                      backgroundColor: active ? '#E8F1FB' : 'transparent',
-                      color: active ? '#0F4C81' : '#475569',
-                      '&:hover': { backgroundColor: active ? '#E8F1FB' : '#F8FAFC' },
-                    },
-                  }}
-                />
-              );
-            })}
+            {NAV.map((entry) =>
+              entry.kind === 'leaf' ? renderLeaf(entry) : renderGroup(entry)
+            )}
           </Stack>
         </AppShell.Section>
 
@@ -211,17 +287,10 @@ export function AdminLayout() {
         <Box mt="auto" pt="md" style={{ borderTop: '1px solid #E2E8F0' }}>
           <Group justify="space-between" wrap="nowrap">
             <Group gap="sm" style={{ overflow: 'hidden', flex: 1 }}>
-              <Avatar
-                size={32}
-                radius="xl"
-                style={{
-                  background: 'linear-gradient(135deg, #0F4C81 0%, #0EA5E9 100%)',
-                  color: '#fff',
-                  fontWeight: 700,
-                  fontSize: rem(12),
-                  flexShrink: 0,
-                }}
-              >
+              <Avatar size={32} radius="xl" style={{
+                background: 'linear-gradient(135deg, #0F4C81 0%, #0EA5E9 100%)',
+                color: '#fff', fontWeight: 700, fontSize: rem(12), flexShrink: 0,
+              }}>
                 {initStr}
               </Avatar>
               <Stack gap={0} style={{ overflow: 'hidden' }}>
@@ -238,7 +307,7 @@ export function AdminLayout() {
         </Box>
       </AppShell.Navbar>
 
-      {/* ── Main ───────────────────────────────────────────────────────────── */}
+      {/* ── Main ───────────────────────────────────────────────────────── */}
       <AppShell.Main style={{ background: '#F8FAFC', minHeight: '100vh' }}>
         <Box p={{ base: 'md', sm: 'lg', md: 'xl' }}>
           <Outlet />

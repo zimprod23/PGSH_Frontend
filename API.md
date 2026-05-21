@@ -56,8 +56,8 @@ type HistoryType = 'Inscription' | 'ValidationStage' | 'NonValidation' | 'Fraud'
 
 // Enum fields
 type AcademicProgram = 'Medecine' | 'Pharmacie' | 'Master' | 'Doctorat';
-type HospitalType = 'None' | 'Public' | 'Private' | 'Military';
-type CenterType = 'None' | 'CHU' | 'CHR' | 'CHP' | 'CSU';
+type HospitalType = 'None' | 'CHU' | 'Central' | 'Spetialité' | 'LHOMA' | 'Autre';
+type CenterType = 'None' | 'CHU' | 'Regional' | 'Militaire';
 type ServiceType = 'Biologie' | 'Chirurgie' | 'Medical';
 type Gender = 'Male' | 'Female';
 type AgreementType = 'None' | string;
@@ -249,8 +249,10 @@ interface RegistrationResponse {
 // Response: StudentRegistrationResponse[]
 interface StudentRegistrationResponse {
   id: string;
+  academicYearId: number;
   academicYear: string;
   levelId: number;
+  levelLabel: string | null;
   status: RegistrationStatus;
   hasFailures: boolean;
   failureDescription: string | null;
@@ -333,6 +335,7 @@ interface GetLevelsQuery {
 }
 // Response: PaginatedResponse<LevelResponse>
 interface LevelResponse {
+  id: number;
   label: string | null;
   year: number;
   academicProgram: AcademicProgram;
@@ -440,6 +443,34 @@ interface GetServicesQuery {
 #### POST `/services` — `CreateServiceCommand` body
 #### PUT `/services/{id}` — Request body with `ServiceType` string
 #### DELETE `/services/{id}` — `204 No Content`
+
+---
+
+### Academic Years
+
+#### GET `/academic-years`
+Returns all academic years ordered by start date descending (most recent first).
+```typescript
+// Response: AcademicYearResponse[]
+interface AcademicYearResponse {
+  id: number;
+  label: string;       // e.g. "2025-2026"
+  startDate: string;   // YYYY-MM-DD
+  endDate: string;     // YYYY-MM-DD
+  isCurrent: boolean;
+}
+```
+
+#### POST `/academic-years`
+```typescript
+interface CreateAcademicYearRequest {
+  label: string;        // unique, max 20 chars
+  startDate: string;    // YYYY-MM-DD
+  endDate: string;      // YYYY-MM-DD, must be after startDate
+  isCurrent: boolean;   // if true, all other years are unmarked as current
+}
+// Response: 201 Created, body: id (number)
+```
 
 ---
 

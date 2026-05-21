@@ -25,6 +25,12 @@ const DemandsPage       = lazy(() => import('../features/student/pages/DemandsPa
 const AdminDashboardPage      = lazy(() => import('../features/admin/pages/AdminDashboardPage'));
 const StudentListPage         = lazy(() => import('../features/admin/pages/students/StudentListPage'));
 const AdminStudentDetailPage  = lazy(() => import('../features/admin/pages/students/AdminStudentDetailPage'));
+const AcademicYearsPage       = lazy(() => import('../features/admin/pages/AcademicYearsPage'));
+const LevelsPage              = lazy(() => import('../features/admin/pages/LevelsPage'));
+const GroupsPage              = lazy(() => import('../features/admin/pages/GroupsPage'));
+const StagesPage              = lazy(() => import('../features/admin/pages/StagesPage'));
+const StageDetailPage         = lazy(() => import('../features/admin/pages/StageDetailPage'));
+const InfrastructurePage      = lazy(() => import('../features/admin/pages/InfrastructurePage'));
 
 // ─── Lazy-loaded employee pages ───────────────────────────────────────────────
 const EmployeePage = lazy(() => import('../features/employee/pages/EmployeePage'));
@@ -79,9 +85,20 @@ export const router = createBrowserRouter([
           </AuthGuard>
         ),
         children: [
-          { index: true,                          element: wrap(<AdminDashboardPage />)     },
-          { path: PATHS.ADMIN.STUDENTS,           element: wrap(<StudentListPage />)         },
-          { path: PATHS.ADMIN.STUDENT_DETAIL,     element: wrap(<AdminStudentDetailPage />) },
+          { index: true,                          element: wrap(<AdminDashboardPage />)         },
+          { path: PATHS.ADMIN.STUDENTS,           element: wrap(<StudentListPage />)           },
+          { path: PATHS.ADMIN.STUDENT_DETAIL,     element: wrap(<AdminStudentDetailPage />)    },
+          { path: PATHS.ADMIN.ACADEMIC_YEARS,     element: wrap(<AcademicYearsPage />)         },
+          { path: PATHS.ADMIN.LEVELS,             element: wrap(<LevelsPage />)                },
+          { path: PATHS.ADMIN.GROUPS,             element: wrap(<GroupsPage />)                },
+          {
+            path: PATHS.ADMIN.STAGES,
+            children: [
+              { index: true, element: wrap(<StagesPage />) },
+              { path: ':id',  element: wrap(<StageDetailPage />) },
+            ],
+          },
+          { path: PATHS.ADMIN.HOSPITALS, element: wrap(<InfrastructurePage />) },
         ],
       },
 
