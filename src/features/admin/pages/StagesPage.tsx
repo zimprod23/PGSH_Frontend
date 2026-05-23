@@ -30,10 +30,11 @@ import {
   IconTrash,
   IconUsersGroup,
 } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   useGetStagesQuery,
+  useGetStageByIdQuery,
   useGetLevelsQuery,
   useCreateStageMutation,
   useUpdateStageMutation,
@@ -79,14 +80,21 @@ function StageFormDrawer({
   const [updateStage, { isLoading: updating }] = useUpdateStageMutation();
 
   const [form, setForm] = useState<StageForm>(initial);
+
+  useEffect(() => {
+    setForm(initial);
+  }, [initial]);
+
   const set = <K extends keyof StageForm>(k: K, v: StageForm[K]) =>
     setForm((p) => ({ ...p, [k]: v }));
 
-  const levelOptions = levels.map((l) => ({
-    value: String(l.id),
-    label: l.label ?? `Année ${l.year} — ${l.academicProgram}`,
-    group: l.academicProgram,
-  }));
+  const levelOptions = Object.entries(
+    levels.reduce<Record<string, { value: string; label: string }[]>>((acc, l) => {
+      const item = { value: String(l.id), label: l.label ?? `Année ${l.year}` };
+      (acc[l.academicProgram] ??= []).push(item);
+      return acc;
+    }, {})
+  ).map(([group, items]) => ({ group, items }));
 
   const addObjective = () => set('objectives', [...form.objectives, newObjective()]);
 
@@ -258,7 +266,6 @@ export default function StagesPage() {
   const PAGE_SIZE = 15;
 
   const [debouncedSearch] = useDebouncedValue(search, 350);
-  useEffect(() => setPage(1), [debouncedSearch, levelFilter]);
 
   const { data: levels = [] } = useGetLevelsQuery(undefined);
   const { data, isLoading, isFetching } = useGetStagesQuery({
@@ -271,6 +278,8 @@ export default function StagesPage() {
 
   const [drawerOpen, { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
   const [editTarget, setEditTarget] = useState<StageSummaryResponse | null>(null);
+
+  const { data: stageDetail } = useGetStageByIdQuery(editTarget?.id ?? 0, { skip: !editTarget });
 
   const stages = data?.items ?? [];
   const totalPages = data?.totalPages ?? 1;
@@ -296,9 +305,31 @@ export default function StagesPage() {
     }
   };
 
-  const drawerInitial: StageForm = editTarget
-    ? { name: editTarget.name, levelId: null, durationInDays: editTarget.durationInDays, coefficient: editTarget.coefficient, description: '', objectives: [] }
-    : EMPTY_FORM;
+  const drawerInitial = useMemo<StageForm>(() => {
+    if (!editTarget) return EMPTY_FORM;
+    if (!stageDetail) return {
+      name: editTarget.name,
+      levelId: null,
+      durationInDays: editTarget.durationInDays,
+      coefficient: editTarget.coefficient,
+      description: '',
+      objectives: [],
+    };
+    return {
+      name: stageDetail.name,
+      levelId: stageDetail.levelResponse ? String(stageDetail.levelResponse.id) : null,
+      durationInDays: stageDetail.durationInDays,
+      coefficient: stageDetail.coefficient,
+      description: stageDetail.description ?? '',
+      objectives: stageDetail.stageObjectiveResponse.map((o) => ({
+        _key: crypto.randomUUID(),
+        label: o.label,
+        description: o.description ?? '',
+        weight: o.weight,
+        isMandatory: o.isMandatory,
+      })),
+    };
+  }, [editTarget, stageDetail]);
 
   return (
     <Container fluid>
@@ -321,14 +352,14 @@ export default function StagesPage() {
               <TextInput
                 placeholder="Rechercher un stage…"
                 value={search}
-                onChange={(e) => setSearch(e.currentTarget.value)}
+                onChange={(e) => { setSearch(e.currentTarget.value); setPage(1); }}
                 radius="md"
                 style={{ flex: 1, minWidth: rem(200) }}
               />
               <Select
                 data={levelOptions}
                 value={levelFilter ?? ''}
-                onChange={(v) => setLevelFilter(v || null)}
+                onChange={(v) => { setLevelFilter(v || null); setPage(1); }}
                 radius="md"
                 w={220}
                 placeholder="Filtrer par niveau"

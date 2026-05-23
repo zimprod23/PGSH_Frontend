@@ -1,0 +1,786 @@
+import {
+  ActionIcon,
+  Badge,
+  Box,
+  Button,
+  Card,
+  Checkbox,
+  Container,
+  Divider,
+  Drawer,
+  Group,
+  Modal,
+  Pagination,
+  rem,
+  ScrollArea,
+  Select,
+  Skeleton,
+  Stack,
+  Table,
+  Text,
+  ThemeIcon,
+  Title,
+  Tooltip,
+} from '@mantine/core';
+import { useDisclosure, useMediaQuery } from '@mantine/hooks';
+import {
+  IconArrowRight,
+  IconBuildingHospital,
+  IconCircleCheck,
+  IconCircleX,
+  IconClipboardCheck,
+  IconLayoutSidebar,
+  IconPlayerPlay,
+  IconPlayerStop,
+  IconUsersGroup,
+} from '@tabler/icons-react';
+import { useState } from 'react';
+import {
+  useGetStagesQuery,
+  useGetCohortsByStageQuery,
+  useGetCohortByIdQuery,
+  useGetInternshipAssignmentsQuery,
+  useStartAssignmentMutation,
+  useValidateAssignmentMutation,
+  useRejectAssignmentMutation,
+  useStartCohortAssignmentsMutation,
+  useCompleteCohortPeriodsMutation,
+  useValidateCohortAssignmentsMutation,
+} from '../api/adminApi';
+import type {
+  CohortResponse,
+  InternshipAssignmentSummaryResponse,
+  InternshipStatus,
+} from '../types/admin.types';
+import { useNotify } from '../../../common/hooks/useNotify';
+
+// ─── Status config ────────────────────────────────────────────────────────────
+
+const STATUS_CFG: Record<InternshipStatus, { label: string; color: string }> = {
+  Planned:   { label: 'Planifiée',  color: 'gray'   },
+  Ongoing:   { label: 'En cours',   color: 'blue'   },
+  Completed: { label: 'Terminée',   color: 'teal'   },
+  Evaluated: { label: 'Évaluée',    color: 'violet' },
+  Validated: { label: 'Validée',    color: 'green'  },
+  Rejected:  { label: 'Rejetée',    color: 'red'    },
+};
+
+function StatusBadge({ status }: { status: InternshipStatus }) {
+  const cfg = STATUS_CFG[status] ?? { label: status, color: 'gray' };
+  return <Badge variant="light" color={cfg.color} size="sm" radius="xl">{cfg.label}</Badge>;
+}
+
+// ─── Cohort sidebar card ──────────────────────────────────────────────────────
+
+function CohortSidebarCard({
+  cohort, selected, focused, onSelect, onFocus,
+}: {
+  cohort: CohortResponse;
+  selected: boolean;
+  focused: boolean;
+  onSelect: () => void;
+  onFocus: () => void;
+}) {
+  return (
+    <Card
+      padding="sm" radius="md" withBorder
+      onClick={onFocus}
+      style={{
+        cursor: 'pointer',
+        borderColor: focused ? '#0F4C81' : selected ? '#0EA5E940' : '#E2E8F0',
+        background: focused ? '#EBF4FF' : selected ? '#F8FCFF' : '#FFFFFF',
+        transition: 'all 120ms ease',
+      }}
+    >
+      <Group gap="sm" wrap="nowrap" align="flex-start">
+        <Checkbox
+          checked={selected}
+          onChange={onSelect}
+          radius="sm"
+          onClick={(e) => e.stopPropagation()}
+          style={{ paddingTop: 2, flexShrink: 0 }}
+        />
+        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+          <Text size="xs" fw={600} truncate c={focused ? 'navy.7' : 'dark'}>
+            {cohort.label}
+          </Text>
+          <Text size="xs" c="dimmed" truncate>{cohort.academicGroupLabel}</Text>
+          <Group gap={6} wrap="nowrap">
+            <Text size="xs" c="dimmed">{cohort.studentAssignmentCount} étud.</Text>
+            {cohort.slotAssignmentCount > 0 && (
+              <>
+                <Text size="xs" c="dimmed">·</Text>
+                <Text size="xs" c={cohort.isSchedulePublished ? 'teal.6' : 'violet.5'}>
+                  {cohort.isSchedulePublished ? 'Publié' : `${cohort.slotAssignmentCount} créneaux`}
+                </Text>
+              </>
+            )}
+          </Group>
+        </Stack>
+      </Group>
+    </Card>
+  );
+}
+
+// ─── Sidebar content (shared between panel and drawer) ───────────────────────
+
+function SidebarContent({
+  cohorts,
+  cohortsLoading,
+  selectedIds,
+  focusedId,
+  planGroups,
+  isGrouped,
+  onToggleSelect,
+  onFocus,
+  onSelectGroup,
+  onSelectAll,
+  onClearAll,
+}: {
+  cohorts: CohortResponse[];
+  cohortsLoading: boolean;
+  selectedIds: number[];
+  focusedId: number | null;
+  planGroups: Record<string, CohortResponse[]>;
+  isGrouped: boolean;
+  onToggleSelect: (id: number) => void;
+  onFocus: (id: number) => void;
+  onSelectGroup: (group: CohortResponse[]) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+}) {
+  const allChecked = selectedIds.length === cohorts.length && cohorts.length > 0;
+  const someChecked = selectedIds.length > 0;
+
+  return (
+    <Stack gap={0}>
+      <Box px="md" py="sm" style={{ borderBottom: '1px solid #E2E8F0' }}>
+        <Group justify="space-between" align="center">
+          <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.6px' }}>
+            Cohortes ({cohorts.length})
+          </Text>
+          <Group gap={4}>
+            <Button size="xs" variant="subtle" color="navy" px="xs"
+              disabled={allChecked || cohortsLoading}
+              onClick={onSelectAll}>
+              Tout
+            </Button>
+            <Button size="xs" variant="subtle" color="gray" px="xs"
+              disabled={!someChecked}
+              onClick={onClearAll}>
+              Aucun
+            </Button>
+          </Group>
+        </Group>
+        {someChecked && (
+          <Text size="xs" c="navy.6" fw={500} mt={4}>
+            {selectedIds.length} sélectionnée(s)
+          </Text>
+        )}
+      </Box>
+
+      <Box p="sm">
+        {cohortsLoading ? (
+          <Stack gap="xs">
+            {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={70} radius="md" />)}
+          </Stack>
+        ) : cohorts.length === 0 ? (
+          <Text size="xs" c="dimmed" ta="center" py="md">
+            Aucune cohorte pour ce stage.
+          </Text>
+        ) : isGrouped ? (
+          Object.entries(planGroups).map(([groupKey, group]) => (
+            <Box key={groupKey} mb="md">
+              <Group justify="space-between" align="center" mb={4}>
+                <Text size="xs" fw={600} c="dimmed">{groupKey}</Text>
+                <Button size="xs" variant="subtle" color="navy" px={4} py={2} h="auto"
+                  onClick={() => onSelectGroup(group)}>
+                  {group.every((c) => selectedIds.includes(c.id)) ? 'Désél.' : 'Sél.'}
+                </Button>
+              </Group>
+              <Stack gap="xs">
+                {group.map((c) => (
+                  <CohortSidebarCard key={c.id} cohort={c}
+                    selected={selectedIds.includes(c.id)}
+                    focused={focusedId === c.id}
+                    onSelect={() => onToggleSelect(c.id)}
+                    onFocus={() => onFocus(c.id)}
+                  />
+                ))}
+              </Stack>
+              <Divider mt="xs" />
+            </Box>
+          ))
+        ) : (
+          <Stack gap="xs">
+            {cohorts.map((c) => (
+              <CohortSidebarCard key={c.id} cohort={c}
+                selected={selectedIds.includes(c.id)}
+                focused={focusedId === c.id}
+                onSelect={() => onToggleSelect(c.id)}
+                onFocus={() => onFocus(c.id)}
+              />
+            ))}
+          </Stack>
+        )}
+      </Box>
+    </Stack>
+  );
+}
+
+// ─── Confirm modal ────────────────────────────────────────────────────────────
+
+interface ConfirmProps {
+  opened: boolean; onClose: () => void;
+  title: string; message: string;
+  confirmLabel: string; confirmColor: string;
+  onConfirm: () => Promise<void>; loading: boolean;
+}
+function ConfirmModal({ opened, onClose, title, message, confirmLabel, confirmColor, onConfirm, loading }: ConfirmProps) {
+  return (
+    <Modal opened={opened} onClose={onClose} title={title} radius="lg" size="sm">
+      <Stack gap="md">
+        <Text size="sm" c="dimmed">{message}</Text>
+        <Group justify="flex-end">
+          <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
+          <Button color={confirmColor} loading={loading} onClick={onConfirm}>{confirmLabel}</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 25;
+
+export default function AssignmentsPage() {
+  const notify = useNotify();
+  const isMobile = useMediaQuery('(max-width: 768px)');
+
+  const [stageId,      setStageId]      = useState<string | null>(null);
+  const [selectedIds,  setSelectedIds]  = useState<number[]>([]);
+  const [focusedId,    setFocusedId]    = useState<number | null>(null);
+  const [statusFilter, setStatusFilter] = useState<InternshipStatus | null>(null);
+  const [page,         setPage]         = useState(1);
+  const [drawerOpen,   { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
+
+  const [target,       setTarget]       = useState<InternshipAssignmentSummaryResponse | null>(null);
+  const [validateOpen, { open: openValidate, close: closeValidate }] = useDisclosure(false);
+  const [rejectOpen,   { open: openReject,   close: closeReject   }] = useDisclosure(false);
+
+  // ── Data ───────────────────────────────────────────────────────────────────
+  const { data: stagesPage } = useGetStagesQuery({ pageSize: 100 });
+  const stages = stagesPage?.items ?? [];
+
+  const { data: cohorts = [], isLoading: cohortsLoading } = useGetCohortsByStageQuery(
+    Number(stageId), { skip: !stageId }
+  );
+
+  const planGroups = cohorts.reduce<Record<string, CohortResponse[]>>((acc, c) => {
+    const key = c.isSchedulePublished ? 'Publié' : c.slotAssignmentCount > 0 ? 'Configuré' : 'Sans planning';
+    (acc[key] ??= []).push(c);
+    return acc;
+  }, {});
+  const isGrouped = Object.keys(planGroups).some((k) => !k.startsWith('Sans'));
+
+  const cohortDetail = useGetCohortByIdQuery(focusedId!, { skip: !focusedId }).data;
+
+  // Plan detection — works for single and multi-selection
+  const selectedCohortObjects = cohorts.filter((c) => selectedIds.includes(c.id));
+  const cohortIdsWithAssignments = selectedCohortObjects.filter((c) => c.slotAssignmentCount > 0).map((c) => c.id);
+  const planIdsWithValue = cohortIdsWithAssignments;
+  // When exactly one cohort is selected (regardless of focus), use it for schedule display
+  const effectiveSingleId =
+    selectedIds.length === 1
+      ? selectedIds[0]
+      : selectedIds.length === 0 && focusedId
+      ? focusedId
+      : null;
+  // For multi-select: show shared plan if all selected cohorts share the same plan
+  const sharedPlanCohortId =
+    selectedIds.length > 1 && planIdsWithValue.length >= 1
+      ? planIdsWithValue[0]
+      : null;
+
+  // Load detail for the single effective cohort (focused or single-checked)
+  const singleDetail = useGetCohortByIdQuery(effectiveSingleId!, { skip: !effectiveSingleId }).data;
+
+  const { data: sharedPlanDetail } = useGetCohortByIdQuery(sharedPlanCohortId!, {
+    skip: !sharedPlanCohortId,
+  });
+
+  const queryIds = selectedIds.length > 0 ? selectedIds : focusedId ? [focusedId] : [];
+
+  const { data: result, isLoading: assignmentsLoading } = useGetInternshipAssignmentsQuery(
+    { cohortIds: queryIds.length > 0 ? queryIds : undefined, status: statusFilter ?? undefined, pageNumber: page, pageSize: PAGE_SIZE },
+    { skip: queryIds.length === 0 }
+  );
+
+  const { data: allResult } = useGetInternshipAssignmentsQuery(
+    { cohortIds: queryIds.length > 0 ? queryIds : undefined, pageSize: 500 },
+    { skip: queryIds.length === 0 }
+  );
+
+  const assignments    = result?.items ?? [];
+  const totalPages     = result?.totalPages ?? 1;
+  const allAssignments = allResult?.items ?? [];
+
+  const byStatus = Object.fromEntries(
+    (Object.keys(STATUS_CFG) as InternshipStatus[]).map((s) => [
+      s, allAssignments.filter((a) => a.status === s).length,
+    ])
+  ) as Record<InternshipStatus, number>;
+
+  // ── Mutations ──────────────────────────────────────────────────────────────
+  const [startOne,       { isLoading: startingOne      }] = useStartAssignmentMutation();
+  const [validateOne,    { isLoading: validatingOne    }] = useValidateAssignmentMutation();
+  const [rejectOne,      { isLoading: rejectingOne     }] = useRejectAssignmentMutation();
+  const [startCohort,    { isLoading: startingCohort   }] = useStartCohortAssignmentsMutation();
+  const [completePeriods,{ isLoading: completingPeriods}] = useCompleteCohortPeriodsMutation();
+  const [validateCohort, { isLoading: validatingCohort }] = useValidateCohortAssignmentsMutation();
+  const bulkLoading = startingCohort || completingPeriods || validatingCohort;
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const runForSelected = async <T,>(label: string, fn: (id: number) => Promise<T>, countKey: keyof T) => {
+    let total = 0;
+    for (const id of selectedIds) {
+      try { const res = await fn(id); total += (res as Record<string, number>)[countKey as string] ?? 0; }
+      catch { /* skip */ }
+    }
+    notify.success(`${total} opération(s) — ${label}`);
+  };
+
+  const handleBulkStart    = () => runForSelected('démarrage',  (id) => startCohort(id).unwrap(),     'started');
+  const handleBulkComplete = () => runForSelected('clôture',    (id) => completePeriods(id).unwrap(), 'completed');
+  const handleBulkValidate = () => runForSelected('validation', (id) => validateCohort(id).unwrap(),  'validated');
+
+  const handleStartOne = async (a: InternshipAssignmentSummaryResponse) => {
+    try { await startOne(a.id).unwrap(); notify.success(`${a.studentFullName} — démarrée`); }
+    catch { notify.error('Impossible de démarrer'); }
+  };
+  const handleValidateOne = async () => {
+    if (!target) return;
+    try { await validateOne(target.id).unwrap(); notify.success(`${target.studentFullName} — validé`); closeValidate(); }
+    catch { notify.error('Impossible de valider'); }
+  };
+  const handleRejectOne = async () => {
+    if (!target) return;
+    try { await rejectOne(target.id).unwrap(); notify.success(`${target.studentFullName} — rejeté`); closeReject(); }
+    catch { notify.error('Impossible de rejeter'); }
+  };
+
+  const someChecked = selectedIds.length > 0;
+  const hasContent  = queryIds.length > 0;
+
+  const toggleSelect = (id: number) =>
+    setSelectedIds((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]);
+
+  const selectGroup = (group: CohortResponse[]) => {
+    const ids = group.map((c) => c.id);
+    const allIn = ids.every((id) => selectedIds.includes(id));
+    setSelectedIds((p) => allIn ? p.filter((id) => !ids.includes(id)) : [...new Set([...p, ...ids])]);
+  };
+
+  const setFocus = (id: number) => {
+    setFocusedId(id);
+    setStatusFilter(null);
+    setPage(1);
+    if (isMobile) closeDrawer();
+  };
+
+  const handleStageChange = (v: string | null) => {
+    setStageId(v);
+    setSelectedIds([]);
+    setFocusedId(null);
+    setStatusFilter(null);
+    setPage(1);
+  };
+
+  const stageOptions  = stages.map((s) => ({ value: String(s.id), label: s.name }));
+  const statusOptions = (Object.entries(STATUS_CFG) as [InternshipStatus, { label: string }][]).map(([value, { label }]) => ({ value, label }));
+
+  const showCohortColumn = selectedIds.length > 1;
+  const contentTitle = showCohortColumn
+    ? `${selectedIds.length} cohortes`
+    : effectiveSingleId ? (singleDetail?.label ?? cohortDetail?.label ?? '…') : null;
+
+  const sidebarProps = {
+    cohorts, cohortsLoading, selectedIds, focusedId, planGroups, isGrouped,
+    onToggleSelect: toggleSelect,
+    onFocus: setFocus,
+    onSelectGroup: selectGroup,
+    onSelectAll: () => setSelectedIds(cohorts.map((c) => c.id)),
+    onClearAll:  () => setSelectedIds([]),
+  };
+
+  return (
+    <Container fluid p={0}>
+      <Stack gap={0}>
+
+        {/* ── Header ────────────────────────────────────────────────── */}
+        <Box
+          px={{ base: 'md', sm: 'xl' }}
+          pt={{ base: 'md', sm: 'xl' }}
+          pb="md"
+          style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}
+        >
+          <Group justify="space-between" align="flex-end" wrap="wrap" gap="sm">
+            <Stack gap={2}>
+              <Title order={2} fw={700} size="h3">Affectations</Title>
+              <Text size="sm" c="dimmed" visibleFrom="sm">
+                Gérez le cycle de vie des affectations par cohorte.
+              </Text>
+            </Stack>
+            <Group gap="sm" align="flex-end" wrap="nowrap">
+              {isMobile && stageId && (
+                <Button
+                  size="sm" variant="light" color="navy" radius="md"
+                  leftSection={<IconLayoutSidebar size={14} stroke={1.5} />}
+                  onClick={openDrawer}
+                >
+                  Cohortes {someChecked && `(${selectedIds.length})`}
+                </Button>
+              )}
+              <Select
+                label="Stage" placeholder="Sélectionner un stage"
+                data={stageOptions} value={stageId}
+                onChange={handleStageChange}
+                searchable clearable
+                w={{ base: 200, sm: 280 }}
+                size={isMobile ? 'sm' : 'md'}
+              />
+            </Group>
+          </Group>
+        </Box>
+
+        {!stageId ? (
+          <Stack align="center" justify="center" py="xl" gap="sm" px="md">
+            <IconClipboardCheck size={56} stroke={1} color="#CBD5E1" />
+            <Text c="dimmed" size="sm" ta="center">Sélectionnez un stage pour commencer.</Text>
+          </Stack>
+        ) : (
+          <Group gap={0} align="flex-start">
+
+            {/* ── Desktop sidebar ──────────────────────────────────── */}
+            <Box
+              visibleFrom="sm"
+              style={{
+                width: rem(260), flexShrink: 0,
+                borderRight: '1px solid #E2E8F0',
+                background: '#FAFBFC',
+                position: 'sticky',
+                top: rem(60),
+                maxHeight: 'calc(100vh - 60px)',
+                overflowY: 'auto',
+              }}
+            >
+              <SidebarContent {...sidebarProps} />
+            </Box>
+
+            {/* ── Mobile drawer ─────────────────────────────────────── */}
+            <Drawer
+              opened={drawerOpen}
+              onClose={closeDrawer}
+              title={<Text fw={700} size="sm">Cohortes</Text>}
+              position="left"
+              size="xs"
+              padding={0}
+              hiddenFrom="sm"
+            >
+              <Box style={{ height: 'calc(100vh - 60px)', overflowY: 'auto' }}>
+                <SidebarContent {...sidebarProps} />
+              </Box>
+            </Drawer>
+
+            {/* ── Main area ─────────────────────────────────────────── */}
+            <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
+
+              {/* Bulk actions bar */}
+              {someChecked && (
+                <Box
+                  px={{ base: 'md', sm: 'xl' }} py="sm"
+                  style={{ background: '#EBF4FF', borderBottom: '1px solid #BFDBFE' }}
+                >
+                  <ScrollArea type="never">
+                    <Group gap="sm" wrap="nowrap" align="center" style={{ minWidth: 0 }}>
+                      <Text size="xs" fw={600} c="navy.7" style={{ flexShrink: 0 }}>
+                        {selectedIds.length} cohorte(s) :
+                      </Text>
+                      <Button size="xs" color="blue" variant="light" radius="md" style={{ flexShrink: 0 }}
+                        leftSection={<IconPlayerPlay size={12} stroke={1.5} />}
+                        loading={startingCohort} disabled={bulkLoading}
+                        onClick={handleBulkStart}>
+                        Démarrer
+                      </Button>
+                      <Button size="xs" color="teal" variant="light" radius="md" style={{ flexShrink: 0 }}
+                        leftSection={<IconPlayerStop size={12} stroke={1.5} />}
+                        loading={completingPeriods} disabled={bulkLoading}
+                        onClick={handleBulkComplete}>
+                        Clôturer
+                      </Button>
+                      <Button size="xs" color="green" variant="light" radius="md" style={{ flexShrink: 0 }}
+                        leftSection={<IconCircleCheck size={12} stroke={1.5} />}
+                        loading={validatingCohort} disabled={bulkLoading}
+                        onClick={handleBulkValidate}>
+                        Valider
+                      </Button>
+                    </Group>
+                  </ScrollArea>
+                </Box>
+              )}
+
+              {/* Content */}
+              {!hasContent ? (
+                <Stack align="center" justify="center" py="xl" gap="sm" px="md">
+                  <IconUsersGroup size={48} stroke={1} color="#CBD5E1" />
+                  <Text c="dimmed" size="sm" ta="center">
+                    {isMobile
+                      ? 'Ouvrez le panneau des cohortes pour sélectionner.'
+                      : 'Cliquez sur une cohorte pour voir ses affectations.'}
+                  </Text>
+                </Stack>
+              ) : (
+                <Stack gap="md" p={{ base: 'md', sm: 'xl' }}>
+
+                    {/* Info row */}
+                    <Group gap="md" align="flex-start" wrap="wrap">
+
+                      {/* Status summary card */}
+                      <Card padding="md" radius="lg" withBorder shadow="xs" style={{ minWidth: 200, flex: '0 0 auto' }}>
+                        <Stack gap="sm">
+                          <Group gap="sm" wrap="nowrap">
+                            <ThemeIcon size={28} radius="md" variant="light" color="navy">
+                              <IconUsersGroup size={15} stroke={1.5} />
+                            </ThemeIcon>
+                            <Stack gap={0} style={{ minWidth: 0 }}>
+                              <Text fw={700} size="sm" truncate>{contentTitle ?? '…'}</Text>
+                              {effectiveSingleId && !showCohortColumn && (
+                                <Text size="xs" c="dimmed" truncate>{(singleDetail ?? cohortDetail)?.academicGroupLabel}</Text>
+                              )}
+                            </Stack>
+                          </Group>
+                          <Divider />
+                          <Stack gap={4}>
+                            {(Object.entries(byStatus) as [InternshipStatus, number][])
+                              .filter(([, n]) => n > 0)
+                              .map(([status, count]) => (
+                                <Group key={status} justify="space-between">
+                                  <StatusBadge status={status} />
+                                  <Text size="sm" fw={700}>{count}</Text>
+                                </Group>
+                              ))}
+                            {allAssignments.length === 0 && !assignmentsLoading && (
+                              <Text size="xs" c="dimmed" ta="center">Aucun étudiant affecté</Text>
+                            )}
+                          </Stack>
+                        </Stack>
+                      </Card>
+
+                      {/* Schedule detail (single cohort — focused or single-checked) */}
+                      {effectiveSingleId && !showCohortColumn && (singleDetail ?? cohortDetail)?.slotAssignments.length ? (
+                        <Card padding="md" radius="lg" withBorder shadow="xs" style={{ flex: 1, minWidth: 0 }}>
+                          <Stack gap="sm">
+                            <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.6px' }}>
+                              Planning des rotations
+                            </Text>
+                            <ScrollArea type="never">
+                              <Group gap="xs" align="center" wrap="nowrap">
+                                {(singleDetail ?? cohortDetail)!.slotAssignments.map((t, i) => (
+                                  <Group key={t.assignmentId} gap="xs" wrap="nowrap" align="center">
+                                    {i > 0 && <IconArrowRight size={12} stroke={1.5} color="#94A3B8" style={{ flexShrink: 0 }} />}
+                                    <Card padding="xs" radius="md" withBorder style={{ background: '#F8FAFC', flexShrink: 0 }}>
+                                      <Stack gap={2}>
+                                        <Group gap={4} wrap="nowrap">
+                                          <IconBuildingHospital size={10} stroke={1.5} color="#94A3B8" />
+                                          <Text size="xs" fw={600} style={{ whiteSpace: 'nowrap', maxWidth: 120 }} truncate>
+                                            {t.serviceName}
+                                          </Text>
+                                        </Group>
+                                        <Text size="xs" c="dimmed" ff="monospace" style={{ whiteSpace: 'nowrap' }}>
+                                          {t.startDate} → {t.endDate}
+                                        </Text>
+                                      </Stack>
+                                    </Card>
+                                  </Group>
+                                ))}
+                              </Group>
+                            </ScrollArea>
+                          </Stack>
+                        </Card>
+                      ) : null}
+
+                      {/* Schedule detail (multi-select, show first configured cohort's schedule) */}
+                      {showCohortColumn && sharedPlanCohortId !== null && sharedPlanDetail && sharedPlanDetail.slotAssignments.length > 0 && (
+                        <Card padding="md" radius="lg" withBorder shadow="xs" style={{ flex: 1, minWidth: 0 }}>
+                          <Stack gap="sm">
+                            <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.6px' }}>
+                              Planning de rotation
+                            </Text>
+                            <ScrollArea type="never">
+                              <Group gap="xs" align="center" wrap="nowrap">
+                                {sharedPlanDetail.slotAssignments.map((t, i) => (
+                                  <Group key={t.assignmentId} gap="xs" wrap="nowrap" align="center">
+                                    {i > 0 && <IconArrowRight size={12} stroke={1.5} color="#94A3B8" style={{ flexShrink: 0 }} />}
+                                    <Card padding="xs" radius="md" withBorder style={{ background: '#F8FAFC', flexShrink: 0 }}>
+                                      <Stack gap={2}>
+                                        <Group gap={4} wrap="nowrap">
+                                          <IconBuildingHospital size={10} stroke={1.5} color="#94A3B8" />
+                                          <Text size="xs" fw={600} style={{ whiteSpace: 'nowrap', maxWidth: 120 }} truncate>
+                                            {t.serviceName}
+                                          </Text>
+                                        </Group>
+                                        <Text size="xs" c="dimmed" ff="monospace" style={{ whiteSpace: 'nowrap' }}>
+                                          {t.startDate} → {t.endDate}
+                                        </Text>
+                                      </Stack>
+                                    </Card>
+                                  </Group>
+                                ))}
+                              </Group>
+                            </ScrollArea>
+                          </Stack>
+                        </Card>
+                      )}
+                    </Group>
+
+                    {/* Assignments table */}
+                    <Card padding="md" radius="lg" withBorder shadow="sm">
+                      <Stack gap="md">
+                        <Group justify="space-between" wrap="wrap" gap="sm">
+                          <Text size="sm" fw={600}>
+                            Affectations
+                            {result && (
+                              <Text span c="dimmed" fw={400} ml={6} size="sm">
+                                ({result.totalCount})
+                              </Text>
+                            )}
+                          </Text>
+                          <Select
+                            placeholder="Tous les statuts"
+                            data={statusOptions}
+                            value={statusFilter}
+                            onChange={(v) => { setStatusFilter(v as InternshipStatus | null); setPage(1); }}
+                            clearable size="xs" w={160}
+                          />
+                        </Group>
+
+                        <ScrollArea type="always">
+                          <Table striped highlightOnHover verticalSpacing="sm" style={{ minWidth: 480 }}>
+                            <Table.Thead>
+                              <Table.Tr>
+                                <Table.Th style={{ minWidth: 160 }}>Étudiant</Table.Th>
+                                {showCohortColumn && <Table.Th style={{ minWidth: 120 }}>Cohorte</Table.Th>}
+                                <Table.Th style={{ minWidth: 100 }}>Statut</Table.Th>
+                                <Table.Th style={{ minWidth: 80 }}>Note</Table.Th>
+                                <Table.Th style={{ minWidth: 80 }}>Résultat</Table.Th>
+                                <Table.Th w={70} />
+                              </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                              {assignmentsLoading ? (
+                                Array.from({ length: 6 }).map((_, i) => (
+                                  <Table.Tr key={i}>
+                                    {[160, ...(showCohortColumn ? [120] : []), 100, 80, 80, 60].map((w, j) => (
+                                      <Table.Td key={j}><Skeleton height={14} width={w} radius="sm" /></Table.Td>
+                                    ))}
+                                  </Table.Tr>
+                                ))
+                              ) : assignments.length === 0 ? (
+                                <Table.Tr>
+                                  <Table.Td colSpan={showCohortColumn ? 6 : 5}>
+                                    <Stack align="center" py="xl" gap="xs">
+                                      <IconClipboardCheck size={32} stroke={1} color="#CBD5E1" />
+                                      <Text c="dimmed" size="sm">
+                                        {statusFilter ? 'Aucune affectation avec ce statut.' : 'Aucun étudiant affecté.'}
+                                      </Text>
+                                    </Stack>
+                                  </Table.Td>
+                                </Table.Tr>
+                              ) : (
+                                assignments.map((a) => (
+                                  <Table.Tr key={a.id}>
+                                    <Table.Td>
+                                      <Text size="sm" fw={500}>{a.studentFullName}</Text>
+                                    </Table.Td>
+                                    {showCohortColumn && (
+                                      <Table.Td>
+                                        <Text size="xs" c="dimmed">{a.cohortLabel}</Text>
+                                      </Table.Td>
+                                    )}
+                                    <Table.Td><StatusBadge status={a.status} /></Table.Td>
+                                    <Table.Td>
+                                      {a.finalScore !== null
+                                        ? <Text size="sm" fw={600} c="navy.6" ff="monospace">{a.finalScore.toFixed(2)}</Text>
+                                        : <Text size="xs" c="dimmed">—</Text>}
+                                    </Table.Td>
+                                    <Table.Td>
+                                      <Text size="xs" fw={500}
+                                        c={a.result === 'Validé' ? 'green' : a.result === 'NonValidé' ? 'red' : 'dimmed'}>
+                                        {a.result ?? '—'}
+                                      </Text>
+                                    </Table.Td>
+                                    <Table.Td>
+                                      <Group gap={4} wrap="nowrap" justify="flex-end">
+                                        {a.status === 'Planned' && (
+                                          <Tooltip label="Démarrer" position="top">
+                                            <ActionIcon variant="subtle" color="blue" size="sm"
+                                              loading={startingOne} onClick={() => handleStartOne(a)}>
+                                              <IconPlayerPlay size={14} stroke={1.5} />
+                                            </ActionIcon>
+                                          </Tooltip>
+                                        )}
+                                        {a.status === 'Evaluated' && (
+                                          <>
+                                            <Tooltip label="Valider" position="top">
+                                              <ActionIcon variant="subtle" color="green" size="sm"
+                                                onClick={() => { setTarget(a); openValidate(); }}>
+                                                <IconCircleCheck size={14} stroke={1.5} />
+                                              </ActionIcon>
+                                            </Tooltip>
+                                            <Tooltip label="Rejeter" position="top">
+                                              <ActionIcon variant="subtle" color="red" size="sm"
+                                                onClick={() => { setTarget(a); openReject(); }}>
+                                                <IconCircleX size={14} stroke={1.5} />
+                                              </ActionIcon>
+                                            </Tooltip>
+                                          </>
+                                        )}
+                                      </Group>
+                                    </Table.Td>
+                                  </Table.Tr>
+                                ))
+                              )}
+                            </Table.Tbody>
+                          </Table>
+                        </ScrollArea>
+
+                        {totalPages > 1 && (
+                          <Group justify="center">
+                            <Pagination value={page} onChange={setPage} total={totalPages} size="sm" color="navy" />
+                          </Group>
+                        )}
+                      </Stack>
+                    </Card>
+                </Stack>
+              )}
+            </Stack>
+          </Group>
+        )}
+      </Stack>
+
+      <ConfirmModal opened={validateOpen} onClose={closeValidate}
+        title="Valider le stage"
+        message={`Confirmer la validation du stage de ${target?.studentFullName ?? ''} ?`}
+        confirmLabel="Valider" confirmColor="green"
+        onConfirm={handleValidateOne} loading={validatingOne}
+      />
+      <ConfirmModal opened={rejectOpen} onClose={closeReject}
+        title="Rejeter le stage"
+        message={`Rejeter le stage de ${target?.studentFullName ?? ''} ?`}
+        confirmLabel="Rejeter" confirmColor="red"
+        onConfirm={handleRejectOne} loading={rejectingOne}
+      />
+    </Container>
+  );
+}

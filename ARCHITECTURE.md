@@ -189,8 +189,16 @@ This means the initial bundle only loads the shell (layout, store, Keycloak). Pa
   /student/history          → HistoryPage
   /student/demands          → DemandsPage ("Bientôt" until Phase 5)
 
-/admin                      → AuthGuard (role: Scolarite | Secretaire)
-  ...                       → (Phase 3)
+/admin                      → AuthGuard (role: Scolarite | Secretaire | SuperUser)
+  /admin/students           → StudentListPage
+  /admin/students/:id       → AdminStudentDetailPage
+  /admin/academic-years     → AcademicYearsPage
+  /admin/levels             → LevelsPage
+  /admin/groups             → GroupsPage
+  /admin/stages             → StagesPage
+  /admin/stages/:id         → StageDetailPage (with ScheduleGridModal)
+  /admin/hospitals          → InfrastructurePage (Centres / Hôpitaux / Services tabs)
+  /admin/assignments        → AssignmentsPage
 
 /employee                   → AuthGuard (role: Employee | Professor)
   ...                       → (Phase 3)

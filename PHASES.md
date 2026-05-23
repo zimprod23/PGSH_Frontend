@@ -168,8 +168,16 @@ Separate layouts and pages per admin role. All behind `AuthGuard`.
   - `StageFormDrawer`: right-side drawer with basic fields + dynamic objectives list (add/remove rows with label, weight, isMandatory)
 - **Route**: `/admin/stages/:id` → `StageDetailPage`
   - Stage info card (duration, coefficient, description) + objectives list (weight badges, mandatory flag)
-  - Cohorts panel: list with student count + rotation count, "Nouvelle cohorte" button → modal
+  - Cohorts panel: cohort cards with student count, slot count badge ("X créneaux" when configured, "Publié" teal badge when published), "Nouvelle cohorte" button → modal
+  - "Grille de planning" button per cohort → `ScheduleGridModal` (90vw wide modal)
   - Delete cohort with confirmation
+  - Publish/unpublish cohort schedule via `usePublishScheduleMutation` / `useUnpublishScheduleMutation`
+- **`ScheduleGridModal`** (`components/ScheduleGridModal.tsx`): full grid view
+  - Columns = StageSlots (P1, P2...) with add/delete slot actions
+  - Rows = Cohorts with publish/unpublish button per row
+  - Cells = `ServicePicker` — Popover with searchable Combobox, shows service name + capacity badge, clear button
+  - Capacity indicator: red text when `occupiedSeats ≥ serviceCapacity`
+  - RTK Query tags: `schedule-${stageId}` — invalidated by all slot/assignment mutations
 - `CreateStageCommand` stray `using System.Windows.Input` removed
 - Nav: new "Formation" group containing Stages
 
@@ -234,3 +242,27 @@ Separate layouts and pages per admin role. All behind `AuthGuard`.
 - E2E tests (Playwright)
 - CI/CD: GitHub Actions lint + build on PR
 - Production environment config, CORS lock-down
+
+---
+
+## 🔲 Phase 8 — Frontend Performance Hardening
+
+**Status: Not started — run after Phase 7, before first large cohort**
+
+Known issues identified during design review.
+
+### High (UX correctness)
+
+- **GlobalLoader fires on all RTK Query requests**: The loading middleware increments `activeRequests` for every RTK Query action including background cache refreshes triggered by `invalidatesTags`. This causes the full-page overlay to flicker on every mutation. Fix: add a `skipGlobalLoader` metadata flag to the RTK Query base and only increment the counter for requests tagged with it (navigation-level fetches), not for silent background refetches.
+
+### Medium (unnecessary network traffic)
+
+- **`useGetLevelsQuery` fetches `pageSize: 100` unconditionally**: All level selects fetch up to 100 levels at once on every component mount. At current scale (~13 levels) this is fine. When the level catalogue grows, replace with a single `GET /levels?pageSize=200` call cached at the app level (RTK Query `keepUnusedDataFor: Infinity`) rather than per-component fetches.
+
+- **RTK Query tag invalidation audit**: Several mutations use list-level tags (`{ type: 'Student', id: 'LIST' }`) which invalidate and refetch the entire paginated list. Where possible, invalidate only the specific item tag (`{ type: 'Student', id }`) and let the list re-use cached data.
+
+### Low (bundle hygiene)
+
+- **Verify no eager route imports**: Run `vite build --mode analyze` and confirm all page-level components are in separate chunks. Any page imported directly (not via `lazy()`) in `routes/index.tsx` will land in the initial bundle.
+
+- **Attendance endpoint has no pagination**: `GET /service-periods/{periodId}/attendance` returns the full array. Fine for 30-day rotations (~30 records). If rotation durations extend to semesters, add cursor-based pagination matching the `PaginatedResponse<T>` contract already in place.

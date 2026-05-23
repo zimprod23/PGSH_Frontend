@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActionIcon,
   AppShell,
   Avatar,
   Badge,
@@ -12,26 +13,24 @@ import {
   Text,
   Tooltip,
   UnstyledButton,
-  ActionIcon,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconLayoutDashboard,
   IconUser,
-  IconStethoscope,
-  IconTimeline,
-  IconFileText,
-  IconMessage,
+  IconBuildingHospital,
+  IconCalendar,
+  IconClipboardList,
   IconBell,
   IconSearch,
   IconLogout,
 } from '@tabler/icons-react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../common/hooks/useAuth';
+import { Roles } from '../common/constants/roles';
 import { ErrorBoundary } from '../common/components/ErrorBoundary';
 import { PATHS } from '../routes/paths';
-
-// ─── Sidebar nav items from design screenshots ───────────────────────────────
+import { useGetCurrentUserQuery } from '../features/employee/api/employeeApi';
 
 interface NavItem {
   label: string;
@@ -41,16 +40,15 @@ interface NavItem {
   soon?: boolean;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { label: 'Tableau de bord', icon: IconLayoutDashboard, path: PATHS.STUDENT.ROOT,               exact: true  },
-  { label: 'Mon Profil',      icon: IconUser,             path: `${PATHS.STUDENT.ROOT}/profile`               },
-  { label: 'Mes Stages',      icon: IconStethoscope,      path: `${PATHS.STUDENT.ROOT}/stages`                },
-  { label: 'Historique',      icon: IconTimeline,         path: `${PATHS.STUDENT.ROOT}/history`               },
-  { label: 'Demandes',        icon: IconFileText,         path: `${PATHS.STUDENT.ROOT}/demands`,  soon: true   },
-  { label: 'Messages',        icon: IconMessage,          path: '#',                              soon: true   },
-];
+const ROOT = PATHS.EMPLOYEE.ROOT;
 
-// ─── Language switcher data ───────────────────────────────────────────────────
+const NAV_ITEMS: NavItem[] = [
+  { label: 'Tableau de bord', icon: IconLayoutDashboard, path: ROOT,                   exact: true },
+  { label: 'Mon Profil',      icon: IconUser,             path: `${ROOT}/profile`                  },
+  { label: 'Mes Services',    icon: IconBuildingHospital, path: `${ROOT}/services`                },
+  { label: 'Présences',       icon: IconCalendar,         path: `${ROOT}/attendance`,  soon: true  },
+  { label: 'Évaluations',     icon: IconClipboardList,    path: `${ROOT}/evaluations`, soon: true  },
+];
 
 const LANGS = [
   { code: 'FR', flag: '🇫🇷' },
@@ -58,15 +56,17 @@ const LANGS = [
   { code: 'EN', flag: '🇬🇧' },
 ] as const;
 
-// ─── Component ───────────────────────────────────────────────────────────────
-
-export function StudentLayout() {
+export function EmployeeLayout() {
   const [opened, { toggle }] = useDisclosure();
-  const { username, email, logout } = useAuth();
+  const { username, email, logout, hasRole } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const initials = (username ?? email ?? 'U')
+  useGetCurrentUserQuery(); // prefetch on zone entry; profile page reads from cache
+
+  const roleLabel = hasRole(Roles.Professor) ? 'Professeur' : 'Employé';
+
+  const initials = (username ?? email ?? 'E')
     .split(/[\s.@]/)
     .slice(0, 2)
     .map((s) => s[0]?.toUpperCase() ?? '')
@@ -77,9 +77,8 @@ export function StudentLayout() {
       ? location.pathname === path
       : location.pathname.startsWith(path) && path !== '#';
 
-  // Derive breadcrumb page name from the active nav item
   const pageLabel =
-    NAV_ITEMS.find((n) => isActive(n.path, (n as { exact?: boolean }).exact))?.label ?? 'PGSH';
+    NAV_ITEMS.find((n) => isActive(n.path, n.exact))?.label ?? 'PGSH';
 
   return (
     <AppShell
@@ -88,14 +87,8 @@ export function StudentLayout() {
       padding={0}
     >
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <AppShell.Header
-        style={{
-          background: '#ffffff',
-          borderBottom: '1px solid #E2E8F0',
-        }}
-      >
+      <AppShell.Header style={{ background: '#ffffff', borderBottom: '1px solid #E2E8F0' }}>
         <Group h="100%" px="md" justify="space-between">
-          {/* Left: burger (mobile) + breadcrumb */}
           <Group gap="xs">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
             <Group gap={6} visibleFrom="sm">
@@ -105,21 +98,17 @@ export function StudentLayout() {
             </Group>
           </Group>
 
-          {/* Right: search + notifications + language + avatar */}
           <Group gap="xs">
             <Tooltip label="Rechercher" position="bottom">
               <ActionIcon variant="subtle" color="gray" size="md" radius="md">
                 <IconSearch size={18} stroke={1.5} />
               </ActionIcon>
             </Tooltip>
-
             <Tooltip label="Notifications" position="bottom">
               <ActionIcon variant="subtle" color="gray" size="md" radius="md">
                 <IconBell size={18} stroke={1.5} />
               </ActionIcon>
             </Tooltip>
-
-            {/* Language switcher — i18n wired in Phase 1b */}
             <Group gap={2} visibleFrom="xs">
               {LANGS.map((lang) => (
                 <UnstyledButton
@@ -139,7 +128,6 @@ export function StudentLayout() {
                 </UnstyledButton>
               ))}
             </Group>
-
             <Avatar
               size={32}
               radius="xl"
@@ -184,23 +172,14 @@ export function StudentLayout() {
           </Avatar>
           <Stack gap={0}>
             <Text size="sm" fw={800} c="navy.6" lh={1.2}>PGSH</Text>
-            <Text size={rem(11)} c="dimmed" lh={1.2}>Stages Hospitaliers</Text>
+            <Text size={rem(11)} c="dimmed" lh={1.2}>Espace Employé</Text>
           </Stack>
         </Group>
 
-        {/* Menu label */}
-        <Text
-          size="xs"
-          fw={600}
-          c="dimmed"
-          tt="uppercase"
-          mb="xs"
-          style={{ letterSpacing: rem(0.8) }}
-        >
+        <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs" style={{ letterSpacing: rem(0.8) }}>
           Menu
         </Text>
 
-        {/* Nav items */}
         <AppShell.Section grow>
           <Stack gap={2}>
             {NAV_ITEMS.map((item) => {
@@ -210,9 +189,7 @@ export function StudentLayout() {
                   key={item.label}
                   label={
                     <Group justify="space-between" wrap="nowrap">
-                      <Text size="sm" fw={active ? 600 : 500} inherit>
-                        {item.label}
-                      </Text>
+                      <Text size="sm" fw={active ? 600 : 500} inherit>{item.label}</Text>
                       {item.soon && (
                         <Badge size="xs" variant="light" color="warning" radius="xl">
                           Bientôt
@@ -221,16 +198,11 @@ export function StudentLayout() {
                     </Group>
                   }
                   leftSection={
-                    <item.icon
-                      size={18}
-                      stroke={1.5}
-                      color={active ? '#0F4C81' : '#94A3B8'}
-                    />
+                    <item.icon size={18} stroke={1.5} color={active ? '#0F4C81' : '#94A3B8'} />
                   }
                   active={active}
                   onClick={() => {
-                    if (item.path !== '#') navigate(item.path);
-                    if (opened) toggle(); // eslint-disable-line
+                    if (!item.soon) { navigate(item.path); if (opened) toggle(); }
                   }}
                   styles={{
                     root: {
@@ -238,9 +210,6 @@ export function StudentLayout() {
                       padding: `${rem(8)} ${rem(10)}`,
                       backgroundColor: active ? '#E8F1FB' : 'transparent',
                       color: active ? '#0F4C81' : '#475569',
-                      '&:hover': {
-                        backgroundColor: active ? '#E8F1FB' : '#F8FAFC',
-                      },
                     },
                   }}
                 />
@@ -249,12 +218,8 @@ export function StudentLayout() {
           </Stack>
         </AppShell.Section>
 
-        {/* Bottom user card */}
-        <Box
-          mt="auto"
-          pt="md"
-          style={{ borderTop: '1px solid #E2E8F0' }}
-        >
+        {/* User card */}
+        <Box mt="auto" pt="md" style={{ borderTop: '1px solid #E2E8F0' }}>
           <Group justify="space-between" wrap="nowrap">
             <Group gap="sm" style={{ overflow: 'hidden', flex: 1 }}>
               <Avatar
@@ -271,12 +236,8 @@ export function StudentLayout() {
                 {initials}
               </Avatar>
               <Stack gap={0} style={{ overflow: 'hidden' }}>
-                <Text size="sm" fw={600} truncate>
-                  {username ?? 'Étudiant'}
-                </Text>
-                <Text size="xs" c="dimmed" truncate>
-                  Étudiant
-                </Text>
+                <Text size="sm" fw={600} truncate>{username ?? roleLabel}</Text>
+                <Text size="xs" c="dimmed" truncate>{roleLabel}</Text>
               </Stack>
             </Group>
             <Tooltip label="Se déconnecter" position="top">
@@ -288,7 +249,7 @@ export function StudentLayout() {
         </Box>
       </AppShell.Navbar>
 
-      {/* ── Main content ───────────────────────────────────────────────────── */}
+      {/* ── Main ───────────────────────────────────────────────────────────── */}
       <AppShell.Main style={{ background: '#F8FAFC', minHeight: '100vh' }}>
         <Box p={{ base: 'md', sm: 'lg', md: 'xl' }}>
           <ErrorBoundary>

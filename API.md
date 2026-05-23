@@ -351,22 +351,149 @@ interface LevelResponse {
 
 #### GET `/cohorts/{id}`
 ```typescript
-interface CohortResponse {
+interface CohortDetailResponse {
   id: number;
   stageId: number;
   stageName: string;
+  academicGroupId: number;
+  academicGroupLabel: string;
   label: string;
-  rotationTemplateCount: number;
   studentAssignmentCount: number;
+  isSchedulePublished: boolean;
+  slotAssignments: CohortSlotDetail[];
+}
+
+interface CohortSlotDetail {
+  assignmentId: number;
+  stageSlotId: number;
+  periodNumber: number;
+  periodLabel: string | null;
+  startDate: string;        // YYYY-MM-DD
+  endDate: string;          // YYYY-MM-DD
+  serviceId: number;
+  serviceName: string;
+  hospitalName: string;
 }
 ```
 
 #### GET `/stages/{stageId}/cohorts`
 Returns list of cohorts for a stage.
+```typescript
+interface CohortResponse {
+  id: number;
+  stageId: number;
+  stageName: string;
+  academicGroupId: number;
+  academicGroupLabel: string;
+  label: string;
+  studentAssignmentCount: number;
+  slotAssignmentCount: number;
+  isSchedulePublished: boolean;
+  academicYearId: number;
+  academicYearLabel: string;
+}
+```
 
 #### POST `/cohorts` — `CreateCohortCommand` body
 #### PUT `/cohorts/{id}` — `UpdateCohortCommand` body
 #### DELETE `/cohorts/{id}` — `204 No Content`
+
+#### POST `/cohorts/{id}/publish-schedule`
+Creates `ServicePeriod` records for each student in the cohort × each `CohortSlotAssignment`. Runs capacity check (sum of students per StageSlot × Service ≤ Service.Capacity).
+Response: `204 No Content`
+
+Errors: `Schedule.NotConfigured` (no slot assignments), `Schedule.AlreadyPublished`, `Schedule.CapacityExceeded`
+
+#### DELETE `/cohorts/{id}/publish-schedule`
+Removes all ServicePeriods created by the published schedule (where `CohortSlotAssignmentId != null`).
+Response: `204 No Content`
+
+Error: `Schedule.NotPublished`
+
+---
+
+### Stage Schedule Grid
+
+#### GET `/stages/{stageId}/schedule`
+Returns the full schedule grid for a stage — all slots (columns) and cohorts (rows) with their service assignments.
+```typescript
+interface StageScheduleResponse {
+  stageId: number;
+  slots: StageSlotResponse[];
+  cohorts: CohortScheduleRow[];
+}
+
+interface StageSlotResponse {
+  id: number;
+  periodNumber: number;
+  label: string | null;
+  startDate: string;    // YYYY-MM-DD
+  endDate: string;      // YYYY-MM-DD
+}
+
+interface CohortScheduleRow {
+  cohortId: number;
+  cohortLabel: string;
+  academicGroupId: number;
+  academicGroupLabel: string;
+  studentCount: number;
+  isSchedulePublished: boolean;
+  cells: (SlotCellResponse | null)[];   // one entry per slot, null if unassigned
+}
+
+interface SlotCellResponse {
+  assignmentId: number;
+  stageSlotId: number;
+  serviceId: number;
+  serviceName: string;
+  hospitalName: string;
+  serviceCapacity: number;
+  occupiedSeats: number;   // students already placed here across all cohorts
+}
+```
+
+#### POST `/stages/{stageId}/slots`
+Create a new time period column.
+```typescript
+interface CreateStageSlotRequest {
+  periodNumber: number;
+  label?: string;
+  startDate: string;    // YYYY-MM-DD
+  endDate: string;      // YYYY-MM-DD
+}
+// Response: 201 Created, body: slot id (number)
+```
+Error: `Schedule.DuplicatePeriodNumber`
+
+#### PUT `/stages/{stageId}/slots/{slotId}`
+Update a slot's label and dates (`periodNumber` is immutable after creation).
+```typescript
+interface UpdateStageSlotRequest {
+  label?: string;
+  startDate: string;
+  endDate: string;
+}
+// Response: 204 No Content
+```
+
+#### DELETE `/stages/{stageId}/slots/{slotId}`
+Delete a slot and all its `CohortSlotAssignment` cells (cascade).
+Response: `204 No Content`
+
+#### PUT `/stages/{stageId}/slots/{slotId}/cohorts/{cohortId}`
+Set (or update) the service assigned to this cohort in this slot.
+```typescript
+interface SetCohortSlotAssignmentRequest {
+  serviceId: number;
+}
+// Response: 201 Created (new) or 204 No Content (update), body: assignment id (number)
+```
+Error: `Schedule.AlreadyPublished` (cannot change after publishing)
+
+#### DELETE `/stages/{stageId}/slots/{slotId}/cohorts/{cohortId}`
+Clear the service assignment for this cohort/slot cell.
+Response: `204 No Content`
+Error: `Schedule.AlreadyPublished`
 
 ---
 

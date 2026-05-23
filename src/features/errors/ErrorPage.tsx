@@ -1,108 +1,79 @@
+import { isRouteErrorResponse, useRouteError, useNavigate } from 'react-router-dom';
 import {
-  isRouteErrorResponse,
-  useRouteError,
-  useNavigate,
-} from "react-router-dom";
-import {
-  Title,
-  Text,
-  Button,
-  Container,
-  Group,
-  Stack,
-  Box,
-  Paper,
-  ThemeIcon,
-  rem,
-} from "@mantine/core";
-import { IconAlertTriangle, IconSearch, IconLock } from "@tabler/icons-react";
+  Box, Button, Container, Group, Paper,
+  Stack, Text, ThemeIcon, Title, rem,
+} from '@mantine/core';
+import { IconAlertTriangle, IconSearch } from '@tabler/icons-react';
 
-interface ErrorPageProps {
-  status?: "403" | "404" | "500" | (string & {});
-}
-
-export function ErrorPage({ status }: ErrorPageProps) {
+export function ErrorPage() {
   const error = useRouteError();
   const navigate = useNavigate();
 
-  console.error(error);
+  const is404 = isRouteErrorResponse(error) && error.status === 404;
 
-  let title = "Oups !";
-  let description = "Une erreur inattendue est survenue.";
-  let code: string = status || "500";
-  let Icon = IconAlertTriangle;
+  const config = is404
+    ? {
+        code:        '404',
+        title:       'Page introuvable',
+        description: "La page que vous cherchez n'existe pas ou a été déplacée.",
+        icon:        IconSearch,
+        iconColor:   'navy' as const,
+        accent:      '#0F4C81',
+        bg:          'radial-gradient(circle at top left, #E8F1FB 0%, #F8FAFC 60%, #fff 100%)',
+      }
+    : {
+        code:        '500',
+        title:       'Erreur inattendue',
+        description: "Une erreur inattendue s'est produite. Réessayez ou contactez le support.",
+        icon:        IconAlertTriangle,
+        iconColor:   'red' as const,
+        accent:      '#EF4444',
+        bg:          'radial-gradient(circle at top left, #FEF2F2 0%, #F8FAFC 60%, #fff 100%)',
+      };
 
-  if (isRouteErrorResponse(error)) {
-    code = error.status.toString();
-    if (error.status === 404) {
-      title = "Page Introuvable";
-      description = "Désolé, nous ne trouvons pas la page que vous cherchez.";
-      Icon = IconSearch;
-    }
-  } else if (code === "403") {
-    title = "Espace Restreint";
-    description = "Cet espace est réservé aux étudiants enregistrés.";
-    Icon = IconLock;
-  }
+  const Icon = config.icon;
 
   return (
     <Box
       style={{
-        height: "100dvh",
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        // Consistent Background for both Layout and Global Catch
-        background:
-          "radial-gradient(circle at top left, #f0f7ff 0%, #ffffff 100%)",
+        minHeight: '100dvh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: config.bg,
       }}
     >
-      <Container size="xs" w="100%">
+      <Container size="xs">
         <Paper
-          shadow="xl"
+          shadow="md"
           radius="lg"
-          p={rem(40)}
+          p="xl"
           withBorder
-          style={{
-            backgroundColor: "white",
-            borderTop: `${rem(4)} solid #228be6`, // Your primary blue
-          }}
+          style={{ borderTop: `3px solid ${config.accent}` }}
         >
           <Stack align="center" gap="xl">
-            <ThemeIcon
-              variant="gradient"
-              size={80}
-              radius={80}
-              gradient={{ from: "blue", to: "cyan" }} // Your brand gradient
-            >
-              <Icon style={{ width: rem(40), height: rem(40) }} />
+            <ThemeIcon size={64} radius="xl" variant="light" color={config.iconColor}>
+              <Icon style={{ width: rem(32), height: rem(32) }} stroke={1.5} />
             </ThemeIcon>
 
-            <Stack gap={5} align="center">
-              <Text fw={800} size="sm" c="blue.6" style={{ letterSpacing: 1 }}>
-                ERREUR {code}
+            <Stack gap={4} align="center">
+              <Text
+                size="xs"
+                fw={700}
+                c={is404 ? 'navy.6' : 'red.6'}
+                tt="uppercase"
+                style={{ letterSpacing: '1px' }}
+              >
+                Erreur {config.code}
               </Text>
-              <Title order={1} ta="center" size="h2">
-                {title}
-              </Title>
+              <Title order={2} ta="center">{config.title}</Title>
             </Stack>
 
-            <Text c="dimmed" ta="center" size="md">
-              {description}
-            </Text>
+            <Text c="dimmed" ta="center" maw={340}>{config.description}</Text>
 
-            <Group grow w="100%" mt="md">
-              <Button variant="default" onClick={() => navigate(-1)}>
-                Retour
-              </Button>
-              <Button
-                variant="gradient"
-                gradient={{ from: "blue", to: "cyan" }}
-                onClick={() => navigate("/")}
-              >
-                Accueil
-              </Button>
+            <Group justify="center">
+              <Button variant="default" onClick={() => navigate(-1)}>Retour</Button>
+              <Button color="navy" onClick={() => navigate('/')}>Accueil</Button>
             </Group>
           </Stack>
         </Paper>

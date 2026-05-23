@@ -2,9 +2,11 @@ import { createBrowserRouter } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { Loader, Center } from '@mantine/core';
 import { PATHS } from './paths';
+import { Roles } from '../common/constants/roles';
 
 import { StudentLayout }    from '../layouts/StudentLayout';
 import { AdminLayout }      from '../layouts/AdminLayout';
+import { EmployeeLayout }   from '../layouts/EmployeeLayout';
 import { SimpleLayout }     from '../layouts/SimpleLayout';
 import { AuthGuard }        from '../common/components/AuthGuard';
 
@@ -12,6 +14,7 @@ import { ErrorPage }        from '../features/errors/ErrorPage';
 import { LandingPage }      from '../features/public/pages/LandingPage';
 import { AboutPage }        from '../features/public/pages/AboutPage';
 import { UnauthorizedPage } from '../features/errors/UnauthorizedPage';
+import { NoProfilePage }    from '../features/errors/NoProfilePage';
 
 // ─── Lazy-loaded student pages ────────────────────────────────────────────────
 const DashboardHomePage = lazy(() => import('../features/student/pages/DashboardHomePage'));
@@ -28,12 +31,18 @@ const AdminStudentDetailPage  = lazy(() => import('../features/admin/pages/stude
 const AcademicYearsPage       = lazy(() => import('../features/admin/pages/AcademicYearsPage'));
 const LevelsPage              = lazy(() => import('../features/admin/pages/LevelsPage'));
 const GroupsPage              = lazy(() => import('../features/admin/pages/GroupsPage'));
+const GroupDetailPage         = lazy(() => import('../features/admin/pages/GroupDetailPage'));
 const StagesPage              = lazy(() => import('../features/admin/pages/StagesPage'));
 const StageDetailPage         = lazy(() => import('../features/admin/pages/StageDetailPage'));
 const InfrastructurePage      = lazy(() => import('../features/admin/pages/InfrastructurePage'));
+const EmployeesPage           = lazy(() => import('../features/admin/pages/EmployeesPage'));
+const AttendancePage          = lazy(() => import('../features/admin/pages/AttendancePage'));
+const AssignmentsPage         = lazy(() => import('../features/admin/pages/AssignmentsPage'));
 
 // ─── Lazy-loaded employee pages ───────────────────────────────────────────────
-const EmployeePage = lazy(() => import('../features/employee/pages/EmployeePage'));
+const EmployeeDashboardPage  = lazy(() => import('../features/employee/pages/EmployeeDashboardPage'));
+const EmployeeProfilePage    = lazy(() => import('../features/employee/pages/EmployeeProfilePage'));
+const EmployeeServicesPage   = lazy(() => import('../features/employee/pages/EmployeeServicesPage'));
 
 // ─── Suspense fallback ────────────────────────────────────────────────────────
 const PageLoader = () => (
@@ -57,7 +66,7 @@ export const router = createBrowserRouter([
       {
         path: PATHS.STUDENT.ROOT,
         element: (
-          <AuthGuard requiredRole="Student">
+          <AuthGuard requiredRole={Roles.Student}>
             <StudentLayout />
           </AuthGuard>
         ),
@@ -80,7 +89,7 @@ export const router = createBrowserRouter([
       {
         path: PATHS.ADMIN.ROOT,
         element: (
-          <AuthGuard requiredRole={['Scolarite', 'SuperUser', 'Secretaire']}>
+          <AuthGuard requiredRole={[Roles.Scolarite, Roles.SuperUser, Roles.Secretaire]}>
             <AdminLayout />
           </AuthGuard>
         ),
@@ -90,7 +99,13 @@ export const router = createBrowserRouter([
           { path: PATHS.ADMIN.STUDENT_DETAIL,     element: wrap(<AdminStudentDetailPage />)    },
           { path: PATHS.ADMIN.ACADEMIC_YEARS,     element: wrap(<AcademicYearsPage />)         },
           { path: PATHS.ADMIN.LEVELS,             element: wrap(<LevelsPage />)                },
-          { path: PATHS.ADMIN.GROUPS,             element: wrap(<GroupsPage />)                },
+          {
+            path: PATHS.ADMIN.GROUPS,
+            children: [
+              { index: true, element: wrap(<GroupsPage />)       },
+              { path: ':id',  element: wrap(<GroupDetailPage />) },
+            ],
+          },
           {
             path: PATHS.ADMIN.STAGES,
             children: [
@@ -98,18 +113,34 @@ export const router = createBrowserRouter([
               { path: ':id',  element: wrap(<StageDetailPage />) },
             ],
           },
-          { path: PATHS.ADMIN.HOSPITALS, element: wrap(<InfrastructurePage />) },
+          { path: PATHS.ADMIN.HOSPITALS,    element: wrap(<InfrastructurePage />) },
+          { path: PATHS.ADMIN.EMPLOYEES,   element: wrap(<EmployeesPage />)      },
+          { path: PATHS.ADMIN.ATTENDANCE,  element: wrap(<AttendancePage />)     },
+          { path: PATHS.ADMIN.ASSIGNMENTS, element: wrap(<AssignmentsPage />)    },
         ],
       },
 
-      // ── Employee zone (coming soon — no auth required) ───────────────────
-      { path: PATHS.EMPLOYEE, element: wrap(<EmployeePage />) },
+      // ── Employee zone ─────────────────────────────────────────────────────
+      {
+        path: PATHS.EMPLOYEE.ROOT,
+        element: (
+          <AuthGuard requiredRole={[Roles.Employee, Roles.Professor]}>
+            <EmployeeLayout />
+          </AuthGuard>
+        ),
+        children: [
+          { index: true,                           element: wrap(<EmployeeDashboardPage />)  },
+          { path: PATHS.EMPLOYEE.PROFILE,          element: wrap(<EmployeeProfilePage />)   },
+          { path: PATHS.EMPLOYEE.SERVICES,         element: wrap(<EmployeeServicesPage />)  },
+        ],
+      },
 
       // ── Utility ───────────────────────────────────────────────────────────
       {
         element: <SimpleLayout />,
         children: [
           { path: PATHS.UNAUTHORIZED, element: <UnauthorizedPage /> },
+          { path: PATHS.NO_PROFILE,   element: <NoProfilePage />    },
         ],
       },
     ],

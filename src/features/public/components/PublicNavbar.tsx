@@ -69,7 +69,7 @@ export function PublicNavbar() {
             <Button variant="default" onClick={() => navigate(PATHS.STUDENT.ROOT)}>
               Espace Étudiant
             </Button>
-            <Button color="navy" onClick={() => navigate(PATHS.EMPLOYEE)}>
+            <Button color="navy" onClick={() => navigate(PATHS.EMPLOYEE.ROOT)}>
               Espace Employé
             </Button>
           </Group>
@@ -90,7 +90,7 @@ export function PublicNavbar() {
           <Button variant="outline" color="navy" fullWidth onClick={() => { close(); navigate(PATHS.STUDENT.ROOT); }}>
             Espace Étudiant
           </Button>
-          <Button color="navy" fullWidth onClick={() => { close(); navigate(PATHS.EMPLOYEE); }}>
+          <Button color="navy" fullWidth onClick={() => { close(); navigate(PATHS.EMPLOYEE.ROOT); }}>
             Espace Employé
           </Button>
         </Stack>

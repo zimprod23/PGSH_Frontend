@@ -1,7 +1,11 @@
 import { apiSlice } from '../../../app/apiSlice';
 import type { PaginatedResponse } from '../../../common/types';
-import type { StudentResponse, StudentHistoryResponse, StudentRegistrationResponse } from '../types/student.types';
-import type { StageSummaryResponse, GetStagesQuery } from '../types/stage.types';
+import type {
+  StudentResponse, StudentHistoryResponse, StudentRegistrationResponse,
+  InternshipAssignmentSummary, InternshipAssignmentDetail,
+  AttendanceRecord, ServiceEvaluationDetail,
+} from '../types/student.types';
+import type { StageSummaryResponse, StageResponse, GetStagesQuery } from '../types/stage.types';
 
 export const studentApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
@@ -29,11 +33,41 @@ export const studentApiSlice = apiSlice.injectEndpoints({
     }),
 
     getStages: builder.query<PaginatedResponse<StageSummaryResponse>, GetStagesQuery>({
-      query: (params) => ({
-        url: '/stages',
-        params,
-      }),
+      query: (params) => ({ url: '/stages', params }),
       providesTags: ['Stage'],
+    }),
+
+    getStageById: builder.query<StageResponse, number>({
+      query: (id) => `/stages/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'Stage' as const, id }],
+    }),
+
+    getMyAssignments: builder.query<
+      PaginatedResponse<InternshipAssignmentSummary>,
+      { registrationId: string; stageId?: number; pageSize?: number }
+    >({
+      query: ({ registrationId, stageId, pageSize = 50 }) => ({
+        url: '/internship-assignments',
+        params: { registrationId, stageId, pageSize },
+      }),
+      providesTags: (_r, _e, { registrationId }) => [
+        { type: 'Registration' as const, id: `assignments-${registrationId}` },
+      ],
+    }),
+
+    getAssignmentById: builder.query<InternshipAssignmentDetail, string>({
+      query: (id) => `/internship-assignments/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'Registration' as const, id: `assignment-${id}` }],
+    }),
+
+    getAttendanceByPeriod: builder.query<AttendanceRecord[], string>({
+      query: (periodId) => `/service-periods/${periodId}/attendance`,
+      providesTags: (_r, _e, id) => [{ type: 'Registration' as const, id: `attendance-${id}` }],
+    }),
+
+    getEvaluationByPeriod: builder.query<ServiceEvaluationDetail, string>({
+      query: (periodId) => `/service-periods/${periodId}/evaluation`,
+      providesTags: (_r, _e, id) => [{ type: 'Registration' as const, id: `eval-${id}` }],
     }),
   }),
 });
@@ -44,4 +78,9 @@ export const {
   useGetStudentHistoryQuery,
   useGetStudentRegistrationsQuery,
   useGetStagesQuery,
+  useGetStageByIdQuery,
+  useGetMyAssignmentsQuery,
+  useGetAssignmentByIdQuery,
+  useGetAttendanceByPeriodQuery,
+  useGetEvaluationByPeriodQuery,
 } = studentApiSlice;

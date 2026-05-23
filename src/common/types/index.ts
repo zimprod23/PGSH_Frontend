@@ -21,7 +21,10 @@ export type HistoryType =
   | 'ValidationStage'
   | 'NonValidation'
   | 'Fraud'
-  | 'Revalidation';
+  | 'Revalidation'
+  | 'GroupTransfer'
+  | 'CohortTransfer'
+  | 'StatusChange';
 
 export type HospitalType = 'None' | 'Autre' | 'Spetialité' | 'Central' | 'CHU' | 'LHOMA';
 
@@ -60,8 +63,8 @@ export interface ApiError {
 // ─── Bulk operations ─────────────────────────────────────────────────────────
 
 export interface BulkItemResult<TId, TResult> {
-  id: TId;
-  result: TResult;
+  identifier: TId;
+  data: TResult;
   isSuccess: boolean;
   error?: ApiError;
 }

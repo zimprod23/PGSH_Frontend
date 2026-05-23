@@ -4,6 +4,8 @@ import {
   Button,
   Card,
   Container,
+  Divider,
+  Drawer,
   Group,
   Modal,
   NumberInput,
@@ -22,7 +24,7 @@ import {
   rem,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
-import { IconBuildingFactory2, IconBuildingHospital, IconPencil, IconPlus, IconStethoscope, IconTrash } from '@tabler/icons-react';
+import { IconBuildingFactory2, IconBuildingHospital, IconPencil, IconPlus, IconStarFilled, IconStethoscope, IconTrash, IconUsers } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 import {
   useGetCentersQuery, useCreateCenterMutation, useUpdateCenterMutation, useDeleteCenterMutation,
@@ -30,8 +32,14 @@ import {
   useGetServicesQuery, useCreateServiceMutation, useUpdateServiceMutation, useDeleteServiceMutation,
   useGetCentersQuery as useAllCenters,
   useGetHospitalsQuery as useAllHospitals,
+  useGetServiceByIdQuery,
+  useGetEmployeesQuery,
+  useAssignStaffMutation,
+  useRemoveStaffMutation,
+  useAssignChefMutation,
+  useRemoveChefMutation,
 } from '../api/adminApi';
-import type { CenterSummaryResponse, HospitalSummaryResponse, ServiceSummaryResponse } from '../types/admin.types';
+import type { CenterSummaryResponse, HospitalSummaryResponse, ServiceSummaryResponse, StaffMemberResponse } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 
 const PAGE_SIZE = 15;
@@ -265,6 +273,143 @@ function HospitalsTab() {
   );
 }
 
+// ─── Staff management drawer ──────────────────────────────────────────────────
+
+function StaffDrawer({ serviceId, onClose }: { serviceId: number | null; onClose: () => void }) {
+  const notify = useNotify();
+  const opened = serviceId !== null;
+
+  const { data: service, isLoading: loadingService } = useGetServiceByIdQuery(serviceId!, { skip: serviceId === null });
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [debouncedSearch] = useDebouncedValue(employeeSearch, 300);
+  const { data: employees } = useGetEmployeesQuery({ searchTerm: debouncedSearch || undefined, pageSize: 30 }, { skip: !opened });
+
+  const [assignStaff,  { isLoading: assigning }]  = useAssignStaffMutation();
+  const [removeStaff]                              = useRemoveStaffMutation();
+  const [assignChef,   { isLoading: settingChef }] = useAssignChefMutation();
+  const [removeChef]                               = useRemoveChefMutation();
+
+  const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+
+  useEffect(() => { if (!opened) { setEmployeeSearch(''); setSelectedEmployee(null); } }, [opened]);
+
+  const currentStaffIds = new Set((service?.staff ?? []).map((s) => s.id));
+  const employeeOptions = (employees?.items ?? [])
+    .filter((e) => !currentStaffIds.has(e.id))
+    .map((e) => ({ value: e.id, label: `${e.firstName} ${e.lastName}${e.ppr ? ` — ${e.ppr}` : ''}` }));
+
+  const handleAdd = async () => {
+    if (!selectedEmployee || !serviceId) return;
+    try { await assignStaff({ serviceId, employeeId: selectedEmployee }).unwrap(); setSelectedEmployee(null); notify.success('Personnel ajouté'); }
+    catch { notify.error('Erreur lors de l\'ajout'); }
+  };
+
+  const handleRemove = async (member: StaffMemberResponse) => {
+    if (!serviceId) return;
+    try { await removeStaff({ serviceId, employeeId: member.id }).unwrap(); notify.success('Personnel retiré'); }
+    catch { notify.error('Impossible de retirer ce membre'); }
+  };
+
+  const handleSetChef = async (member: StaffMemberResponse) => {
+    if (!serviceId) return;
+    try { await assignChef({ serviceId, employeeId: member.id }).unwrap(); notify.success('Chef de service mis à jour'); }
+    catch { notify.error('Erreur lors de l\'assignation'); }
+  };
+
+  const handleRemoveChef = async () => {
+    if (!serviceId) return;
+    try { await removeChef(serviceId).unwrap(); notify.success('Chef de service retiré'); }
+    catch { notify.error('Erreur lors de la suppression'); }
+  };
+
+  const chefId = service?.serviceChef?.id ?? null;
+
+  return (
+    <Drawer
+      opened={opened}
+      onClose={onClose}
+      title={service ? `Personnel — ${service.name}` : 'Personnel'}
+      position="right"
+      size="md"
+      radius="lg"
+      padding="lg"
+    >
+      <Stack gap="lg">
+        {/* Add staff */}
+        <Stack gap="xs">
+          <Text size="sm" fw={600}>Ajouter un membre</Text>
+          <Group gap="xs">
+            <Select
+              placeholder="Rechercher un employé…"
+              data={employeeOptions}
+              value={selectedEmployee}
+              onChange={setSelectedEmployee}
+              searchable
+              searchValue={employeeSearch}
+              onSearchChange={setEmployeeSearch}
+              radius="md"
+              style={{ flex: 1 }}
+              nothingFoundMessage="Aucun résultat"
+            />
+            <Button color="navy" radius="md" loading={assigning} disabled={!selectedEmployee} onClick={handleAdd}>
+              Ajouter
+            </Button>
+          </Group>
+        </Stack>
+
+        <Divider />
+
+        {/* Current staff */}
+        <Stack gap="xs">
+          <Text size="sm" fw={600}>Personnel actuel ({service?.staff.length ?? 0})</Text>
+          {loadingService ? (
+            <Stack gap="xs">{[0,1,2].map((i) => <Skeleton key={i} height={40} radius="md" />)}</Stack>
+          ) : (service?.staff ?? []).length === 0 ? (
+            <Text size="sm" c="dimmed" ta="center" py="md">Aucun personnel affecté</Text>
+          ) : (
+            <Stack gap={6}>
+              {(service?.staff ?? []).map((member) => {
+                const isChef = member.id === chefId;
+                return (
+                  <Group key={member.id} justify="space-between" p="xs" style={{ borderRadius: rem(8), background: isChef ? '#FFF9E6' : '#F8FAFC', border: `1px solid ${isChef ? '#F59E0B' : '#E2E8F0'}` }}>
+                    <Group gap="xs">
+                      {isChef && <IconStarFilled size={14} color="#F59E0B" />}
+                      <Stack gap={0}>
+                        <Text size="sm" fw={500}>{member.firstName} {member.lastName}</Text>
+                        <Text size="xs" c="dimmed">{member.grade}{member.ppr ? ` · ${member.ppr}` : ''}</Text>
+                      </Stack>
+                    </Group>
+                    <Group gap={4}>
+                      {isChef ? (
+                        <Tooltip label="Retirer chef">
+                          <ActionIcon variant="light" color="warning" size="sm" radius="md" loading={settingChef} onClick={handleRemoveChef}>
+                            <IconStarFilled size={12} />
+                          </ActionIcon>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip label="Désigner chef de service">
+                          <ActionIcon variant="subtle" color="gray" size="sm" radius="md" loading={settingChef} onClick={() => handleSetChef(member)}>
+                            <IconStarFilled size={12} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
+                      <Tooltip label="Retirer du service">
+                        <ActionIcon variant="subtle" color="red" size="sm" radius="md" onClick={() => handleRemove(member)}>
+                          <IconTrash size={12} stroke={1.5} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
+                  </Group>
+                );
+              })}
+            </Stack>
+          )}
+        </Stack>
+      </Stack>
+    </Drawer>
+  );
+}
+
 // ─── Services tab ─────────────────────────────────────────────────────────────
 
 function ServicesTab() {
@@ -284,6 +429,7 @@ function ServicesTab() {
   const [opened, { open, close }] = useDisclosure(false);
   const [editTarget, setEditTarget] = useState<ServiceSummaryResponse | null>(null);
   const [form, setForm] = useState({ name: '', hospitalId: '', serviceType: 'Medical', specialty: '', capacity: 10, description: '' });
+  const [staffServiceId, setStaffServiceId] = useState<number | null>(null);
 
   const hospitalOptions = allHospitals.items.map((h) => ({ value: String(h.id), label: `${h.name} — ${h.city}` }));
 
@@ -346,6 +492,11 @@ function ServicesTab() {
                 <Table.Td><Text size="sm" c={s.serviceChefName ? undefined : 'dimmed'}>{s.serviceChefName ?? '—'}</Text></Table.Td>
                 <Table.Td>
                   <Group gap={4} justify="flex-end" wrap="nowrap">
+                    <Tooltip label="Gérer le personnel">
+                      <ActionIcon variant="subtle" color="navy" size="sm" radius="md" onClick={() => setStaffServiceId(s.id)}>
+                        <IconUsers size={rem(14)} stroke={1.5} />
+                      </ActionIcon>
+                    </Tooltip>
                     <Tooltip label="Modifier"><ActionIcon variant="subtle" color="gray" size="sm" radius="md" onClick={() => openEdit(s)}><IconPencil size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
                     <Tooltip label="Supprimer"><ActionIcon variant="subtle" color="red" size="sm" radius="md" onClick={() => handleDelete(s)}><IconTrash size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
                   </Group>
@@ -357,6 +508,8 @@ function ServicesTab() {
       </ScrollArea>
 
       {(data?.totalPages ?? 1) > 1 && <Group justify="center"><Pagination value={page} onChange={setPage} total={data!.totalPages} radius="md" size="sm" color="navy" /></Group>}
+
+      <StaffDrawer serviceId={staffServiceId} onClose={() => setStaffServiceId(null)} />
 
       <Modal opened={opened} onClose={close} title={editTarget ? 'Modifier le service' : 'Nouveau service'} radius="lg" size="md">
         <Stack gap="md">

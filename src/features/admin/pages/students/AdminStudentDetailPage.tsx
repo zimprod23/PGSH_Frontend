@@ -16,6 +16,7 @@ import {
   Stack,
   Tabs,
   Text,
+  TextInput,
   ThemeIcon,
   Title,
   Tooltip,
@@ -40,12 +41,14 @@ import {
   IconStar,
   IconTrophy,
   IconPlus,
+  IconPencil,
 } from '@tabler/icons-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useGetStudentByIdQuery, useGetStudentRegistrationsQuery } from '../../../student/api/studentApi';
-import { useUpdateRegistrationMutation, useCreateRegistrationMutation, useGetAcademicYearsQuery, useGetLevelsQuery } from '../../api/adminApi';
+import { useUpdateRegistrationMutation, useCreateRegistrationMutation, useGetAcademicYearsQuery, useGetLevelsQuery, useUpdateStudentMutation } from '../../api/adminApi';
 import type { AcademicProgram, RegistrationStatus } from '../../../../common/types';
+import type { StudentResponse } from '../../../student/types/student.types';
 import { ProfileFieldCell } from '../../../student/components/ProfileFieldCell';
 import { RegistrationBadge } from '../../../student/components/RegistrationBadge';
 import { useNotify } from '../../../../common/hooks/useNotify';
@@ -287,6 +290,180 @@ function RegistrationsTab({
   );
 }
 
+// ─── Edit student modal ───────────────────────────────────────────────────────
+
+const PROGRAM_OPTIONS: { value: AcademicProgram; label: string }[] = [
+  { value: 'Medecine',  label: 'Médecine'   },
+  { value: 'Pharmacie', label: 'Pharmacie'  },
+  { value: 'Master',    label: 'Master'     },
+  { value: 'Doctorat',  label: 'Doctorat'   },
+];
+const BAC_OPTIONS = [
+  { value: 'BacFrançais', label: 'Bac Français'   },
+  { value: 'BacMission',  label: 'Bac Mission'    },
+  { value: 'MathA',       label: 'Math A'         },
+  { value: 'MathB',       label: 'Math B'         },
+  { value: 'Physique',    label: 'Physique'        },
+  { value: 'SVT',         label: 'SVT'            },
+  { value: 'Etrangaire',  label: 'Étranger'       },
+];
+const CIVIL_OPTIONS     = [{ value: 'Civil',     label: 'Civil'    }, { value: 'Militaire', label: 'Militaire' }];
+const NATIONAL_OPTIONS  = [{ value: 'Marocaine', label: 'Marocaine' }, { value: 'Etrangaire', label: 'Étrangère' }];
+const GENDER_OPTIONS    = [{ value: 'Male', label: 'Homme' }, { value: 'Female', label: 'Femme' }];
+
+type StudentForm = {
+  firstName: string; lastName: string; email: string; cin: string;
+  cne: string; appogee: string; accessGrade: number | ''; ranking: number | '';
+  academicProgram: AcademicProgram; bacSeries: string; bacYear: string;
+  gender: string; civilStatus: string; nationalityStatus: string;
+  dateOfBirth: string; placeOfBirth: string; fullAddress: string;
+};
+
+function validateStudent(form: StudentForm): Partial<Record<keyof StudentForm, string>> {
+  const errs: Partial<Record<keyof StudentForm, string>> = {};
+  if (!form.email.trim()) {
+    errs.email = 'Email requis';
+  } else if (!form.email.trim().endsWith('@um5.ac.ma')) {
+    errs.email = 'Doit se terminer par @um5.ac.ma';
+  }
+  if (!form.firstName.trim()) errs.firstName = 'Prénom requis';
+  if (!form.lastName.trim())  errs.lastName  = 'Nom requis';
+  if (!form.cne.trim()) {
+    errs.cne = 'CNE requis';
+  } else if (!/^[A-Z]\d{6,12}$/.test(form.cne.trim())) {
+    errs.cne = 'Format : lettre majuscule + 6 à 12 chiffres';
+  }
+  if (!form.appogee.trim()) {
+    errs.appogee = 'Apogée requis';
+  } else if (!/^\d+$/.test(form.appogee.trim())) {
+    errs.appogee = 'Numérique uniquement';
+  }
+  if (form.accessGrade === '' || Number(form.accessGrade) < 10) {
+    errs.accessGrade = 'Note d\'accès ≥ 10';
+  }
+  if (form.bacYear.trim() && !/^\d{4}$/.test(form.bacYear.trim())) {
+    errs.bacYear = '4 chiffres requis';
+  }
+  return errs;
+}
+
+function EditStudentModal({ opened, onClose, student }: { opened: boolean; onClose: () => void; student: StudentResponse }) {
+  const notify = useNotify();
+  const [updateStudent, { isLoading }] = useUpdateStudentMutation();
+  const [errors, setErrors] = useState<Partial<Record<keyof StudentForm, string>>>({});
+
+  const [form, setForm] = useState<StudentForm>({
+    firstName: student.firstName, lastName: student.lastName,
+    email: student.email, cin: student.cin ?? '',
+    cne: student.cne, appogee: student.appogee,
+    accessGrade: student.accessGrade, ranking: student.ranking ?? ('' as number | ''),
+    academicProgram: student.academicProgram as AcademicProgram,
+    bacSeries: student.bacSeries, bacYear: student.bacYear,
+    gender: student.gender as string,
+    civilStatus: student.civilStatus,
+    nationalityStatus: student.nationalityStatus,
+    dateOfBirth: student.dateOfBirth ?? '', placeOfBirth: student.placeOfBirth ?? '',
+    fullAddress: student.fullAddress ?? '',
+  });
+
+  useEffect(() => {
+    if (opened) {
+      setErrors({});
+      setForm({
+        firstName: student.firstName, lastName: student.lastName,
+        email: student.email, cin: student.cin ?? '',
+        cne: student.cne, appogee: student.appogee,
+        accessGrade: student.accessGrade, ranking: student.ranking ?? '',
+        academicProgram: student.academicProgram as AcademicProgram,
+        bacSeries: student.bacSeries, bacYear: student.bacYear,
+        gender: student.gender as string,
+        civilStatus: student.civilStatus,
+        nationalityStatus: student.nationalityStatus,
+        dateOfBirth: student.dateOfBirth ?? '', placeOfBirth: student.placeOfBirth ?? '',
+        fullAddress: student.fullAddress ?? '',
+      });
+    }
+  }, [opened, student]);
+
+  const field = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm((p) => ({ ...p, [k]: v }));
+
+  const handleSave = async () => {
+    const errs = validateStudent(form);
+    if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+
+    try {
+      await updateStudent({
+        id: student.id,
+        email: form.email.trim(),
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        cin: form.cin.trim() || undefined,
+        cne: form.cne.trim(),
+        appogee: form.appogee.trim(),
+        accessGrade: Number(form.accessGrade),
+        academicProgram: form.academicProgram,
+        bacSeries: form.bacSeries,
+        bacYear: form.bacYear.trim(),
+        gender: form.gender as 'Male' | 'Female',
+        civilStatus: form.civilStatus as 'Civil' | 'Militaire',
+        nationalityStatus: form.nationalityStatus as 'Marocaine' | 'Etrangaire',
+        dateOfBirth: form.dateOfBirth || undefined,
+        placeOfBirth: form.placeOfBirth.trim() || undefined,
+        fullAddress: form.fullAddress.trim() || undefined,
+        ranking: form.ranking !== '' ? Number(form.ranking) : undefined,
+      }).unwrap();
+      notify.success('Profil étudiant mis à jour');
+      onClose();
+    } catch {
+      notify.error('Erreur lors de la mise à jour');
+    }
+  };
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="Modifier l'étudiant" radius="lg" size="lg">
+      <Stack gap="md">
+        <Group grow>
+          <TextInput label="Prénom" value={form.firstName} onChange={(e) => field('firstName', e.target.value)} radius="md" required error={errors.firstName} />
+          <TextInput label="Nom" value={form.lastName} onChange={(e) => field('lastName', e.target.value)} radius="md" required error={errors.lastName} />
+        </Group>
+        <TextInput label="Email" type="email" value={form.email} onChange={(e) => field('email', e.target.value)} radius="md" required error={errors.email} />
+        <Group grow>
+          <TextInput label="CNE" value={form.cne} onChange={(e) => field('cne', e.target.value)} radius="md" required ff="monospace" error={errors.cne} />
+          <TextInput label="Apogée" value={form.appogee} onChange={(e) => field('appogee', e.target.value)} radius="md" required ff="monospace" error={errors.appogee} />
+        </Group>
+        <Group grow>
+          <TextInput label="CIN" value={form.cin} onChange={(e) => field('cin', e.target.value)} radius="md" ff="monospace" />
+          <TextInput label="Classement" type="number" value={String(form.ranking)} onChange={(e) => field('ranking', e.target.value ? Number(e.target.value) : '')} radius="md" />
+        </Group>
+        <Group grow>
+          <Select label="Filière" data={PROGRAM_OPTIONS} value={form.academicProgram} onChange={(v) => field('academicProgram', (v ?? 'Medecine') as AcademicProgram)} radius="md" required />
+          <TextInput label="Note d'accès" type="number" value={String(form.accessGrade)} onChange={(e) => field('accessGrade', Number(e.target.value))} radius="md" required error={errors.accessGrade} />
+        </Group>
+        <Group grow>
+          <Select label="Série Bac" data={BAC_OPTIONS} value={form.bacSeries} onChange={(v) => field('bacSeries', v ?? 'SVT')} radius="md" />
+          <TextInput label="Année Bac" value={form.bacYear} onChange={(e) => field('bacYear', e.target.value)} radius="md" error={errors.bacYear} />
+        </Group>
+        <Group grow>
+          <Select label="Genre" data={GENDER_OPTIONS} value={form.gender} onChange={(v) => field('gender', v ?? 'Male')} radius="md" />
+          <Select label="Statut civil" data={CIVIL_OPTIONS} value={form.civilStatus} onChange={(v) => field('civilStatus', v ?? 'Civil')} radius="md" />
+        </Group>
+        <Group grow>
+          <Select label="Nationalité" data={NATIONAL_OPTIONS} value={form.nationalityStatus} onChange={(v) => field('nationalityStatus', v ?? 'Marocaine')} radius="md" />
+          <TextInput label="Date de naissance" type="date" value={form.dateOfBirth} onChange={(e) => field('dateOfBirth', e.target.value)} radius="md" />
+        </Group>
+        <Group grow>
+          <TextInput label="Lieu de naissance" value={form.placeOfBirth} onChange={(e) => field('placeOfBirth', e.target.value)} radius="md" />
+          <TextInput label="Adresse complète" value={form.fullAddress} onChange={(e) => field('fullAddress', e.target.value)} radius="md" />
+        </Group>
+        <Group justify="flex-end" pt="xs">
+          <Button variant="subtle" color="gray" radius="md" onClick={onClose}>Annuler</Button>
+          <Button color="navy" radius="md" loading={isLoading} onClick={handleSave}>Enregistrer</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AdminStudentDetailPage() {
@@ -295,6 +472,7 @@ export default function AdminStudentDetailPage() {
 
   const { data: student, isLoading } = useGetStudentByIdQuery(id ?? '', { skip: !id });
   const [modalOpen, setModalOpen]   = useState(false);
+  const [editOpen,  setEditOpen]    = useState(false);
 
   const initStr    = student ? initials(student.firstName, student.lastName) : '';
   const levelLabel = student?.currentRegistration
@@ -305,17 +483,28 @@ export default function AdminStudentDetailPage() {
     <Container fluid>
       <Stack gap="xl">
         {/* Back + title */}
-        <Group gap="sm">
-          <ActionIcon variant="subtle" color="gray" radius="md" onClick={() => navigate(-1)}>
-            <IconArrowLeft size={18} stroke={1.5} />
-          </ActionIcon>
-          <Stack gap={2}>
-            {isLoading
-              ? <Skeleton height={24} width={200} />
-              : <Title order={2} fw={700}>{student?.firstName} {student?.lastName}</Title>
-            }
-            <Text size="sm" c="dimmed">Dossier étudiant — Administration</Text>
-          </Stack>
+        <Group gap="sm" justify="space-between">
+          <Group gap="sm">
+            <ActionIcon variant="subtle" color="gray" radius="md" onClick={() => navigate(-1)}>
+              <IconArrowLeft size={18} stroke={1.5} />
+            </ActionIcon>
+            <Stack gap={2}>
+              {isLoading
+                ? <Skeleton height={24} width={200} />
+                : <Title order={2} fw={700}>{student?.firstName} {student?.lastName}</Title>
+              }
+              <Text size="sm" c="dimmed">Dossier étudiant — Administration</Text>
+            </Stack>
+          </Group>
+          {student && (
+            <Button
+              leftSection={<IconPencil size={15} stroke={1.5} />}
+              variant="light" color="navy" radius="md" size="sm"
+              onClick={() => setEditOpen(true)}
+            >
+              Modifier
+            </Button>
+          )}
         </Group>
 
         <Grid gutter="lg" align="flex-start">
@@ -477,6 +666,14 @@ export default function AdminStudentDetailPage() {
           onClose={() => setModalOpen(false)}
           studentId={id}
           academicProgram={student.academicProgram}
+        />
+      )}
+
+      {student && (
+        <EditStudentModal
+          opened={editOpen}
+          onClose={() => setEditOpen(false)}
+          student={student}
         />
       )}
     </Container>

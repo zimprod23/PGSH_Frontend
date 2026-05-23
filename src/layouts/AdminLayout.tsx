@@ -23,13 +23,17 @@ import {
   IconSchool,
   IconUsersGroup,
   IconBuildingHospital,
+  IconBriefcase,
   IconStethoscope,
+  IconCalendarEvent,
+  IconClipboardCheck,
   IconBell,
   IconSearch,
   IconLogout,
 } from '@tabler/icons-react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../common/hooks/useAuth';
+import { ErrorBoundary } from '../common/components/ErrorBoundary';
 import { PATHS } from '../routes/paths';
 
 type Icon = React.ComponentType<{ size?: number; stroke?: number; color?: string }>;
@@ -95,6 +99,23 @@ const NAV: NavEntry[] = [
     icon: IconBuildingHospital,
     items: [
       { kind: 'leaf', label: 'Centres / Hôpitaux / Services', icon: IconBuildingHospital, path: `${ROOT}/hospitals` },
+    ],
+  },
+  {
+    kind: 'group',
+    label: 'Personnel',
+    icon: IconBriefcase,
+    items: [
+      { kind: 'leaf', label: 'Employés', icon: IconUsers, path: `${ROOT}/employees` },
+    ],
+  },
+  {
+    kind: 'group',
+    label: 'Suivi',
+    icon: IconCalendarEvent,
+    items: [
+      { kind: 'leaf', label: 'Affectations', icon: IconClipboardCheck, path: `${ROOT}/assignments` },
+      { kind: 'leaf', label: 'Présences',    icon: IconCalendarEvent,  path: `${ROOT}/attendance`  },
     ],
   },
 ];
@@ -310,7 +331,9 @@ export function AdminLayout() {
       {/* ── Main ───────────────────────────────────────────────────────── */}
       <AppShell.Main style={{ background: '#F8FAFC', minHeight: '100vh' }}>
         <Box p={{ base: 'md', sm: 'lg', md: 'xl' }}>
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </Box>
       </AppShell.Main>
     </AppShell>

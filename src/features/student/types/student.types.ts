@@ -97,6 +97,63 @@ export interface StudentRegistrationResponse {
   failureDescription: string | null;
 }
 
+// ─── GET /internship-assignments ─────────────────────────────────────────────
+
+export interface InternshipAssignmentSummary {
+  id: string;
+  registrationId: string;
+  studentFullName: string;
+  cohortId: number;
+  cohortLabel: string;
+  stageId: number;
+  status: import('../../../common/types').InternshipStatus;
+  finalScore: number | null;
+  result: string | null;
+}
+
+export interface InternshipAssignmentDetail extends InternshipAssignmentSummary {
+  servicePeriods: ServicePeriodSummary[];
+}
+
+export interface ServicePeriodSummary {
+  id: string;
+  serviceId: number;
+  serviceName: string;
+  hospitalName: string;
+  startDate: string;   // YYYY-MM-DD
+  endDate: string;     // YYYY-MM-DD
+  isComplete: boolean;
+  hasEvaluation: boolean;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  date: string;        // YYYY-MM-DD
+  status: import('../../../common/types').AttendanceStatus;
+}
+
+export interface ServiceEvaluationDetail {
+  id: string;
+  servicePeriodId: string;
+  totalScore: number;
+  supervisorComment: string | null;
+  objectiveScores: ObjectiveScoreDetail[];
+}
+
+export interface ObjectiveScoreDetail {
+  id: string;
+  stageObjectiveId: number;
+  objectiveLabel: string;
+  weight: number;
+  isMandatory: boolean;
+  score: number;
+  note: string | null;
+}
+
+// ─── PUT /students/{id} ───────────────────────────────────────────────────────
+
+export type UpdateStudentRequest = CreateStudentRequest;
+
 // ─── GET /students  query params ──────────────────────────────────────────────
 
 export interface GetStudentsQuery {

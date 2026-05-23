@@ -6,7 +6,7 @@ import {
   IconAlertTriangle,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
-import { useGetCurrentStudentQuery, useGetStudentHistoryQuery } from '../api/studentApi';
+import { useGetCurrentStudentQuery, useGetStudentHistoryQuery, useGetMyAssignmentsQuery } from '../api/studentApi';
 import { StatCard } from '../components/StatCard';
 import { RegistrationBadge } from '../components/RegistrationBadge';
 import { CurrentStageCard } from '../components/CurrentStageCard';
@@ -22,6 +22,19 @@ export default function DashboardHomePage() {
     student?.id ?? '',
     { skip: !student?.id },
   );
+
+  const registrationId = student?.currentRegistration?.id;
+  const { data: assignmentsPage } = useGetMyAssignmentsQuery(
+    { registrationId: registrationId ?? '' },
+    { skip: !registrationId },
+  );
+  const assignments = assignmentsPage?.items ?? [];
+  const completedCount = assignments.filter(
+    (a) => ['Completed', 'Evaluated', 'Validated'].includes(a.status)
+  ).length;
+  const ongoingCount = assignments.filter(
+    (a) => ['Planned', 'Ongoing'].includes(a.status)
+  ).length;
 
   const greeting = student
     ? `Bonjour, ${student.firstName} 👋`
@@ -66,16 +79,16 @@ export default function DashboardHomePage() {
             icon={IconStethoscope}
             iconColor="navy"
             label="Stages effectués"
-            value="—"
-            sub="Disponible prochainement"
+            value={registrationId ? completedCount : '—'}
+            sub={ongoingCount > 0 ? `${ongoingCount} en cours` : undefined}
             loading={studentLoading}
           />
           <StatCard
             icon={IconAlertTriangle}
             iconColor="warning"
-            label="Absences"
-            value="—"
-            sub="Disponible prochainement"
+            label="Stages planifiés"
+            value={registrationId ? assignments.length : '—'}
+            sub={registrationId ? 'au total' : 'Disponible prochainement'}
             loading={studentLoading}
           />
         </SimpleGrid>

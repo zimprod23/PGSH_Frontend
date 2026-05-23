@@ -1,8 +1,16 @@
 import { apiSlice } from '../../../app/apiSlice';
 import type { PaginatedResponse, BulkResponse, RegistrationStatus, AcademicProgram } from '../../../common/types';
-import type { StudentSummaryResponse, GetStudentsQuery } from '../../student/types/student.types';
+import type { StudentSummaryResponse, GetStudentsQuery, UpdateStudentRequest } from '../../student/types/student.types';
 import type {
+  CohortDetailResponse,
+  StageScheduleResponse,
+  CreateStageSlotRequest,
+  UpdateStageSlotRequest,
+  SetCohortSlotAssignmentRequest,
   AcademicYearResponse,
+  AcademicGroupResponse,
+  GroupDetailResponse,
+  TransferStudentRequest,
   AdminLevelResponse,
   CreateAcademicYearRequest,
   CreateLevelRequest,
@@ -14,6 +22,7 @@ import type {
   CreateHospitalRequest,
   ServiceSummaryResponse,
   CreateServiceRequest,
+  ServiceDetailResponse,
   StageSummaryResponse,
   StageDetailResponse,
   CreateStageRequest,
@@ -22,6 +31,17 @@ import type {
   CohortResponse,
   CreateCohortRequest,
   CreateRegistrationRequest,
+  ServicePeriodResponse,
+  GetServicePeriodsParams,
+  AttendanceRecord,
+  RecordAttendanceRequest,
+  InternshipAssignmentSummaryResponse,
+  GetAssignmentsParams,
+  EmployeeSummaryResponse,
+  EmployeeDetailResponse,
+  CreateEmployeeRequest,
+  UpdateEmployeeRequest,
+  GetEmployeesParams,
 } from '../types/admin.types';
 
 export const adminApiSlice = apiSlice.injectEndpoints({
@@ -40,6 +60,11 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     deleteStudent: builder.mutation<void, string>({
       query: (id) => ({ url: `/students/${id}`, method: 'DELETE' }),
       invalidatesTags: [{ type: 'Student', id: 'LIST' }],
+    }),
+
+    updateStudent: builder.mutation<void, { id: string } & UpdateStudentRequest>({
+      query: ({ id, ...body }) => ({ url: `/students/${id}`, method: 'PUT', body }),
+      invalidatesTags: (_r, _e, { id }) => [{ type: 'Student', id }, { type: 'Student', id: 'LIST' }],
     }),
 
     getAcademicYears: builder.query<AcademicYearResponse[], void>({
@@ -167,6 +192,11 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       providesTags: (_r, _e, stageId) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
     }),
 
+    getCohortById: builder.query<CohortDetailResponse, number>({
+      query: (id) => `/cohorts/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'Stage' as const, id: `cohort-detail-${id}` }],
+    }),
+
     createCohort: builder.mutation<number, CreateCohortRequest>({
       query: (body) => ({ url: '/cohorts', method: 'POST', body }),
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
@@ -177,7 +207,113 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
     }),
 
+    assignStudentsToCohort: builder.mutation<{ successCount: number; totalProcessed: number }, number>({
+      query: (cohortId) => ({ url: `/cohorts/${cohortId}/assign-students`, method: 'POST' }),
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    assignAllStudentsByStage: builder.mutation<{ successCount: number; totalProcessed: number }, number>({
+      query: (stageId) => ({ url: `/stages/${stageId}/assign-students`, method: 'POST' }),
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    startCohortAssignments: builder.mutation<{ started: number }, number>({
+      query: (id) => ({ url: `/cohorts/${id}/start-assignments`, method: 'POST' }),
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    completeCohortPeriods: builder.mutation<{ completed: number }, number>({
+      query: (id) => ({ url: `/cohorts/${id}/complete-periods`, method: 'POST' }),
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    validateCohortAssignments: builder.mutation<{ validated: number }, number>({
+      query: (id) => ({ url: `/cohorts/${id}/validate-assignments`, method: 'POST' }),
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    getStageSchedule: builder.query<StageScheduleResponse, number>({
+      query: (stageId) => `/stages/${stageId}/schedule`,
+      providesTags: (_r, _e, stageId) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+    }),
+
+    createStageSlot: builder.mutation<number, { stageId: number } & CreateStageSlotRequest>({
+      query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/slots`, method: 'POST', body }),
+      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+    }),
+
+    updateStageSlot: builder.mutation<void, { stageId: number; slotId: number } & UpdateStageSlotRequest>({
+      query: ({ stageId, slotId, ...body }) => ({ url: `/stages/${stageId}/slots/${slotId}`, method: 'PUT', body }),
+      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+    }),
+
+    deleteStageSlot: builder.mutation<void, { stageId: number; slotId: number }>({
+      query: ({ stageId, slotId }) => ({ url: `/stages/${stageId}/slots/${slotId}`, method: 'DELETE' }),
+      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+    }),
+
+    setCohortSlotAssignment: builder.mutation<number, { stageId: number; slotId: number; cohortId: number } & SetCohortSlotAssignmentRequest>({
+      query: ({ stageId, slotId, cohortId, ...body }) => ({ url: `/stages/${stageId}/slots/${slotId}/cohorts/${cohortId}`, method: 'PUT', body }),
+      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+    }),
+
+    clearCohortSlotAssignment: builder.mutation<void, { stageId: number; slotId: number; cohortId: number }>({
+      query: ({ stageId, slotId, cohortId }) => ({ url: `/stages/${stageId}/slots/${slotId}/cohorts/${cohortId}`, method: 'DELETE' }),
+      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+    }),
+
+    publishSchedule: builder.mutation<void, { cohortId: number; stageId: number }>({
+      query: ({ cohortId }) => ({ url: `/cohorts/${cohortId}/publish-schedule`, method: 'POST' }),
+      invalidatesTags: (_r, _e, { cohortId, stageId }) => [
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: `cohort-detail-${cohortId}` },
+        { type: 'Stage' as const, id: `cohorts-${stageId}` },
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+      ],
+    }),
+
+    unpublishSchedule: builder.mutation<{ removed: number }, { cohortId: number; stageId: number }>({
+      query: ({ cohortId }) => ({ url: `/cohorts/${cohortId}/publish-schedule`, method: 'DELETE' }),
+      invalidatesTags: (_r, _e, { cohortId, stageId }) => [
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: `cohort-detail-${cohortId}` },
+        { type: 'Stage' as const, id: `cohorts-${stageId}` },
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+      ],
+    }),
+
     // ─── Groups ──────────────────────────────────────────────────────────────
+    getAcademicGroups: builder.query<AcademicGroupResponse[], { academicYearId?: number; levelId?: number }>({
+      query: (params) => ({ url: '/groups', params }),
+      providesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
+    }),
+
+    getGroupById: builder.query<GroupDetailResponse, number>({
+      query: (id) => `/groups/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'Level' as const, id: `group-${id}` }],
+    }),
+
+    updateGroup: builder.mutation<void, { id: number; label: string; geographicZone?: string }>({
+      query: ({ id, ...body }) => ({ url: `/groups/${id}`, method: 'PUT', body }),
+      invalidatesTags: (_r, _e, { id }) => [
+        { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Level' as const, id: `group-${id}` },
+      ],
+    }),
+
+    deleteGroup: builder.mutation<void, number>({
+      query: (id) => ({ url: `/groups/${id}`, method: 'DELETE' }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
+    }),
+
+    transferStudent: builder.mutation<void, TransferStudentRequest>({
+      query: (body) => ({ url: '/groups/transfer-student', method: 'POST', body }),
+      invalidatesTags: (_r, _e, { registrationId }) => [
+        { type: 'Registration' as const, id: registrationId },
+        { type: 'Level' as const, id: 'GROUPS' },
+      ],
+    }),
+
     autoArrangeGroups: builder.mutation<BulkResponse<string, number>, AutoArrangeRequest>({
       query: (body) => ({ url: '/groups/auto-arrange', method: 'POST', body }),
     }),
@@ -185,6 +321,117 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     createRegistration: builder.mutation<string, CreateRegistrationRequest>({
       query: (body) => ({ url: '/registrations', method: 'POST', body }),
       invalidatesTags: (_r, _e, { studentId }) => [{ type: 'Registration' as const, id: studentId }],
+    }),
+
+    // ─── Internship Assignments ───────────────────────────────────────────────
+    getInternshipAssignments: builder.query<PaginatedResponse<InternshipAssignmentSummaryResponse>, GetAssignmentsParams>({
+      query: (params) => ({ url: '/internship-assignments', params }),
+      providesTags: (result) =>
+        result
+          ? [
+              ...result.items.map(({ id }) => ({ type: 'Assignment' as const, id })),
+              { type: 'Assignment' as const, id: 'LIST' },
+            ]
+          : [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    startAssignment: builder.mutation<void, string>({
+      query: (id) => ({ url: `/internship-assignments/${id}/start`, method: 'PUT' }),
+      invalidatesTags: (_r, _e, id) => [{ type: 'Assignment' as const, id }],
+    }),
+
+    validateAssignment: builder.mutation<void, string>({
+      query: (id) => ({ url: `/internship-assignments/${id}/validate`, method: 'PUT' }),
+      invalidatesTags: (_r, _e, id) => [
+        { type: 'Assignment' as const, id },
+        { type: 'Assignment' as const, id: 'LIST' },
+      ],
+    }),
+
+    rejectAssignment: builder.mutation<void, string>({
+      query: (id) => ({ url: `/internship-assignments/${id}/reject`, method: 'PUT' }),
+      invalidatesTags: (_r, _e, id) => [
+        { type: 'Assignment' as const, id },
+        { type: 'Assignment' as const, id: 'LIST' },
+      ],
+    }),
+
+    completeServicePeriod: builder.mutation<void, string>({
+      query: (id) => ({ url: `/service-periods/${id}/complete`, method: 'PUT' }),
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    // ─── Service Periods ─────────────────────────────────────────────────────
+    getServicePeriods: builder.query<PaginatedResponse<ServicePeriodResponse>, GetServicePeriodsParams>({
+      query: (params) => ({ url: '/service-periods', params }),
+      providesTags: [{ type: 'Service' as const, id: 'PERIODS' }],
+    }),
+
+    getAttendanceByPeriod: builder.query<AttendanceRecord[], string>({
+      query: (periodId) => `/service-periods/${periodId}/attendance`,
+      providesTags: (_r, _e, periodId) => [{ type: 'Service' as const, id: `attendance-${periodId}` }],
+    }),
+
+    recordAttendance: builder.mutation<string, RecordAttendanceRequest>({
+      query: (body) => ({ url: '/attendance', method: 'POST', body }),
+      invalidatesTags: (_r, _e, { servicePeriodId }) => [
+        { type: 'Service' as const, id: `attendance-${servicePeriodId}` },
+      ],
+    }),
+
+    // ─── Employees ───────────────────────────────────────────────────────────
+    getEmployees: builder.query<PaginatedResponse<EmployeeSummaryResponse>, GetEmployeesParams>({
+      query: (params) => ({ url: '/employees', params }),
+      providesTags: (result) =>
+        result
+          ? [...result.items.map(({ id }) => ({ type: 'Employee' as const, id })), { type: 'Employee' as const, id: 'LIST' }]
+          : [{ type: 'Employee' as const, id: 'LIST' }],
+    }),
+
+    getEmployeeById: builder.query<EmployeeDetailResponse, string>({
+      query: (id) => `/employees/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'Employee' as const, id }],
+    }),
+
+    createEmployee: builder.mutation<string, CreateEmployeeRequest>({
+      query: (body) => ({ url: '/employees', method: 'POST', body }),
+      invalidatesTags: [{ type: 'Employee', id: 'LIST' }],
+    }),
+
+    updateEmployee: builder.mutation<void, { id: string } & UpdateEmployeeRequest>({
+      query: ({ id, ...body }) => ({ url: `/employees/${id}`, method: 'PUT', body }),
+      invalidatesTags: (_r, _e, { id }) => [{ type: 'Employee', id }, { type: 'Employee', id: 'LIST' }],
+    }),
+
+    deleteEmployee: builder.mutation<void, string>({
+      query: (id) => ({ url: `/employees/${id}`, method: 'DELETE' }),
+      invalidatesTags: [{ type: 'Employee', id: 'LIST' }],
+    }),
+
+    // ─── Service detail + staff management ───────────────────────────────────
+    getServiceById: builder.query<ServiceDetailResponse, number>({
+      query: (id) => `/services/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'Service' as const, id: `detail-${id}` }],
+    }),
+
+    assignStaff: builder.mutation<void, { serviceId: number; employeeId: string }>({
+      query: ({ serviceId, employeeId }) => ({ url: `/services/${serviceId}/staff`, method: 'POST', body: { employeeId } }),
+      invalidatesTags: (_r, _e, { serviceId }) => [{ type: 'Service', id: `detail-${serviceId}` }, { type: 'Service', id: 'LIST' }],
+    }),
+
+    removeStaff: builder.mutation<void, { serviceId: number; employeeId: string }>({
+      query: ({ serviceId, employeeId }) => ({ url: `/services/${serviceId}/staff/${employeeId}`, method: 'DELETE' }),
+      invalidatesTags: (_r, _e, { serviceId }) => [{ type: 'Service', id: `detail-${serviceId}` }, { type: 'Service', id: 'LIST' }],
+    }),
+
+    assignChef: builder.mutation<void, { serviceId: number; employeeId: string }>({
+      query: ({ serviceId, employeeId }) => ({ url: `/services/${serviceId}/chef`, method: 'PUT', body: { employeeId } }),
+      invalidatesTags: (_r, _e, { serviceId }) => [{ type: 'Service', id: `detail-${serviceId}` }, { type: 'Service', id: 'LIST' }],
+    }),
+
+    removeChef: builder.mutation<void, number>({
+      query: (serviceId) => ({ url: `/services/${serviceId}/chef`, method: 'DELETE' }),
+      invalidatesTags: (_r, _e, serviceId) => [{ type: 'Service', id: `detail-${serviceId}` }, { type: 'Service', id: 'LIST' }],
     }),
 
     updateRegistration: builder.mutation<void, {
@@ -225,6 +472,11 @@ export const {
   useGetLevelsQuery,
   useCreateLevelMutation,
   useUpdateLevelMutation,
+  useGetAcademicGroupsQuery,
+  useGetGroupByIdQuery,
+  useUpdateGroupMutation,
+  useDeleteGroupMutation,
+  useTransferStudentMutation,
   useAutoArrangeGroupsMutation,
   useGetStagesQuery,
   useGetStageByIdQuery,
@@ -232,8 +484,41 @@ export const {
   useUpdateStageMutation,
   useDeleteStageMutation,
   useGetCohortsByStageQuery,
+  useGetCohortByIdQuery,
   useCreateCohortMutation,
   useDeleteCohortMutation,
+  useAssignStudentsToCohortMutation,
+  useAssignAllStudentsByStageMutation,
+  useStartCohortAssignmentsMutation,
+  useCompleteCohortPeriodsMutation,
+  useValidateCohortAssignmentsMutation,
+  useGetStageScheduleQuery,
+  useCreateStageSlotMutation,
+  useUpdateStageSlotMutation,
+  useDeleteStageSlotMutation,
+  useSetCohortSlotAssignmentMutation,
+  useClearCohortSlotAssignmentMutation,
+  usePublishScheduleMutation,
+  useUnpublishScheduleMutation,
   useCreateRegistrationMutation,
   useUpdateRegistrationMutation,
+  useGetServicePeriodsQuery,
+  useGetAttendanceByPeriodQuery,
+  useRecordAttendanceMutation,
+  useGetInternshipAssignmentsQuery,
+  useStartAssignmentMutation,
+  useValidateAssignmentMutation,
+  useRejectAssignmentMutation,
+  useCompleteServicePeriodMutation,
+  useUpdateStudentMutation,
+  useGetEmployeesQuery,
+  useGetEmployeeByIdQuery,
+  useCreateEmployeeMutation,
+  useUpdateEmployeeMutation,
+  useDeleteEmployeeMutation,
+  useGetServiceByIdQuery,
+  useAssignStaffMutation,
+  useRemoveStaffMutation,
+  useAssignChefMutation,
+  useRemoveChefMutation,
 } = adminApiSlice;

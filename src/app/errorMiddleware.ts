@@ -2,80 +2,94 @@ import { isRejectedWithValue, type Middleware } from '@reduxjs/toolkit';
 import { notifications } from '@mantine/notifications';
 import type { FetchBaseQueryError } from '@reduxjs/toolkit/query';
 import type { ApiError } from '../common/types';
+import { notifStyles } from '../common/hooks/useNotify';
 import keycloak from '../services/keycloak';
+import { PATHS } from '../routes/paths';
 
 export const errorMiddleware: Middleware = () => (next) => (action) => {
-  if (isRejectedWithValue(action)) {
-    const payload = action.payload as FetchBaseQueryError;
+  if (!isRejectedWithValue(action)) return next(action);
 
-    if (payload.status === 'FETCH_ERROR') {
-      notifications.show({
-        title: 'Connexion impossible',
-        message: 'Impossible de contacter le serveur. Vérifiez votre connexion.',
-        color: 'red',
-        position: 'top-right',
-        autoClose: 6000,
-      });
-      return next(action);
-    }
+  const payload = action.payload as FetchBaseQueryError;
 
-    const status = typeof payload.status === 'number' ? payload.status : 0;
-    const error = payload.data as ApiError | undefined;
-    const message = error?.detail ?? error?.title ?? 'Une erreur est survenue';
-
-    if (status === 401) {
-      // Token truly invalid — force re-login
-      keycloak.logout();
-      return next(action);
-    }
-
-    if (status === 403) {
-      notifications.show({
-        title: 'Accès refusé',
-        message: "Vous n'avez pas les droits nécessaires pour effectuer cette action.",
-        color: 'red',
-        position: 'top-right',
-        autoClose: 5000,
-      });
-      return next(action);
-    }
-
-    if (status === 400 || status === 422) {
-      // Validation errors are displayed at the form level — only show a brief toast
-      const validationErrors = error?.extensions?.errors;
-      const detail = validationErrors?.length
-        ? validationErrors.map((e) => e.description).join(' · ')
-        : message;
-      notifications.show({
-        title: 'Données invalides',
-        message: detail,
-        color: 'orange',
-        position: 'top-right',
-        autoClose: 5000,
-      });
-      return next(action);
-    }
-
-    if (status === 409) {
-      notifications.show({
-        title: 'Conflit',
-        message,
-        color: 'orange',
-        position: 'top-right',
-        autoClose: 5000,
-      });
-      return next(action);
-    }
-
-    // 500+ or any other error
+  if (payload.status === 'FETCH_ERROR') {
     notifications.show({
-      title: status ? `Erreur ${status}` : 'Erreur',
-      message: status >= 500 ? 'Une erreur serveur est survenue. Réessayez plus tard.' : message,
-      color: 'red',
+      title:    'Connexion impossible',
+      message:  'Impossible de contacter le serveur. Vérifiez votre connexion.',
+      color:    'red',
       position: 'top-right',
       autoClose: 6000,
+      styles:   notifStyles('#EF4444'),
     });
+    return next(action);
   }
+
+  const status = typeof payload.status === 'number' ? payload.status : 0;
+  const error  = payload.data as ApiError | undefined;
+  const message = error?.detail ?? error?.title ?? 'Une erreur est survenue';
+
+  if (status === 401) {
+    keycloak.logout();
+    return next(action);
+  }
+
+  if (status === 403) {
+    // No local DB profile for this Keycloak account → redirect out of the shell
+    if (
+      error?.title === 'Profile Not Found' &&
+      window.location.pathname !== PATHS.NO_PROFILE
+    ) {
+      window.location.replace(PATHS.NO_PROFILE);
+      return next(action);
+    }
+
+    notifications.show({
+      title:    'Accès refusé',
+      message:  "Vous n'avez pas les droits nécessaires pour effectuer cette action.",
+      color:    'red',
+      position: 'top-right',
+      autoClose: 5000,
+      styles:   notifStyles('#EF4444'),
+    });
+    return next(action);
+  }
+
+  if (status === 400 || status === 422) {
+    const validationErrors = error?.extensions?.errors;
+    const detail = validationErrors?.length
+      ? validationErrors.map((e) => e.description).join(' · ')
+      : message;
+    notifications.show({
+      title:    'Données invalides',
+      message:  detail,
+      color:    'orange',
+      position: 'top-right',
+      autoClose: 5000,
+      styles:   notifStyles('#F59E0B'),
+    });
+    return next(action);
+  }
+
+  if (status === 409) {
+    notifications.show({
+      title:    'Conflit',
+      message,
+      color:    'orange',
+      position: 'top-right',
+      autoClose: 5000,
+      styles:   notifStyles('#F59E0B'),
+    });
+    return next(action);
+  }
+
+  // 500+ or any other status
+  notifications.show({
+    title:    status ? `Erreur ${status}` : 'Erreur',
+    message:  status >= 500 ? 'Une erreur serveur est survenue. Réessayez plus tard.' : message,
+    color:    'red',
+    position: 'top-right',
+    autoClose: 6000,
+    styles:   notifStyles('#EF4444'),
+  });
 
   return next(action);
 };

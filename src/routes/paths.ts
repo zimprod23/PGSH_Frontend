@@ -1,6 +1,7 @@
 export const PATHS = {
   ROOT: '/',
   UNAUTHORIZED: '/unauthorized',
+  NO_PROFILE:   '/no-profile',
 
   STUDENT: {
     ROOT:      '/student',
@@ -19,14 +20,21 @@ export const PATHS = {
     REGISTRATIONS:   'registrations',
     ACADEMIC_YEARS:  'academic-years',
     GROUPS:          'groups',
+    GROUP_DETAIL:    'groups/:id',
     LEVELS:          'levels',
     STAGES:          'stages',
     STAGE_DETAIL:    'stages/:id',
     HOSPITALS:       'hospitals',
+    EMPLOYEES:       'employees',
+    ATTENDANCE:      'attendance',
+    ASSIGNMENTS:     'assignments',
   },
 
-  EMPLOYEE: '/employee',
-  EMPLOYEE_PATHS: {
-    ROOT: '/employee',
+  EMPLOYEE: {
+    ROOT:        '/employee',
+    PROFILE:     'profile',
+    SERVICES:    'services',
+    ATTENDANCE:  'attendance',
+    EVALUATIONS: 'evaluations',
   },
 } as const;

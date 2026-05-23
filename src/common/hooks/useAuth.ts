@@ -1,12 +1,7 @@
 import { useKeycloak } from '@react-keycloak/web';
+import { Roles, type UserRole } from '../constants/roles';
 
-export type UserRole =
-  | 'Student'
-  | 'Scolarite'
-  | 'Secretaire'
-  | 'Professor'
-  | 'Employee'
-  | 'SuperUser';
+export type { UserRole };
 
 export const useAuth = () => {
   const { keycloak, initialized } = useKeycloak();
@@ -22,3 +17,5 @@ export const useAuth = () => {
     logout:   () => keycloak.logout({ redirectUri: window.location.origin }),
   };
 };
+
+export { Roles };
