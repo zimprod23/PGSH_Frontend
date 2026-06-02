@@ -1,25 +1,18 @@
 import { apiSlice } from '../../../app/apiSlice';
 import type { PaginatedResponse } from '../../../common/types';
 import type {
-  EmployeeUserResponse,
-  MyServiceResponse,
+  EmployeeResponse,
   MyServicePeriodResponse,
+  ServiceEvaluationDetail,
   SubmitEvaluationRequest,
+  UpdateEvaluationRequest,
 } from '../types/employee.types';
 
 export const employeeApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    getCurrentUser: builder.query<EmployeeUserResponse, void>({
-      query: () => '/users/me',
+    getCurrentEmployee: builder.query<EmployeeResponse, void>({
+      query: () => '/employees/me',
       providesTags: [{ type: 'User' as const, id: 'ME' }],
-    }),
-
-    getMyServicesAsChef: builder.query<PaginatedResponse<MyServiceResponse>, string>({
-      query: (serviceChefId) => ({
-        url: '/services',
-        params: { serviceChefId, pageSize: 50 },
-      }),
-      providesTags: [{ type: 'Service' as const, id: 'MY_SERVICES' }],
     }),
 
     getServicePeriodsByService: builder.query<
@@ -41,12 +34,32 @@ export const employeeApiSlice = apiSlice.injectEndpoints({
         { type: 'Service' as const, id: `periods-${servicePeriodId}` },
       ],
     }),
+
+    getEvaluationByPeriod: builder.query<ServiceEvaluationDetail, string>({
+      query: (periodId) => `/service-periods/${periodId}/evaluation`,
+      providesTags: (_r, _e, periodId) => [
+        { type: 'Service' as const, id: `eval-${periodId}` },
+      ],
+    }),
+
+    updateEvaluation: builder.mutation<void, UpdateEvaluationRequest>({
+      query: ({ evaluationId, servicePeriodId: _, ...body }) => ({
+        url: `/service-evaluations/${evaluationId}`,
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: (_r, _e, { servicePeriodId }) => [
+        { type: 'Service' as const, id: `eval-${servicePeriodId}` },
+        { type: 'Service' as const, id: `periods-${servicePeriodId}` },
+      ],
+    }),
   }),
 });
 
 export const {
-  useGetCurrentUserQuery,
-  useGetMyServicesAsChefQuery,
+  useGetCurrentEmployeeQuery,
   useGetServicePeriodsByServiceQuery,
   useSubmitEvaluationMutation,
+  useGetEvaluationByPeriodQuery,
+  useUpdateEvaluationMutation,
 } = employeeApiSlice;

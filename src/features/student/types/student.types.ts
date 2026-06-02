@@ -150,6 +150,41 @@ export interface ObjectiveScoreDetail {
   note: string | null;
 }
 
+// ─── GET /services/{id} ──────────────────────────────────────────────────────
+
+export interface StudentServiceDetailResponse {
+  id: number;
+  name: string;
+  description: string;
+  serviceType: string;
+  capacity: number;
+  hospitalId: number;
+  hospitalName: string;
+  hospitalCity: string;
+  hospitalDescription: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  serviceChef: ServiceChefSummary | null;
+  staff: ServiceStaffMember[];
+}
+
+export interface ServiceChefSummary {
+  id: string;
+  firstName: string;
+  lastName: string;
+  ppr: string | null;
+  grade: string;
+}
+
+export interface ServiceStaffMember {
+  id: string;
+  firstName: string;
+  lastName: string;
+  ppr: string | null;
+  grade: string;
+  position: string;
+}
+
 // ─── PUT /students/{id} ───────────────────────────────────────────────────────
 
 export type UpdateStudentRequest = CreateStudentRequest;

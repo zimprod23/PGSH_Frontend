@@ -43,6 +43,7 @@ import {
 import type { StageSummaryResponse, StageObjectiveRequest } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { PATHS } from '../../../routes/paths';
+import { ConfirmModal } from '../../../common/components/ConfirmModal';
 
 interface ObjectiveRow extends StageObjectiveRequest {
   _key: string;
@@ -277,7 +278,9 @@ export default function StagesPage() {
   const [deleteStage] = useDeleteStageMutation();
 
   const [drawerOpen, { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
-  const [editTarget, setEditTarget] = useState<StageSummaryResponse | null>(null);
+  const [editTarget, setEditTarget]         = useState<StageSummaryResponse | null>(null);
+  const [deleteTarget, setDeleteTarget]     = useState<StageSummaryResponse | null>(null);
+  const [deleteOpen, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
 
   const { data: stageDetail } = useGetStageByIdQuery(editTarget?.id ?? 0, { skip: !editTarget });
 
@@ -295,14 +298,16 @@ export default function StagesPage() {
   const openCreate = () => { setEditTarget(null); openDrawer(); };
   const openEdit = (s: StageSummaryResponse) => { setEditTarget(s); openDrawer(); };
 
-  const handleDelete = async (s: StageSummaryResponse) => {
-    if (!window.confirm(`Supprimer le stage "${s.name}" ?`)) return;
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteStage(s.id).unwrap();
+      await deleteStage(deleteTarget.id).unwrap();
       notify.success('Stage supprimé');
     } catch {
       notify.error('Impossible de supprimer ce stage');
     }
+    closeDeleteModal();
+    setDeleteTarget(null);
   };
 
   const drawerInitial = useMemo<StageForm>(() => {
@@ -438,7 +443,7 @@ export default function StagesPage() {
                             <Tooltip label="Supprimer" position="top">
                               <ActionIcon
                                 variant="subtle" color="red" size="sm" radius="md"
-                                onClick={() => handleDelete(stage)}
+                                onClick={() => { setDeleteTarget(stage); openDeleteModal(); }}
                               >
                                 <IconTrash size={rem(14)} stroke={1.5} />
                               </ActionIcon>
@@ -467,6 +472,14 @@ export default function StagesPage() {
         initial={drawerInitial}
         editId={editTarget?.id ?? null}
         onSaved={() => setEditTarget(null)}
+      />
+      <ConfirmModal
+        opened={deleteOpen}
+        onClose={() => { closeDeleteModal(); setDeleteTarget(null); }}
+        title="Supprimer le stage"
+        message={`Supprimer le stage "${deleteTarget?.name}" ?`}
+        confirmLabel="Supprimer"
+        onConfirm={handleDeleteConfirm}
       />
     </Container>
   );

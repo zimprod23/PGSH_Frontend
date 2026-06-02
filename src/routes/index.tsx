@@ -17,12 +17,13 @@ import { UnauthorizedPage } from '../features/errors/UnauthorizedPage';
 import { NoProfilePage }    from '../features/errors/NoProfilePage';
 
 // ─── Lazy-loaded student pages ────────────────────────────────────────────────
-const DashboardHomePage = lazy(() => import('../features/student/pages/DashboardHomePage'));
-const ProfilePage       = lazy(() => import('../features/student/pages/ProfilePage'));
-const StageListPage     = lazy(() => import('../features/student/pages/stages/StageListPage'));
-const StageDetailsPage  = lazy(() => import('../features/student/pages/stages/StageDetailsPage'));
-const HistoryPage       = lazy(() => import('../features/student/pages/HistoryPage'));
-const DemandsPage       = lazy(() => import('../features/student/pages/DemandsPage'));
+const DashboardHomePage    = lazy(() => import('../features/student/pages/DashboardHomePage'));
+const ProfilePage          = lazy(() => import('../features/student/pages/ProfilePage'));
+const StageListPage        = lazy(() => import('../features/student/pages/stages/StageListPage'));
+const StageDetailsPage     = lazy(() => import('../features/student/pages/stages/StageDetailsPage'));
+const ServiceDetailPage    = lazy(() => import('../features/student/pages/ServiceDetailPage'));
+const HistoryPage          = lazy(() => import('../features/student/pages/HistoryPage'));
+const DemandsPage          = lazy(() => import('../features/student/pages/DemandsPage'));
 
 // ─── Lazy-loaded admin pages ──────────────────────────────────────────────────
 const AdminDashboardPage      = lazy(() => import('../features/admin/pages/AdminDashboardPage'));
@@ -82,6 +83,7 @@ export const router = createBrowserRouter([
               { path: ':id',  element: wrap(<StageDetailsPage />) },
             ],
           },
+          { path: PATHS.STUDENT.SERVICE_DETAIL, element: wrap(<ServiceDetailPage />) },
         ],
       },
 

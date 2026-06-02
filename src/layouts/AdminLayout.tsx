@@ -9,6 +9,7 @@ import {
   Group,
   NavLink,
   rem,
+  Select,
   Stack,
   Text,
   Tooltip,
@@ -35,6 +36,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../common/hooks/useAuth';
 import { ErrorBoundary } from '../common/components/ErrorBoundary';
 import { PATHS } from '../routes/paths';
+import { AcademicYearProvider, useAcademicYear } from '../features/admin/contexts/AcademicYearContext';
 
 type Icon = React.ComponentType<{ size?: number; stroke?: number; color?: string }>;
 
@@ -126,6 +128,23 @@ const LANGS = [
   { code: 'EN', flag: '🇬🇧' },
 ] as const;
 
+function AcademicYearSelector() {
+  const { years, currentYearId, setCurrentYearId } = useAcademicYear();
+  if (years.length === 0) return null;
+  return (
+    <Select
+      size="xs"
+      w={150}
+      data={years.map((y) => ({ value: String(y.id), label: y.label }))}
+      value={currentYearId ? String(currentYearId) : null}
+      onChange={(v) => setCurrentYearId(v ? Number(v) : null)}
+      radius="md"
+      placeholder="Année…"
+      visibleFrom="sm"
+    />
+  );
+}
+
 const leafStyles = (active: boolean) => ({
   root: {
     borderRadius: rem(8),
@@ -152,6 +171,14 @@ const groupStyles = (active: boolean) => ({
 });
 
 export function AdminLayout() {
+  return (
+    <AcademicYearProvider>
+      <AdminLayoutInner />
+    </AcademicYearProvider>
+  );
+}
+
+function AdminLayoutInner() {
   const [opened, { toggle }] = useDisclosure();
   const { username, email, logout } = useAuth();
   const navigate = useNavigate();
@@ -237,6 +264,7 @@ export function AdminLayout() {
           </Group>
 
           <Group gap="xs">
+            <AcademicYearSelector />
             <Tooltip label="Rechercher" position="bottom">
               <ActionIcon variant="subtle" color="gray" size="md" radius="md">
                 <IconSearch size={18} stroke={1.5} />

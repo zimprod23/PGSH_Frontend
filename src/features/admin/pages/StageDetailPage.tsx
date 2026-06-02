@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Chip,
   Container,
   Divider,
   Group,
@@ -22,19 +23,22 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconArrowLeft,
+  IconBuildingHospital,
   IconCalendar,
   IconCalendarTime,
   IconCircleCheck,
   IconPlayerPlay,
+  IconPlus,
+  IconRefresh,
   IconRocket,
   IconRocketOff,
   IconStethoscope,
   IconTrash,
-  IconUsersGroup,
-  IconPlus,
   IconUserPlus,
+  IconUsersGroup,
+  IconX,
 } from '@tabler/icons-react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useGetStageByIdQuery,
@@ -48,10 +52,16 @@ import {
   useUnpublishScheduleMutation,
   useGetAcademicYearsQuery,
   useGetAcademicGroupsQuery,
+  useGetServicesQuery,
+  useAddAllowedServiceMutation,
+  useRemoveAllowedServiceMutation,
+  useDeleteAllStageCohortsMutation,
 } from '../api/adminApi';
 import { ScheduleGridModal } from '../components/ScheduleGridModal';
 import { useNotify } from '../../../common/hooks/useNotify';
+import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import { PATHS } from '../../../routes/paths';
+import { useAcademicYear } from '../contexts/AcademicYearContext';
 
 export default function StageDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -69,6 +79,7 @@ export default function StageDetailPage() {
   const [startAssignments]   = useStartCohortAssignmentsMutation();
   const [publishSchedule]    = usePublishScheduleMutation();
   const [unpublishSchedule]  = useUnpublishScheduleMutation();
+  const [deleteAllCohorts, { isLoading: resettingCohorts }] = useDeleteAllStageCohortsMutation();
 
   const [assigningCohortId,   setAssigningCohortId]   = useState<number | null>(null);
   const [publishingCohortId,  setPublishingCohortId]  = useState<number | null>(null);
@@ -77,8 +88,16 @@ export default function StageDetailPage() {
   const [publishingAll,       setPublishingAll]       = useState(false);
   const [unpublishingAll,     setUnpublishingAll]     = useState(false);
 
-  // Academic-year filter for the cohort list
+  const { currentYearId } = useAcademicYear();
+
+  // Academic-year filter for the cohort list — initialised from the global context
   const [filterYearId, setFilterYearId] = useState<number | null>(null);
+  const [activePartition, setActivePartition] = useState<string | null>(null);
+
+  // Sync with global context on first load and when user switches year in the header
+  useEffect(() => {
+    setFilterYearId(currentYearId);
+  }, [currentYearId]);
 
   const uniqueYears = useMemo(() => {
     const seen = new Map<number, string>();
@@ -86,10 +105,18 @@ export default function StageDetailPage() {
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
   }, [cohorts]);
 
-  const filteredCohorts = useMemo(
-    () => (filterYearId ? cohorts.filter((c) => c.academicYearId === filterYearId) : cohorts),
-    [cohorts, filterYearId]
-  );
+  const partitions = useMemo(() => {
+    const labels = cohorts
+      .map((c) => c.rotationGroup)
+      .filter((g): g is string => g !== null);
+    return [...new Set(labels)].sort();
+  }, [cohorts]);
+
+  const filteredCohorts = useMemo(() => {
+    let result = filterYearId ? cohorts.filter((c) => c.academicYearId === filterYearId) : cohorts;
+    if (activePartition) result = result.filter((c) => c.rotationGroup === activePartition);
+    return result;
+  }, [cohorts, filterYearId, activePartition]);
 
   const extractErrorCode = (err: unknown): string | null => {
     const data = (err as { data?: { extensions?: { errors?: Array<{ code: string }> } } })?.data;
@@ -98,6 +125,33 @@ export default function StageDetailPage() {
 
   const [rotationOpen, { open: openRotation, close: closeRotation }] = useDisclosure(false);
   const [modalOpen, { open, close }] = useDisclosure(false);
+
+  // Confirm modals state
+  const [deleteCohortTarget,  setDeleteCohortTarget]  = useState<{ id: number; label: string } | null>(null);
+  const [deleteCohortOpen,    { open: openDeleteCohort,    close: closeDeleteCohort    }] = useDisclosure(false);
+  const [unpublishTarget,     setUnpublishTarget]     = useState<{ id: number; label: string } | null>(null);
+  const [unpublishOpen,       { open: openUnpublish,       close: closeUnpublish       }] = useDisclosure(false);
+  const [unpublishAllOpen,    { open: openUnpublishAll,    close: closeUnpublishAll    }] = useDisclosure(false);
+  const [resetCohortsOpen,    { open: openResetCohorts,    close: closeResetCohorts    }] = useDisclosure(false);
+
+  // Allowed services
+  const [serviceSearch, setServiceSearch] = useState('');
+  const { data: servicesPage } = useGetServicesQuery(
+    { searchTerm: serviceSearch, pageSize: 20 },
+    { skip: serviceSearch.length < 2 },
+  );
+  const [addAllowedService,    { isLoading: addingService    }] = useAddAllowedServiceMutation();
+  const [removeAllowedService, { isLoading: removingService  }] = useRemoveAllowedServiceMutation();
+  const allowedIds = new Set(stage?.allowedServices.map((s) => s.id) ?? []);
+
+  const handleAddService = async (serviceId: number) => {
+    try { await addAllowedService({ stageId, serviceId }).unwrap(); setServiceSearch(''); }
+    catch { notify.error('Impossible d\'ajouter ce service'); }
+  };
+  const handleRemoveService = async (serviceId: number) => {
+    try { await removeAllowedService({ stageId, serviceId }).unwrap(); }
+    catch { notify.error('Impossible de retirer ce service'); }
+  };
   const [selectedYear,    setSelectedYear]    = useState<string | null>(null);
   const [checkedGroupIds, setCheckedGroupIds] = useState<number[]>([]);
   const [isCreating,      setIsCreating]      = useState(false);
@@ -148,7 +202,7 @@ export default function StageDetailPage() {
 
   const handleAssignAll = async () => {
     try {
-      const res = await assignAll(stageId).unwrap();
+      const res = await assignAll({ stageId }).unwrap();
       if (res.successCount === 0) notify.info('Tous les étudiants sont déjà affectés.');
       else notify.success(`${res.successCount} étudiant(s) affecté(s) à toutes les cohortes`);
     } catch { notify.error('Erreur lors de l\'affectation globale'); }
@@ -157,17 +211,19 @@ export default function StageDetailPage() {
   const handleAssignStudents = async (cohortId: number, label: string) => {
     setAssigningCohortId(cohortId);
     try {
-      const res = await assignStudents(cohortId).unwrap();
+      const res = await assignStudents({ cohortId, stageId }).unwrap();
       if (res.successCount === 0) notify.info(`Tous les étudiants de "${label}" sont déjà affectés.`);
       else notify.success(`${res.successCount} étudiant(s) affecté(s) à "${label}"`);
     } catch { notify.error('Impossible d\'affecter les étudiants'); }
     finally { setAssigningCohortId(null); }
   };
 
-  const handleDeleteCohort = async (cohortId: number, label: string) => {
-    if (!window.confirm(`Supprimer la cohorte "${label}" ?`)) return;
-    try { await deleteCohort({ cohortId, stageId }).unwrap(); notify.success('Cohorte supprimée'); }
+  const handleDeleteCohortConfirm = async () => {
+    if (!deleteCohortTarget) return;
+    try { await deleteCohort({ cohortId: deleteCohortTarget.id, stageId }).unwrap(); notify.success('Cohorte supprimée'); }
     catch { notify.error('Impossible de supprimer cette cohorte'); }
+    closeDeleteCohort();
+    setDeleteCohortTarget(null);
   };
 
   const handlePublishRotation = async (cohortId: number) => {
@@ -185,8 +241,9 @@ export default function StageDetailPage() {
     } finally { setPublishingCohortId(null); }
   };
 
-  const handleUnpublishRotation = async (cohortId: number, label: string) => {
-    if (!window.confirm(`Dépublier le planning de "${label}" ? Toutes les périodes de service générées seront supprimées.`)) return;
+  const handleUnpublishRotationConfirm = async () => {
+    if (!unpublishTarget) return;
+    const { id: cohortId, label } = unpublishTarget;
     setUnpublishingCohortId(cohortId);
     try {
       const res = await unpublishSchedule({ cohortId, stageId }).unwrap();
@@ -194,11 +251,13 @@ export default function StageDetailPage() {
     } catch {
       notify.error('Impossible de dépublier ce planning');
     } finally { setUnpublishingCohortId(null); }
+    closeUnpublish();
+    setUnpublishTarget(null);
   };
 
   const handlePublishAll = async () => {
     const targets = cohorts.filter((c) => c.slotAssignmentCount > 0 && !c.isSchedulePublished);
-    if (targets.length === 0) { notify.info('Toutes les cohortes configurées sont déjà publiées'); return; }
+    if (targets.length === 0) { notify.info('Aucune cohorte avec un plan configuré non publié'); return; }
     setPublishingAll(true);
     let success = 0, failed = 0;
     for (const cohort of targets) {
@@ -210,10 +269,9 @@ export default function StageDetailPage() {
     else notify.success(`${success} planning(s) publié(s)`);
   };
 
-  const handleUnpublishAll = async () => {
+  const handleUnpublishAllConfirm = async () => {
     const targets = cohorts.filter((c) => c.isSchedulePublished);
-    if (targets.length === 0) return;
-    if (!window.confirm(`Dépublier tous les plannings publiés (${targets.length} cohorte(s)) ?`)) return;
+    closeUnpublishAll();
     setUnpublishingAll(true);
     let removed = 0, failed = 0;
     for (const cohort of targets) {
@@ -234,6 +292,16 @@ export default function StageDetailPage() {
       notify.success(`${res.started} affectation(s) démarrée(s) pour "${label}"`);
     } catch { notify.error('Impossible de démarrer les affectations — vérifiez que le plan est publié'); }
     finally { setStartingCohortId(null); }
+  };
+
+  const handleResetAllCohortsConfirm = async () => {
+    closeResetCohorts();
+    try {
+      const res = await deleteAllCohorts(stageId).unwrap();
+      notify.success(`${res.deleted} cohorte${res.deleted !== 1 ? 's' : ''} supprimée${res.deleted !== 1 ? 's' : ''}`);
+    } catch {
+      notify.error('Impossible de réinitialiser les cohortes — des affectations sont déjà en cours');
+    }
   };
 
   const hasUnpublishedPlans = cohorts.some((c) => c.slotAssignmentCount > 0 && !c.isSchedulePublished);
@@ -342,6 +410,80 @@ export default function StageDetailPage() {
                 )}
               </Stack>
             </Card>
+
+            {/* ── Allowed services ───────────────────────────────────── */}
+            <Card padding="lg" radius="lg" withBorder shadow="sm">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <Text fw={600} size="sm" c="dimmed" tt="uppercase" style={{ letterSpacing: rem(0.8) }}>
+                    Services autorisés
+                  </Text>
+                  {stage && (
+                    <Badge variant="light" color={stage.allowedServices.length > 0 ? 'teal' : 'gray'} radius="xl" size="sm">
+                      {stage.allowedServices.length === 0 ? 'Tous' : stage.allowedServices.length}
+                    </Badge>
+                  )}
+                </Group>
+
+                {stageLoading ? (
+                  <Stack gap="xs">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} height={36} radius="md" />)}</Stack>
+                ) : (
+                  <>
+                    {stage?.allowedServices.length === 0 ? (
+                      <Text size="xs" c="dimmed">
+                        Aucune restriction — tous les services peuvent être utilisés dans la grille.
+                        Ajoutez des services pour restreindre les affectations.
+                      </Text>
+                    ) : (
+                      <Stack gap="xs">
+                        {stage?.allowedServices.map((svc) => (
+                          <Group key={svc.id} gap="sm" justify="space-between" wrap="nowrap">
+                            <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
+                              <ThemeIcon size={24} radius="sm" variant="light" color="teal">
+                                <IconBuildingHospital size={13} stroke={1.5} />
+                              </ThemeIcon>
+                              <Stack gap={0} style={{ minWidth: 0 }}>
+                                <Text size="xs" fw={500} truncate>{svc.name}</Text>
+                                <Text size="xs" c="dimmed" truncate>{svc.hospitalName}</Text>
+                              </Stack>
+                            </Group>
+                            <ActionIcon
+                              size="xs" variant="subtle" color="red" radius="sm"
+                              loading={removingService}
+                              onClick={() => handleRemoveService(svc.id)}
+                            >
+                              <IconX size={12} stroke={1.5} />
+                            </ActionIcon>
+                          </Group>
+                        ))}
+                      </Stack>
+                    )}
+
+                    {/* Add service search */}
+                    <Select
+                      placeholder="Ajouter un service… (min. 2 car.)"
+                      searchable
+                      clearable
+                      size="xs"
+                      radius="md"
+                      value={null}
+                      searchValue={serviceSearch}
+                      onSearchChange={setServiceSearch}
+                      data={(servicesPage?.items ?? [])
+                        .filter((s) => !allowedIds.has(s.id))
+                        .map((s) => ({
+                          value: String(s.id),
+                          label: `${s.name} — ${s.hospitalName}`,
+                        }))}
+                      nothingFoundMessage={serviceSearch.length < 2 ? 'Tapez pour rechercher…' : 'Aucun service trouvé'}
+                      onChange={(v) => { if (v) handleAddService(Number(v)); }}
+                      disabled={addingService}
+                      leftSection={<IconPlus size={12} stroke={1.5} />}
+                    />
+                  </>
+                )}
+              </Stack>
+            </Card>
           </Stack>
 
           {/* ── Cohorts ─────────────────────────────────────────────────── */}
@@ -397,7 +539,7 @@ export default function StageDetailPage() {
                             size="xs" color="red" radius="md" variant="light"
                             leftSection={<IconRocketOff size={12} stroke={1.5} />}
                             loading={unpublishingAll}
-                            onClick={handleUnpublishAll}
+                            onClick={openUnpublishAll}
                           >
                             Dépublier toutes
                           </Button>
@@ -412,11 +554,23 @@ export default function StageDetailPage() {
                   >
                     Nouvelle cohorte
                   </Button>
+                  {cohorts.length > 0 && (
+                    <Tooltip label="Supprimer toutes les cohortes de ce stage (bloqué si des affectations ont déjà démarré)" position="top">
+                      <Button
+                        size="xs" color="red" radius="md" variant="subtle"
+                        leftSection={<IconRefresh size={12} stroke={1.5} />}
+                        loading={resettingCohorts}
+                        onClick={openResetCohorts}
+                      >
+                        Réinitialiser
+                      </Button>
+                    </Tooltip>
+                  )}
                 </Group>
               </Group>
 
               {/* Year filter */}
-              {uniqueYears.length > 1 && (
+              {uniqueYears.length > 0 && (
                 <Select
                   placeholder="Toutes les années"
                   data={uniqueYears.map((y) => ({ value: String(y.value), label: y.label }))}
@@ -428,6 +582,23 @@ export default function StageDetailPage() {
                 />
               )}
 
+              {/* Partition filter */}
+              {partitions.length > 0 && (
+                <Chip.Group
+                  value={activePartition ?? ''}
+                  onChange={(v) => setActivePartition(!v || v === activePartition ? null : (v as string))}
+                >
+                  <Group gap="xs" wrap="wrap">
+                    <Chip value="" size="xs" radius="sm" color="violet" variant="light">Toutes</Chip>
+                    {partitions.map((p) => (
+                      <Chip key={p} value={p} size="xs" radius="sm" color="violet" variant="light">
+                        Partition {p}
+                      </Chip>
+                    ))}
+                  </Group>
+                </Chip.Group>
+              )}
+
               <Divider />
 
               {cohortsLoading ? (
@@ -436,7 +607,11 @@ export default function StageDetailPage() {
                 <Stack align="center" py="xl" gap="xs">
                   <IconUsersGroup size={32} stroke={1.5} color="#94A3B8" />
                   <Text c="dimmed" size="sm">
-                    {cohorts.length === 0 ? 'Aucune cohorte pour ce stage' : 'Aucune cohorte pour cette année'}
+                    {cohorts.length === 0
+                      ? 'Aucune cohorte pour ce stage'
+                      : activePartition
+                      ? `Aucune cohorte pour la partition ${activePartition}`
+                      : 'Aucune cohorte pour cette année'}
                   </Text>
                 </Stack>
               ) : (
@@ -450,6 +625,11 @@ export default function StageDetailPage() {
                           <Badge variant="outline" color="gray" radius="xl" size="xs">
                             {cohort.academicYearLabel}
                           </Badge>
+                          {cohort.rotationGroup && (
+                            <Badge variant="dot" color="violet" radius="xl" size="xs">
+                              {cohort.rotationGroup}
+                            </Badge>
+                          )}
                           <Text size="xs" c="dimmed">
                             {cohort.studentAssignmentCount} étudiant{cohort.studentAssignmentCount !== 1 ? 's' : ''}
                           </Text>
@@ -494,7 +674,7 @@ export default function StageDetailPage() {
                             <ActionIcon
                               variant="subtle" color="red" size="sm" radius="md"
                               loading={unpublishingCohortId === cohort.id}
-                              onClick={() => handleUnpublishRotation(cohort.id, cohort.label)}
+                              onClick={() => { setUnpublishTarget({ id: cohort.id, label: cohort.label }); openUnpublish(); }}
                             >
                               <IconRocketOff size={rem(14)} stroke={1.5} />
                             </ActionIcon>
@@ -512,7 +692,7 @@ export default function StageDetailPage() {
                         <Tooltip label="Supprimer" position="left">
                           <ActionIcon
                             variant="subtle" color="red" size="sm" radius="md"
-                            onClick={() => handleDeleteCohort(cohort.id, cohort.label)}
+                            onClick={() => { setDeleteCohortTarget({ id: cohort.id, label: cohort.label }); openDeleteCohort(); }}
                           >
                             <IconTrash size={rem(14)} stroke={1.5} />
                           </ActionIcon>
@@ -531,6 +711,7 @@ export default function StageDetailPage() {
         opened={rotationOpen}
         onClose={closeRotation}
         stageId={stageId}
+        allowedServiceIds={stage?.allowedServices.map((s) => s.id) ?? []}
       />
 
       <Modal opened={modalOpen} onClose={close} title="Créer des cohortes" radius="lg" size="md">
@@ -620,6 +801,46 @@ export default function StageDetailPage() {
           </Group>
         </Stack>
       </Modal>
+
+      <ConfirmModal
+        opened={deleteCohortOpen}
+        onClose={() => { closeDeleteCohort(); setDeleteCohortTarget(null); }}
+        title="Supprimer la cohorte"
+        message={`Supprimer la cohorte "${deleteCohortTarget?.label}" ?`}
+        confirmLabel="Supprimer"
+        onConfirm={handleDeleteCohortConfirm}
+      />
+      <ConfirmModal
+        opened={unpublishOpen}
+        onClose={() => { closeUnpublish(); setUnpublishTarget(null); }}
+        title="Dépublier le planning"
+        message={`Dépublier le planning de "${unpublishTarget?.label}" ? Toutes les périodes de service générées seront supprimées.`}
+        confirmLabel="Dépublier"
+        onConfirm={handleUnpublishRotationConfirm}
+        loading={!!unpublishingCohortId}
+      />
+      <ConfirmModal
+        opened={unpublishAllOpen}
+        onClose={closeUnpublishAll}
+        title="Dépublier tous les plannings"
+        message={`Dépublier tous les plannings publiés (${cohorts.filter((c) => c.isSchedulePublished).length} cohorte(s)) ?`}
+        confirmLabel="Dépublier tout"
+        onConfirm={handleUnpublishAllConfirm}
+        loading={unpublishingAll}
+      />
+      <ConfirmModal
+        opened={resetCohortsOpen}
+        onClose={closeResetCohorts}
+        title="Réinitialiser les cohortes"
+        message={
+          cohorts.some((c) => c.isSchedulePublished)
+            ? `Supprimer toutes les cohortes (${cohorts.length}) de ce stage, y compris les plannings publiés et les périodes de service ? Cette action est irréversible.`
+            : `Supprimer toutes les cohortes (${cohorts.length}) de ce stage ? Cette action est irréversible.`
+        }
+        confirmLabel="Réinitialiser"
+        onConfirm={handleResetAllCohortsConfirm}
+        loading={resettingCohorts}
+      />
     </Container>
   );
 }

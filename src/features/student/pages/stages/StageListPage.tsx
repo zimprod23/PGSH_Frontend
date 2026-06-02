@@ -18,23 +18,53 @@ import {
   IconClock,
   IconStar,
   IconBuildingHospital,
+  IconClipboardCheck,
 } from '@tabler/icons-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useGetCurrentStudentQuery, useGetStagesQuery } from '../../api/studentApi';
+import {
+  useGetCurrentStudentQuery,
+  useGetStagesQuery,
+  useGetMyAssignmentsQuery,
+} from '../../api/studentApi';
 import type { StageSummaryResponse } from '../../types/stage.types';
+import type { InternshipAssignmentSummary } from '../../types/student.types';
+import type { InternshipStatus } from '../../../../common/types';
 import { PATHS } from '../../../../routes/paths';
+
+// ─── Status config ────────────────────────────────────────────────────────────
+
+const STATUS_CFG: Record<InternshipStatus, { label: string; color: string }> = {
+  Planned:   { label: 'Planifié',  color: 'gray'   },
+  Ongoing:   { label: 'En cours',  color: 'blue'   },
+  Completed: { label: 'Terminé',   color: 'teal'   },
+  Evaluated: { label: 'Évalué',    color: 'violet' },
+  Validated: { label: 'Validé',    color: 'green'  },
+  Rejected:  { label: 'Rejeté',    color: 'red'    },
+};
 
 // ─── Stage card ───────────────────────────────────────────────────────────────
 
-function StageCard({ stage }: { stage: StageSummaryResponse }) {
+function StageCard({ stage, assignment }: {
+  stage: StageSummaryResponse;
+  assignment: InternshipAssignmentSummary | null;
+}) {
   const navigate = useNavigate();
   const weeks = Math.round(stage.durationInDays / 7);
+
+  const status = assignment?.status;
+  const cfg    = status ? STATUS_CFG[status] : { label: 'Planifié', color: 'gray' };
+
+  const hasEvaluation =
+    assignment !== null &&
+    (status === 'Evaluated' || status === 'Validated' || assignment.finalScore !== null);
+
+  const goToDetail = () =>
+    navigate(`${PATHS.STUDENT.ROOT}/${PATHS.STUDENT.STAGES}/${stage.id}`);
 
   return (
     <Card padding="lg" radius="lg" withBorder shadow="sm">
       <Stack gap="sm">
-        {/* Header row */}
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
             <ThemeIcon variant="light" color="navy" size={32} radius="md" style={{ flexShrink: 0 }}>
@@ -44,19 +74,15 @@ function StageCard({ stage }: { stage: StageSummaryResponse }) {
               {stage.name}
             </Text>
           </Group>
-          <Badge variant="light" color="sky" radius="xl" size="sm" style={{ flexShrink: 0 }}>
-            Planifié
+          <Badge variant="light" color={cfg.color} radius="xl" size="sm" style={{ flexShrink: 0 }}>
+            {cfg.label}
           </Badge>
         </Group>
 
-        {/* Level label */}
         {stage.levelLabel && (
-          <Text size="xs" c="dimmed" lineClamp={1}>
-            {stage.levelLabel}
-          </Text>
+          <Text size="xs" c="dimmed" lineClamp={1}>{stage.levelLabel}</Text>
         )}
 
-        {/* Meta row */}
         <Group gap="lg">
           <Group gap={4}>
             <IconClock size={13} stroke={1.5} color="#94A3B8" />
@@ -66,17 +92,22 @@ function StageCard({ stage }: { stage: StageSummaryResponse }) {
             <IconStar size={13} stroke={1.5} color="#94A3B8" />
             <Text size="xs" c="dimmed">Coeff. {stage.coefficient}</Text>
           </Group>
+          {assignment?.finalScore !== null && assignment?.finalScore !== undefined && (
+            <Text size="xs" fw={700} c="navy.7">
+              {assignment.finalScore.toFixed(2)} / 20
+            </Text>
+          )}
         </Group>
 
-        {/* Hospital placeholder */}
         <Group gap="xs">
           <IconBuildingHospital size={13} stroke={1.5} color="#94A3B8" />
-          <Text size="xs" c="dimmed">
-            Affectation à confirmer par la scolarité
+          <Text size="xs" c="dimmed" lineClamp={1}>
+            {assignment
+              ? assignment.cohortLabel
+              : 'Affectation à confirmer par la scolarité'}
           </Text>
         </Group>
 
-        {/* Actions */}
         <Group gap="xs" mt={4}>
           <Button
             variant="outline"
@@ -84,17 +115,19 @@ function StageCard({ stage }: { stage: StageSummaryResponse }) {
             size="xs"
             radius="md"
             style={{ flex: 1 }}
-            onClick={() => navigate(`${PATHS.STUDENT.ROOT}/${PATHS.STUDENT.STAGES}/${stage.id}`)}
+            onClick={goToDetail}
           >
             Détails
           </Button>
           <Button
-            variant="filled"
-            color="navy"
+            variant={hasEvaluation ? 'filled' : 'light'}
+            color={hasEvaluation ? 'navy' : 'gray'}
             size="xs"
             radius="md"
             style={{ flex: 1 }}
-            disabled
+            disabled={!hasEvaluation}
+            leftSection={hasEvaluation ? <IconClipboardCheck size={13} stroke={1.5} /> : undefined}
+            onClick={goToDetail}
           >
             Évaluation
           </Button>
@@ -135,33 +168,53 @@ export default function StageListPage() {
   const [filter, setFilter] = useState<Filter>('all');
 
   const { data: student } = useGetCurrentStudentQuery();
-  const levelId = student?.currentRegistration?.level.id;
+  const levelId        = student?.currentRegistration?.level.id;
+  const registrationId = student?.currentRegistration?.id;
 
-  const { data: stagesPage, isLoading } = useGetStagesQuery(
+  const { data: stagesPage, isLoading: stagesLoading } = useGetStagesQuery(
     { levelId, pageSize: 50 },
     { skip: !levelId },
   );
-
   const stages = stagesPage?.items ?? [];
 
-  // Curriculum stages fetched from /stages are all "Planifié" by definition —
-  // "En cours" / "Terminés" will be populated once InternshipAssignment endpoints exist.
+  const { data: assignmentsPage } = useGetMyAssignmentsQuery(
+    { registrationId: registrationId ?? '', pageSize: 100 },
+    { skip: !registrationId },
+  );
+
+  const assignmentByStageId = useMemo<Map<number, InternshipAssignmentSummary>>(() => {
+    const map = new Map<number, InternshipAssignmentSummary>();
+    for (const a of assignmentsPage?.items ?? []) {
+      map.set(a.stageId, a);
+    }
+    return map;
+  }, [assignmentsPage]);
+
+  const COMPLETED_STATUSES: InternshipStatus[] = ['Completed', 'Evaluated', 'Validated', 'Rejected'];
+
+  const categorize = (stage: StageSummaryResponse): Filter => {
+    const a = assignmentByStageId.get(stage.id);
+    if (!a || a.status === 'Planned') return 'planned';
+    if (a.status === 'Ongoing') return 'ongoing';
+    if (COMPLETED_STATUSES.includes(a.status)) return 'completed';
+    return 'planned';
+  };
+
   const counts: Record<Filter, number> = {
     all:       stages.length,
-    planned:   stages.length,
-    ongoing:   0,
-    completed: 0,
+    planned:   stages.filter((s) => categorize(s) === 'planned').length,
+    ongoing:   stages.filter((s) => categorize(s) === 'ongoing').length,
+    completed: stages.filter((s) => categorize(s) === 'completed').length,
   };
 
   const displayed =
-    filter === 'all' || filter === 'planned'
+    filter === 'all'
       ? stages
-      : []; // ongoing / completed require InternshipAssignment data (Phase 5)
+      : stages.filter((s) => categorize(s) === filter);
 
   return (
     <Container fluid>
       <Stack gap="xl">
-        {/* Header */}
         <Stack gap={4}>
           <Text fw={700} size="xl">Mes Stages</Text>
           <Text size="sm" c="dimmed">
@@ -169,7 +222,6 @@ export default function StageListPage() {
           </Text>
         </Stack>
 
-        {/* Filter tabs */}
         <Tabs
           value={filter}
           onChange={(v) => v && setFilter(v as Filter)}
@@ -179,32 +231,33 @@ export default function StageListPage() {
             <Tabs.Tab value="all">
               <Group gap={6}>
                 <span>Tous</span>
-                {!isLoading && <Badge size="xs" variant="light" color="navy" radius="xl">{counts.all}</Badge>}
+                {!stagesLoading && (
+                  <Badge size="xs" variant="light" color="navy" radius="xl">{counts.all}</Badge>
+                )}
               </Group>
             </Tabs.Tab>
             <Tabs.Tab value="ongoing">
               <Group gap={6}>
                 <span>En cours</span>
-                <Badge size="xs" variant="light" color="sky" radius="xl">{counts.ongoing}</Badge>
+                <Badge size="xs" variant="light" color="blue" radius="xl">{counts.ongoing}</Badge>
               </Group>
             </Tabs.Tab>
             <Tabs.Tab value="completed">
               <Group gap={6}>
                 <span>Terminés</span>
-                <Badge size="xs" variant="light" color="success" radius="xl">{counts.completed}</Badge>
+                <Badge size="xs" variant="light" color="teal" radius="xl">{counts.completed}</Badge>
               </Group>
             </Tabs.Tab>
             <Tabs.Tab value="planned">
               <Group gap={6}>
                 <span>Planifiés</span>
-                <Badge size="xs" variant="light" color="warning" radius="xl">{counts.planned}</Badge>
+                <Badge size="xs" variant="light" color="gray" radius="xl">{counts.planned}</Badge>
               </Group>
             </Tabs.Tab>
           </Tabs.List>
         </Tabs>
 
-        {/* Stage grid */}
-        {isLoading ? (
+        {stagesLoading ? (
           <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
             {Array.from({ length: 6 }).map((_, i) => (
               <StageCardSkeleton key={i} />
@@ -224,6 +277,8 @@ export default function StageListPage() {
                     ? 'Aucun stage en cours'
                     : filter === 'completed'
                     ? 'Aucun stage terminé'
+                    : filter === 'planned'
+                    ? 'Aucun stage planifié'
                     : 'Aucun stage disponible'}
                 </Text>
                 <Text size="sm" c="dimmed" ta="center">
@@ -239,7 +294,11 @@ export default function StageListPage() {
         ) : (
           <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
             {displayed.map((stage) => (
-              <StageCard key={stage.id} stage={stage} />
+              <StageCard
+                key={stage.id}
+                stage={stage}
+                assignment={assignmentByStageId.get(stage.id) ?? null}
+              />
             ))}
           </SimpleGrid>
         )}

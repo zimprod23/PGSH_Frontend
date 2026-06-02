@@ -4,11 +4,13 @@ import {
   Box,
   Button,
   Card,
+  Chip,
   Combobox,
   Group,
   InputBase,
   Loader,
   Modal,
+  MultiSelect,
   Popover,
   ScrollArea,
   Skeleton,
@@ -21,6 +23,7 @@ import {
   rem,
   useCombobox,
 } from '@mantine/core';
+import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import {
   IconCalendarTime,
   IconCheck,
@@ -30,7 +33,9 @@ import {
   IconPlus,
   IconRocket,
   IconRocketOff,
+  IconArrowsShuffle,
   IconTrash,
+  IconEraser,
   IconX,
 } from '@tabler/icons-react';
 import { useState, useCallback } from 'react';
@@ -40,12 +45,61 @@ import {
   useDeleteStageSlotMutation,
   useSetCohortSlotAssignmentMutation,
   useClearCohortSlotAssignmentMutation,
+  useClearSlotAssignmentsMutation,
   usePublishScheduleMutation,
   useUnpublishScheduleMutation,
+  useAutoArrangeStageScheduleMutation,
+  usePublishStageScheduleMutation,
   useGetServicesQuery,
 } from '../api/adminApi';
-import type { SlotCellResponse, StageSlotResponse } from '../types/admin.types';
+import type { SlotCellResponse, StageSlotResponse, CohortScheduleRow } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
+import { ConfirmModal } from '../../../common/components/ConfirmModal';
+
+// ─── Saturation summary bar ──────────────────────────────────────────────────
+
+function SaturationSummary({ visibleCohorts }: { visibleCohorts: CohortScheduleRow[] }) {
+  const totalStudents = visibleCohorts.reduce((s, c) => s + c.studentCount, 0);
+  if (totalStudents === 0) return null;
+
+  const occupancy = new Map<string, { occupied: number; capacity: number }>();
+  for (const cohort of visibleCohorts) {
+    for (const cell of cohort.cells) {
+      if (!cell) continue;
+      const key = `${cell.stageSlotId}:${cell.serviceId}`;
+      const prev = occupancy.get(key) ?? { occupied: 0, capacity: cell.serviceCapacity };
+      occupancy.set(key, { occupied: prev.occupied + cohort.studentCount, capacity: cell.serviceCapacity });
+    }
+  }
+
+  const saturated = [...occupancy.values()].filter((v) => v.occupied > v.capacity);
+  if (saturated.length === 0) return null;
+
+  const maxRequired = Math.max(...saturated.map((v) => v.occupied));
+  const seen = new Set<string>();
+  let totalCapacity = 0;
+  for (const cohort of visibleCohorts) {
+    for (const cell of cohort.cells) {
+      if (!cell) continue;
+      const key = `${cell.stageSlotId}:${cell.serviceId}`;
+      if (!seen.has(key)) { seen.add(key); totalCapacity += cell.serviceCapacity; }
+    }
+  }
+
+  return (
+    <Card padding="sm" radius="md" withBorder style={{ borderColor: '#fca5a5', background: '#fff5f5' }}>
+      <Group gap="xs" wrap="wrap">
+        <Badge color="red" variant="light" radius="sm" size="sm">
+          {saturated.length} affectation{saturated.length > 1 ? 's' : ''} saturée{saturated.length > 1 ? 's' : ''}
+        </Badge>
+        <Text size="xs" c="dimmed">
+          {totalStudents} étudiants · {totalCapacity} places disponibles ·{' '}
+          capacité requise par service : au moins <strong>{maxRequired}</strong>
+        </Text>
+      </Group>
+    </Card>
+  );
+}
 
 // ─── Service search combobox (per cell) ──────────────────────────────────────
 
@@ -54,19 +108,20 @@ interface ServicePickerProps {
   stageId: number;
   slotId: number;
   cohortId: number;
-  studentCount: number;
   disabled?: boolean;
+  allowedServiceIds?: number[];
 }
 
-function ServicePicker({ cell, stageId, slotId, cohortId, studentCount, disabled }: ServicePickerProps) {
+function ServicePicker({ cell, stageId, slotId, cohortId, disabled, allowedServiceIds = [] }: ServicePickerProps) {
   const notify = useNotify();
   const [opened, setOpened] = useState(false);
   const [search, setSearch] = useState('');
+  const [debouncedSearch] = useDebouncedValue(search, 300);
   const combobox = useCombobox({ onDropdownClose: () => combobox.resetSelectedOption() });
 
   const { data: servicesPage, isFetching } = useGetServicesQuery(
-    { searchTerm: search, pageSize: 20 },
-    { skip: search.length < 2 },
+    { searchTerm: debouncedSearch, pageSize: 20 },
+    { skip: debouncedSearch.length < 2 },
   );
 
   const [setAssignment, { isLoading: setting }] = useSetCohortSlotAssignmentMutation();
@@ -88,7 +143,7 @@ function ServicePicker({ cell, stageId, slotId, cohortId, studentCount, disabled
     catch { notify.error('Impossible de supprimer cette affectation'); }
   }, [stageId, slotId, cohortId, clearAssignment, notify]);
 
-  const capacityOk = !cell || (cell.occupiedSeats + studentCount <= cell.serviceCapacity);
+  const capacityOk = !cell || (cell.occupiedSeats <= cell.serviceCapacity);
   const capacityColor = !cell ? 'gray' : capacityOk ? 'teal' : 'red';
 
   return (
@@ -112,15 +167,30 @@ function ServicePicker({ cell, stageId, slotId, cohortId, studentCount, disabled
           ) : cell ? (
             <>
               <Group gap={4} wrap="nowrap" justify="space-between">
-                <Text size="xs" fw={600} truncate style={{ maxWidth: 100 }}>{cell.serviceName}</Text>
+                <Stack gap={0} style={{ minWidth: 0, flex: 1 }}>
+                  <Text size="xs" fw={600} truncate style={{ maxWidth: 100 }}>{cell.serviceName}</Text>
+                  <Text size="xs" c="dimmed" truncate style={{ maxWidth: 100 }}>{cell.hospitalName}</Text>
+                </Stack>
                 <ActionIcon size={12} variant="transparent" color="red" onClick={handleClear} style={{ flexShrink: 0 }}>
                   <IconX size={10} />
                 </ActionIcon>
               </Group>
               <Group gap={4} wrap="nowrap">
-                <Badge size="xs" radius="xl" color={capacityColor} variant="light">
-                  {cell.occupiedSeats + studentCount} / {cell.serviceCapacity}
-                </Badge>
+                <Tooltip
+                  label={
+                    capacityOk
+                      ? `${cell.occupiedSeats} étudiant(s) — dans la limite des ${cell.serviceCapacity} places`
+                      : `${cell.occupiedSeats} étudiant(s) pour ${cell.serviceCapacity} places — augmentez la capacité du service à ${cell.occupiedSeats} pour éviter la saturation`
+                  }
+                  position="top"
+                  withArrow
+                  multiline
+                  w={240}
+                >
+                  <Badge size="xs" radius="xl" color={capacityColor} variant="light">
+                    {cell.occupiedSeats} / {cell.serviceCapacity}
+                  </Badge>
+                </Tooltip>
               </Group>
             </>
           ) : (
@@ -151,7 +221,10 @@ function ServicePicker({ cell, stageId, slotId, cohortId, studentCount, disabled
                 ) : !servicesPage?.items.length ? (
                   <Combobox.Empty>Aucun service trouvé</Combobox.Empty>
                 ) : (
-                  servicesPage.items.map((s) => (
+                  (allowedServiceIds.length > 0
+                    ? servicesPage.items.filter((s) => allowedServiceIds.includes(s.id))
+                    : servicesPage.items
+                  ).map((s) => (
                     <Combobox.Option key={s.id} value={String(s.id)}>
                       <Stack gap={0}>
                         <Text size="xs" fw={500}>{s.name}</Text>
@@ -204,12 +277,12 @@ function AddSlotModal({ opened, onClose, stageId, nextPeriodNumber }: AddSlotMod
     <Modal opened={opened} onClose={onClose} title={`Ajouter créneau P${nextPeriodNumber}`} radius="md" size="sm">
       <Stack gap="sm">
         <TextInput label="Libellé (optionnel)" placeholder="Ex: Chirurgie" value={form.label}
-          onChange={(e) => setForm((f) => ({ ...f, label: e.currentTarget.value }))} />
+          onChange={(e) => { const v = e.currentTarget.value; setForm((f) => ({ ...f, label: v })); }} />
         <Group grow>
           <TextInput type="date" label="Début" value={form.startDate}
-            onChange={(e) => setForm((f) => ({ ...f, startDate: e.currentTarget.value }))} required />
+            onChange={(e) => { const v = e.currentTarget.value; setForm((f) => ({ ...f, startDate: v })); }} required />
           <TextInput type="date" label="Fin" value={form.endDate} min={form.startDate}
-            onChange={(e) => setForm((f) => ({ ...f, endDate: e.currentTarget.value }))} required />
+            onChange={(e) => { const v = e.currentTarget.value; setForm((f) => ({ ...f, endDate: v })); }} required />
         </Group>
         <Group justify="flex-end" pt="xs">
           <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
@@ -220,30 +293,73 @@ function AddSlotModal({ opened, onClose, stageId, nextPeriodNumber }: AddSlotMod
   );
 }
 
-// ─── Column header with delete ────────────────────────────────────────────────
+// ─── Column header with delete and clear ──────────────────────────────────────
 
 function SlotHeader({ slot, stageId }: { slot: StageSlotResponse; stageId: number }) {
   const notify = useNotify();
-  const [deleteSlot, { isLoading }] = useDeleteStageSlotMutation();
+  const [deleteSlot, { isLoading: deleting }] = useDeleteStageSlotMutation();
+  const [clearSlot, { isLoading: clearing }] = useClearSlotAssignmentsMutation();
+  const [deleteOpen, { open: openDelete, close: closeDelete }] = useDisclosure(false);
+  const [clearOpen,  { open: openClear,  close: closeClear  }] = useDisclosure(false);
 
   const handleDelete = async () => {
-    if (!window.confirm(`Supprimer le créneau P${slot.periodNumber} ? Les affectations seront aussi supprimées.`)) return;
-    try { await deleteSlot({ stageId, slotId: slot.id }).unwrap(); notify.success(`Créneau P${slot.periodNumber} supprimé`); }
-    catch { notify.error('Impossible de supprimer ce créneau'); }
+    try {
+      await deleteSlot({ stageId, slotId: slot.id }).unwrap();
+      notify.success(`Créneau P${slot.periodNumber} supprimé`);
+    } catch { notify.error('Impossible de supprimer ce créneau'); }
+    closeDelete();
+  };
+
+  const handleClear = async () => {
+    try {
+      const res = await clearSlot({ stageId, slotId: slot.id }).unwrap();
+      notify.success(`${res.cleared} affectation(s) vidée(s)`);
+    } catch { notify.error('Impossible de vider ce créneau'); }
+    closeClear();
   };
 
   return (
-    <Stack gap={2} align="center" style={{ minWidth: 150 }}>
-      <Group gap={4} wrap="nowrap" justify="center">
-        <Text size="xs" fw={700} c="navy.7">P{slot.periodNumber}{slot.label ? ` — ${slot.label}` : ''}</Text>
-        <ActionIcon size={14} variant="subtle" color="red" loading={isLoading} onClick={handleDelete}>
-          <IconTrash size={10} />
-        </ActionIcon>
-      </Group>
-      <Text size="xs" c="dimmed" ff="monospace">
-        {slot.startDate} → {slot.endDate}
-      </Text>
-    </Stack>
+    <>
+      <Stack gap={2} align="center" style={{ minWidth: 150 }}>
+        <Group gap={4} wrap="nowrap" justify="center">
+          <Text size="xs" fw={700} c="navy.7">P{slot.periodNumber}{slot.label ? ` — ${slot.label}` : ''}</Text>
+          <Tooltip label="Vider les affectations" position="top">
+            <ActionIcon size={14} variant="subtle" color="orange" loading={clearing} onClick={openClear}>
+              <IconEraser size={10} />
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="Supprimer le créneau" position="top">
+            <ActionIcon size={14} variant="subtle" color="red" loading={deleting} onClick={openDelete}>
+              <IconTrash size={10} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+        <Text size="xs" c="dimmed" ff="monospace">
+          {slot.startDate} → {slot.endDate}
+        </Text>
+      </Stack>
+
+      <ConfirmModal
+        opened={deleteOpen}
+        onClose={closeDelete}
+        title={`Supprimer P${slot.periodNumber}`}
+        message="Les affectations de service pour ce créneau seront aussi supprimées. Cette action est irréversible."
+        confirmLabel="Supprimer"
+        confirmColor="red"
+        onConfirm={handleDelete}
+        loading={deleting}
+      />
+      <ConfirmModal
+        opened={clearOpen}
+        onClose={closeClear}
+        title={`Vider P${slot.periodNumber}`}
+        message="Toutes les affectations de service non publiées pour ce créneau seront supprimées."
+        confirmLabel="Vider"
+        confirmColor="orange"
+        onConfirm={handleClear}
+        loading={clearing}
+      />
+    </>
   );
 }
 
@@ -253,28 +369,46 @@ function PublishButton({ cohortId, stageId, isPublished }: { cohortId: number; s
   const notify = useNotify();
   const [publish, { isLoading: publishing }] = usePublishScheduleMutation();
   const [unpublish, { isLoading: unpublishing }] = useUnpublishScheduleMutation();
+  const [unpublishOpen, { open: openUnpublish, close: closeUnpublish }] = useDisclosure(false);
   const loading = publishing || unpublishing;
 
   const handlePublish = async () => {
-    try { await publish({ cohortId, stageId }).unwrap(); notify.success('Planning publié'); }
-    catch { notify.error('Erreur lors de la publication'); }
+    try {
+      await publish({ cohortId, stageId }).unwrap();
+      notify.success('Planning publié');
+    } catch (err: unknown) {
+      const detail = (err as { data?: { detail?: string } })?.data?.detail;
+      notify.error(detail ?? 'Erreur lors de la publication');
+    }
   };
 
   const handleUnpublish = async () => {
-    if (!window.confirm('Dépublier ? Les périodes de service générées seront supprimées.')) return;
     try {
       const res = await unpublish({ cohortId, stageId }).unwrap();
       notify.success(`${res.removed} période(s) supprimée(s)`);
     } catch { notify.error('Erreur lors de la dépublication'); }
+    closeUnpublish();
   };
 
   if (isPublished) {
     return (
-      <Tooltip label="Dépublier" position="left">
-        <ActionIcon size="sm" variant="subtle" color="red" loading={loading} onClick={handleUnpublish}>
-          <IconRocketOff size={14} stroke={1.5} />
-        </ActionIcon>
-      </Tooltip>
+      <>
+        <Tooltip label="Dépublier" position="left">
+          <ActionIcon size="sm" variant="subtle" color="red" loading={loading} onClick={openUnpublish}>
+            <IconRocketOff size={14} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
+        <ConfirmModal
+          opened={unpublishOpen}
+          onClose={closeUnpublish}
+          title="Dépublier le planning"
+          message="Les périodes de service générées seront supprimées."
+          confirmLabel="Dépublier"
+          confirmColor="red"
+          onConfirm={handleUnpublish}
+          loading={unpublishing}
+        />
+      </>
     );
   }
 
@@ -287,19 +421,119 @@ function PublishButton({ cohortId, stageId, isPublished }: { cohortId: number; s
   );
 }
 
+// ─── Publish all unpublished cohorts ─────────────────────────────────────────
+
+function PublishAllButton(
+  { stageId, cohorts, activePartition }: { stageId: number; cohorts: CohortScheduleRow[]; activePartition: string | null },
+) {
+  const notify = useNotify();
+  const [publishStage, { isLoading: loading }] = usePublishStageScheduleMutation();
+  const [confirmOpen, { open, close }] = useDisclosure(false);
+
+  const publishable = cohorts.filter((c) => !c.isSchedulePublished && c.cells.some((cell) => cell !== null));
+
+  const handlePublishAll = async () => {
+    close();
+    try {
+      const res = await publishStage({
+        stageId,
+        partitionLabels: activePartition ? [activePartition] : undefined,
+      }).unwrap();
+      notify.success(`${res.publishedCohorts} cohorte(s) publiée(s) · ${res.periodsCreated} période(s)`);
+    } catch { notify.error('Erreur lors de la publication'); }
+  };
+
+  if (publishable.length === 0) return null;
+
+  const scopeLabel = activePartition ? `partition ${activePartition}` : 'toutes les partitions';
+
+  return (
+    <>
+      <Button
+        size="xs" color="teal" variant="light" radius="md"
+        leftSection={<IconRocket size={12} stroke={1.5} />}
+        loading={loading}
+        onClick={open}
+      >
+        Publier tout ({publishable.length})
+      </Button>
+      <ConfirmModal
+        opened={confirmOpen}
+        onClose={close}
+        title="Publier les cohortes"
+        message={`Publier le planning de ${publishable.length} cohorte(s) configurée(s) (${scopeLabel}) ?`}
+        confirmLabel="Publier"
+        confirmColor="teal"
+        onConfirm={handlePublishAll}
+        loading={loading}
+      />
+    </>
+  );
+}
+
 // ─── Main modal ───────────────────────────────────────────────────────────────
 
 interface Props {
   opened: boolean;
   onClose: () => void;
   stageId: number;
+  allowedServiceIds?: number[];
 }
 
-export function ScheduleGridModal({ opened, onClose, stageId }: Props) {
-  const [addSlotOpened, setAddSlotOpened] = useState(false);
+export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds = [] }: Props) {
+  const notify = useNotify();
+  const [addSlotOpened, setAddSlotOpened]   = useState(false);
+  const [activePartition, setActivePartition] = useState<string | null>(null);
+  const [autoArrangePeriods, setAutoArrangePeriods] = useState<string[]>([]);
+  const [autoArrangeOpen, { open: openAutoArrange, close: closeAutoArrange }] = useDisclosure(false);
   const { data: schedule, isLoading } = useGetStageScheduleQuery(stageId, { skip: !opened });
+  const [autoArrange, { isLoading: arranging }] = useAutoArrangeStageScheduleMutation();
 
-  const nextPeriodNumber = schedule ? (Math.max(0, ...schedule.slots.map((s) => s.periodNumber)) + 1) : 1;
+  const partitions = Array.from(
+    new Set(schedule?.cohorts.map((c) => c.rotationGroup).filter((g): g is string => g != null))
+  ).sort();
+
+  const handleAutoArrange = async () => {
+    closeAutoArrange();
+    try {
+      const res = await autoArrange({
+        stageId,
+        partitionLabels: activePartition ? [activePartition] : undefined,
+        periodNumbers: autoArrangePeriods.length ? autoArrangePeriods.map(Number) : undefined,
+      }).unwrap();
+      if (res.assigned === 0) {
+        notify.info('Aucune cohorte non publiée à configurer');
+      } else if (res.saturatedServices > 0) {
+        const gap = res.totalStudents - res.totalCapacity;
+        if (gap > 0) {
+          notify.warning(
+            `${res.assigned} affectation(s) générée(s) · ${res.saturatedServices} service(s) saturé(s). ` +
+            `Il manque ${gap} place(s) — augmentez les capacités des services ou ajoutez de nouveaux services.`
+          );
+        } else {
+          const unpublishedCohorts = schedule?.cohorts.filter((c) => !c.isSchedulePublished) ?? [];
+          const avgStudents = unpublishedCohorts.length > 0
+            ? Math.ceil(unpublishedCohorts.reduce((s, c) => s + c.studentCount, 0) / unpublishedCohorts.length)
+            : 0;
+          notify.warning(
+            `${res.assigned} affectation(s) générée(s) · ${res.saturatedServices} service(s) saturé(s). ` +
+            `Capacité insuffisante par service — chaque service doit pouvoir accueillir au moins ${avgStudents} étudiant(s).`
+          );
+        }
+      } else {
+        notify.success(`${res.assigned} affectation(s) générée(s) — aucun service saturé`);
+      }
+    } catch (err: unknown) {
+      const detail = (err as { data?: { detail?: string } })?.data?.detail;
+      notify.error(detail ?? 'Erreur lors de la répartition automatique');
+    }
+  };
+
+  const slots = schedule?.slots ?? [];
+  const nextPeriodNumber = slots.length > 0 ? Math.max(0, ...slots.map((s) => s.periodNumber)) + 1 : 1;
+  const visibleCohorts = activePartition
+    ? (schedule?.cohorts ?? []).filter((c) => c.rotationGroup === activePartition)
+    : (schedule?.cohorts ?? []);
 
   return (
     <>
@@ -320,8 +554,8 @@ export function ScheduleGridModal({ opened, onClose, stageId }: Props) {
       >
         <Stack gap="md">
           {/* Controls */}
-          <Group justify="space-between">
-            <Group gap="xs">
+          <Group justify="space-between" wrap="nowrap" align="flex-start">
+            <Group gap="xs" wrap="wrap">
               {schedule && schedule.cohorts.some((c) => c.isSchedulePublished) && (
                 <Badge color="teal" variant="light" size="sm" leftSection={<IconCheck size={10} />}>
                   {schedule.cohorts.filter((c) => c.isSchedulePublished).length} publiée(s)
@@ -333,20 +567,52 @@ export function ScheduleGridModal({ opened, onClose, stageId }: Props) {
                 </Badge>
               )}
             </Group>
-            <Button
-              size="xs" color="navy" variant="light" radius="md"
-              leftSection={<IconPlus size={12} stroke={1.5} />}
-              onClick={() => setAddSlotOpened(true)}
-            >
-              Ajouter créneau
-            </Button>
+            <Group gap="xs" wrap="nowrap" align="flex-end">
+              {schedule && <PublishAllButton stageId={stageId} cohorts={visibleCohorts} activePartition={activePartition} />}
+              <Button
+                size="xs" color="violet" variant="light" radius="md"
+                leftSection={<IconArrowsShuffle size={12} stroke={1.5} />}
+                loading={arranging}
+                onClick={openAutoArrange}
+              >
+                Répartition auto.
+              </Button>
+              <Button
+                size="xs" color="navy" variant="light" radius="md"
+                leftSection={<IconPlus size={12} stroke={1.5} />}
+                onClick={() => setAddSlotOpened(true)}
+              >
+                Ajouter créneau
+              </Button>
+            </Group>
           </Group>
+
+          {/* Partition filter chips */}
+          {partitions.length > 0 && (
+            <Group gap="xs">
+              <Text size="xs" c="dimmed" fw={500}>Partition :</Text>
+              <Chip.Group
+                value={activePartition ?? ''}
+                onChange={(v) => {
+                  const val = Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
+                  setActivePartition(val || null);
+                }}
+              >
+                <Group gap="xs">
+                  <Chip value="" size="xs" variant="light" color="violet">Toutes</Chip>
+                  {partitions.map((p) => (
+                    <Chip key={p} value={p} size="xs" variant="light" color="violet">{p}</Chip>
+                  ))}
+                </Group>
+              </Chip.Group>
+            </Group>
+          )}
 
           {/* Legend */}
           <Group gap="md" wrap="nowrap">
             <Group gap={4}><Box w={12} h={12} style={{ borderRadius: 2, background: '#f0fdf4', border: '1px dashed #86efac' }} /><Text size="xs" c="dimmed">Service assigné</Text></Group>
             <Group gap={4}><Box w={12} h={12} style={{ borderRadius: 2, background: '#fafafa', border: '1px dashed #e2e8f0' }} /><Text size="xs" c="dimmed">Non assigné</Text></Group>
-            <Group gap={4}><Badge size="xs" color="teal" variant="light">x/y</Badge><Text size="xs" c="dimmed">Capacité OK</Text></Group>
+            <Group gap={4}><Badge size="xs" color="teal" variant="light">x/y</Badge><Text size="xs" c="dimmed">Étudiants planifiés / Capacité (OK)</Text></Group>
             <Group gap={4}><Badge size="xs" color="red" variant="light">x/y</Badge><Text size="xs" c="dimmed">Capacité dépassée</Text></Group>
           </Group>
 
@@ -365,7 +631,9 @@ export function ScheduleGridModal({ opened, onClose, stageId }: Props) {
               </Stack>
             </Card>
           ) : (
-            <ScrollArea>
+            <>
+              <SaturationSummary visibleCohorts={visibleCohorts} />
+              <ScrollArea>
               <Table withTableBorder withColumnBorders fz="xs" style={{ minWidth: 400 + schedule.slots.length * 170 }}>
                 <Table.Thead>
                   <Table.Tr>
@@ -388,7 +656,7 @@ export function ScheduleGridModal({ opened, onClose, stageId }: Props) {
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {schedule.cohorts.map((row) => (
+                  {visibleCohorts.map((row) => (
                     <Table.Tr key={row.cohortId} style={{ background: row.isSchedulePublished ? '#f0fdf450' : undefined }}>
                       <Table.Td>
                         <Group gap="xs" wrap="nowrap">
@@ -396,7 +664,12 @@ export function ScheduleGridModal({ opened, onClose, stageId }: Props) {
                             ? <IconCircleCheck size={14} stroke={1.5} color="#22c55e" style={{ flexShrink: 0 }} />
                             : <IconCircleX size={14} stroke={1.5} color="#cbd5e1" style={{ flexShrink: 0 }} />}
                           <Stack gap={0} style={{ overflow: 'hidden' }}>
-                            <Text size="xs" fw={600} truncate>{row.cohortLabel}</Text>
+                            <Group gap={4} wrap="nowrap">
+                              <Text size="xs" fw={600} truncate>{row.cohortLabel}</Text>
+                              {row.rotationGroup && (
+                                <Badge size="xs" variant="dot" color="violet" radius="xl" style={{ flexShrink: 0 }}>{row.rotationGroup}</Badge>
+                              )}
+                            </Group>
                             <Text size="xs" c="dimmed" truncate>{row.academicGroupLabel} · {row.studentCount} étud.</Text>
                           </Stack>
                         </Group>
@@ -409,8 +682,8 @@ export function ScheduleGridModal({ opened, onClose, stageId }: Props) {
                               stageId={stageId}
                               slotId={slot.id}
                               cohortId={row.cohortId}
-                              studentCount={row.studentCount}
                               disabled={row.isSchedulePublished}
+                              allowedServiceIds={allowedServiceIds}
                             />
                           </Group>
                         </Table.Td>
@@ -426,6 +699,7 @@ export function ScheduleGridModal({ opened, onClose, stageId }: Props) {
                 </Table.Tbody>
               </Table>
             </ScrollArea>
+            </>
           )}
 
           <Group justify="flex-end" pt="xs" style={{ borderTop: '1px solid #e2e8f0' }}>
@@ -440,6 +714,47 @@ export function ScheduleGridModal({ opened, onClose, stageId }: Props) {
         stageId={stageId}
         nextPeriodNumber={nextPeriodNumber}
       />
+
+      <Modal
+        opened={autoArrangeOpen}
+        onClose={closeAutoArrange}
+        title="Répartition automatique"
+        radius="md"
+        size="md"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Répartit les services par rotation cyclique sur les cohortes non publiées.
+            Les affectations existantes non publiées dans la sélection seront remplacées.
+          </Text>
+
+          <Card padding="xs" radius="md" withBorder bg="#faf5ff">
+            <Text size="xs">
+              Partition ciblée :{' '}
+              <strong>{activePartition ? `Partition ${activePartition}` : 'Toutes les partitions'}</strong>
+              {!activePartition && partitions.length > 0 && ' — utilisez les chips ci-dessus pour cibler une partition.'}
+            </Text>
+          </Card>
+
+          <MultiSelect
+            label="Fenêtre (créneaux)"
+            description="Laisser vide pour répartir sur tous les créneaux"
+            placeholder={autoArrangePeriods.length ? undefined : 'Tous les créneaux'}
+            data={slots.map((s) => ({
+              value: String(s.periodNumber),
+              label: `P${s.periodNumber}${s.label ? ` — ${s.label}` : ''}`,
+            }))}
+            value={autoArrangePeriods}
+            onChange={setAutoArrangePeriods}
+            clearable
+          />
+
+          <Group justify="flex-end" pt="xs">
+            <Button variant="subtle" color="gray" onClick={closeAutoArrange}>Annuler</Button>
+            <Button color="violet" loading={arranging} onClick={handleAutoArrange}>Répartir</Button>
+          </Group>
+        </Stack>
+      </Modal>
     </>
   );
 }

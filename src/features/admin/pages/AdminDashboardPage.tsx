@@ -15,9 +15,11 @@ import {
   IconClipboardList,
   IconUsersGroup,
   IconArrowRight,
+  IconStethoscope,
+  IconBuildingHospital,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
-import { useGetStudentsQuery } from '../api/adminApi';
+import { useGetStudentsQuery, useGetStagesQuery, useGetAcademicGroupsQuery } from '../api/adminApi';
 import { StatCard } from '../../student/components/StatCard';
 import { PATHS } from '../../../routes/paths';
 
@@ -75,46 +77,43 @@ function QuickAction({
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
 
-  // Fetch with pageSize 1 — we only need totalCount for the stat
-  const { data: studentsPage, isLoading } = useGetStudentsQuery({ pageNumber: 1, pageSize: 1 });
+  const { data: studentsPage, isLoading: loadingStudents } = useGetStudentsQuery({ pageNumber: 1, pageSize: 1 });
+  const { data: stagesPage,   isLoading: loadingStages   } = useGetStagesQuery({ pageNumber: 1, pageSize: 1 });
+  const { data: groups,       isLoading: loadingGroups   } = useGetAcademicGroupsQuery({});
 
   return (
     <Container fluid>
       <Stack gap="xl">
-        {/* Greeting */}
         <Stack gap={4}>
           <Title order={1} fw={800}>Tableau de bord</Title>
           <Text size="sm" c="dimmed">Vue d'ensemble de la plateforme.</Text>
         </Stack>
 
-        {/* Stat cards */}
         <SimpleGrid cols={{ base: 1, xs: 2, md: 3 }} spacing="md">
           <StatCard
             icon={IconUsers}
             iconColor="navy"
             label="Étudiants inscrits"
             value={studentsPage?.totalCount ?? '—'}
-            loading={isLoading}
+            loading={loadingStudents}
           />
           <StatCard
-            icon={IconClipboardList}
+            icon={IconStethoscope}
             iconColor="sky"
-            label="Inscriptions actives"
-            value="—"
-            sub="Disponible prochainement"
-            loading={false}
+            label="Stages configurés"
+            value={stagesPage?.totalCount ?? '—'}
+            loading={loadingStages}
           />
           <StatCard
             icon={IconUsersGroup}
             iconColor="success"
             label="Groupes formés"
-            value="—"
-            sub="Disponible prochainement"
-            loading={false}
+            value={loadingGroups ? '…' : String(groups?.length ?? 0)}
+            sub={groups?.length === 0 ? 'Aucun groupe créé' : 'Toutes promotions confondues'}
+            loading={loadingGroups}
           />
         </SimpleGrid>
 
-        {/* Quick actions */}
         <Stack gap="sm">
           <Text size="sm" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.5px' }}>
             Accès rapide
@@ -125,21 +124,35 @@ export default function AdminDashboardPage() {
               color="navy"
               label="Gérer les étudiants"
               description="Rechercher, consulter et gérer les profils étudiants"
-              onClick={() => navigate(`${PATHS.ADMIN.ROOT}/students`)}
-            />
-            <QuickAction
-              icon={IconClipboardList}
-              color="sky"
-              label="Inscriptions"
-              description="Gérer les inscriptions et les statuts par année académique"
-              onClick={() => {}}
+              onClick={() => navigate(`${PATHS.ADMIN.ROOT}/${PATHS.ADMIN.STUDENTS}`)}
             />
             <QuickAction
               icon={IconUsersGroup}
               color="success"
               label="Groupes académiques"
               description="Former et réorganiser les groupes d'étudiants"
-              onClick={() => {}}
+              onClick={() => navigate(`${PATHS.ADMIN.ROOT}/${PATHS.ADMIN.GROUPS}`)}
+            />
+            <QuickAction
+              icon={IconClipboardList}
+              color="sky"
+              label="Affectations & Rotations"
+              description="Suivre les affectations et les périodes de stage"
+              onClick={() => navigate(`${PATHS.ADMIN.ROOT}/${PATHS.ADMIN.ASSIGNMENTS}`)}
+            />
+            <QuickAction
+              icon={IconStethoscope}
+              color="violet"
+              label="Stages"
+              description="Créer et configurer les stages par niveau"
+              onClick={() => navigate(`${PATHS.ADMIN.ROOT}/${PATHS.ADMIN.STAGES}`)}
+            />
+            <QuickAction
+              icon={IconBuildingHospital}
+              color="teal"
+              label="Infrastructure hospitalière"
+              description="Gérer les centres, hôpitaux et services"
+              onClick={() => navigate(`${PATHS.ADMIN.ROOT}/${PATHS.ADMIN.HOSPITALS}`)}
             />
           </SimpleGrid>
         </Stack>

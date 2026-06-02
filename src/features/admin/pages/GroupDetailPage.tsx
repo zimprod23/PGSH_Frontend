@@ -16,9 +16,11 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import {
   IconArrowLeft,
   IconArrowsTransferUp,
+  IconTrash,
   IconUsers,
 } from '@tabler/icons-react';
 import { useState } from 'react';
@@ -27,10 +29,12 @@ import {
   useGetGroupByIdQuery,
   useGetAcademicGroupsQuery,
   useTransferStudentMutation,
+  useEmptyGroupMutation,
 } from '../api/adminApi';
 import type { GroupStudentResponse } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { RegistrationBadge } from '../../student/components/RegistrationBadge';
+
 import { PATHS } from '../../../routes/paths';
 
 // ─── Transfer modal ───────────────────────────────────────────────────────────
@@ -121,28 +125,57 @@ export default function GroupDetailPage() {
   const { id }   = useParams<{ id: string }>();
   const groupId  = Number(id);
   const navigate = useNavigate();
+  const notify   = useNotify();
 
   const [transferTarget, setTransferTarget] = useState<GroupStudentResponse | null>(null);
-  const [modalOpen, { open: openModal, close: closeModal }] = useDisclosure(false);
+  const [modalOpen,   { open: openModal,  close: closeModal  }] = useDisclosure(false);
+  const [emptyOpen,   { open: openEmpty,  close: closeEmpty  }] = useDisclosure(false);
 
   const { data: group, isLoading } = useGetGroupByIdQuery(groupId);
+  const [emptyGroup, { isLoading: emptying }] = useEmptyGroupMutation();
+
+  const handleEmpty = async () => {
+    try {
+      const res = await emptyGroup(groupId).unwrap();
+      notify.success(`${res.unassigned} étudiant(s) désassigné(s)`);
+    } catch {
+      notify.error('Impossible de vider ce groupe');
+    }
+    closeEmpty();
+  };
 
   return (
     <Container fluid>
       <Stack gap="xl">
         {/* Header */}
-        <Group gap="sm">
-          <ActionIcon variant="subtle" color="gray" radius="md"
-            onClick={() => navigate(`${PATHS.ADMIN.ROOT}/groups`)}>
-            <IconArrowLeft size={18} stroke={1.5} />
-          </ActionIcon>
-          {isLoading ? (
-            <Skeleton height={28} width={240} radius="sm" />
-          ) : (
-            <Stack gap={2}>
-              <Title order={2} fw={700}>{group?.label}</Title>
-              <Text size="xs" c="dimmed">{group?.academicYearLabel}</Text>
-            </Stack>
+        <Group gap="sm" justify="space-between">
+          <Group gap="sm">
+            <ActionIcon variant="subtle" color="gray" radius="md"
+              onClick={() => navigate(`${PATHS.ADMIN.ROOT}/groups`)}>
+              <IconArrowLeft size={18} stroke={1.5} />
+            </ActionIcon>
+            {isLoading ? (
+              <Skeleton height={28} width={240} radius="sm" />
+            ) : (
+              <Stack gap={2}>
+                <Title order={2} fw={700}>{group?.label}</Title>
+                <Text size="xs" c="dimmed">{group?.academicYearLabel}</Text>
+              </Stack>
+            )}
+          </Group>
+          {!isLoading && (group?.students.length ?? 0) > 0 && (
+            <Tooltip label="Désassigner tous les étudiants du groupe" position="left">
+              <Button
+                variant="light"
+                color="red"
+                size="sm"
+                loading={emptying}
+                leftSection={<IconTrash size={14} stroke={1.5} />}
+                onClick={openEmpty}
+              >
+                Vider le groupe
+              </Button>
+            </Tooltip>
           )}
         </Group>
 
@@ -222,6 +255,17 @@ export default function GroupDetailPage() {
         currentGroupYearId={group?.academicYearId ?? 0}
         opened={modalOpen}
         onClose={() => { closeModal(); setTransferTarget(null); }}
+      />
+
+      <ConfirmModal
+        opened={emptyOpen}
+        onClose={closeEmpty}
+        title="Vider le groupe"
+        message={`Vider le groupe "${group?.label}" ? Tous les étudiants seront désassignés et pourront être répartis à nouveau.`}
+        confirmLabel="Vider"
+        confirmColor="red"
+        onConfirm={handleEmpty}
+        loading={emptying}
       />
     </Container>
   );

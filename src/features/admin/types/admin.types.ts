@@ -111,6 +111,12 @@ export interface StageObjectiveResponse {
   isMandatory: boolean;
 }
 
+export interface AllowedServiceSummary {
+  id: number;
+  name: string;
+  hospitalName: string;
+}
+
 export interface StageDetailResponse {
   id: number;
   name: string;
@@ -119,6 +125,7 @@ export interface StageDetailResponse {
   durationInDays: number;
   levelResponse: AdminLevelResponse | null;
   stageObjectiveResponse: StageObjectiveResponse[];
+  allowedServices: AllowedServiceSummary[];
 }
 
 export interface StageObjectiveRequest {
@@ -167,6 +174,7 @@ export interface CohortResponse {
   isSchedulePublished: boolean;
   academicYearId: number;
   academicYearLabel: string;
+  rotationGroup: string | null;
 }
 
 export interface CohortSlotDetail {
@@ -218,6 +226,7 @@ export interface CohortScheduleRow {
   cohortLabel: string;
   academicGroupId: number;
   academicGroupLabel: string;
+  rotationGroup: string | null;
   studentCount: number;
   isSchedulePublished: boolean;
   cells: (SlotCellResponse | null)[];
@@ -258,6 +267,9 @@ export interface AcademicGroupResponse {
   groupNumber: number;
   academicYearId: number;
   academicYearLabel: string;
+  rotationGroup: string | null;
+  levelId: number | null;
+  levelLabel: string | null;
 }
 
 export interface GroupDetailResponse {
@@ -265,6 +277,7 @@ export interface GroupDetailResponse {
   label: string;
   groupNumber: number;
   geographicZone: string | null;
+  rotationGroup: string | null;
   academicYearId: number;
   academicYearLabel: string;
   students: GroupStudentResponse[];
@@ -354,6 +367,47 @@ export interface RecordAttendanceRequest {
   servicePeriodId: string;
   date: string;        // YYYY-MM-DD
   status: AttendanceStatus;
+}
+
+// ─── Macro plan ──────────────────────────────────────────────────────────────
+
+export interface PartitionStagePair {
+  rotationGroup: string;
+  stageId: number;
+}
+
+export interface BulkCreateCohortsFromPartitionsRequest {
+  academicYearId: number;
+  mappings: PartitionStagePair[];
+}
+
+export interface BulkCohortsFromPartitionsResult {
+  created: number;
+  skipped: number;
+}
+
+export interface PartitionStagePlan {
+  rotationGroup: string;
+  stageId: number;
+  periodNumbers: number[];
+}
+
+export interface GenerateMacroPlanRequest {
+  academicYearId: number;
+  plans: PartitionStagePlan[];
+  assignStudents: boolean;
+  autoArrange: boolean;
+  publish: boolean;
+}
+
+export interface MacroPlanResult {
+  cohortsCreated: number;
+  cohortsSkipped: number;
+  studentsAssigned: number;
+  cellsArranged: number;
+  saturatedServices: number;
+  cohortsPublished: number;
+  periodsPublished: number;
 }
 
 // ─── Groups ──────────────────────────────────────────────────────────────────
@@ -470,6 +524,10 @@ export interface ServiceDetailResponse {
   capacity: number;
   hospitalId: number;
   hospitalName: string;
+  hospitalCity: string;
+  hospitalDescription: string | null;
+  latitude: string | null;
+  longitude: string | null;
   serviceChef: ServiceChefSummary | null;
   staff: StaffMemberResponse[];
 }

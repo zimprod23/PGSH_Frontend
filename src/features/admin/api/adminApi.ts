@@ -42,6 +42,10 @@ import type {
   CreateEmployeeRequest,
   UpdateEmployeeRequest,
   GetEmployeesParams,
+  BulkCreateCohortsFromPartitionsRequest,
+  BulkCohortsFromPartitionsResult,
+  GenerateMacroPlanRequest,
+  MacroPlanResult,
 } from '../types/admin.types';
 
 export const adminApiSlice = apiSlice.injectEndpoints({
@@ -181,6 +185,23 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { id }) => [{ type: 'Stage', id }, { type: 'Stage', id: 'LIST' }],
     }),
 
+    addAllowedService: builder.mutation<void, { stageId: number; serviceId: number }>({
+      query: ({ stageId, serviceId }) => ({
+        url: `/stages/${stageId}/allowed-services`,
+        method: 'POST',
+        body: { serviceId },
+      }),
+      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: stageId }],
+    }),
+
+    removeAllowedService: builder.mutation<void, { stageId: number; serviceId: number }>({
+      query: ({ stageId, serviceId }) => ({
+        url: `/stages/${stageId}/allowed-services/${serviceId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: stageId }],
+    }),
+
     deleteStage: builder.mutation<void, number>({
       query: (id) => ({ url: `/stages/${id}`, method: 'DELETE' }),
       invalidatesTags: [{ type: 'Stage', id: 'LIST' }],
@@ -207,14 +228,24 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
     }),
 
-    assignStudentsToCohort: builder.mutation<{ successCount: number; totalProcessed: number }, number>({
-      query: (cohortId) => ({ url: `/cohorts/${cohortId}/assign-students`, method: 'POST' }),
-      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    assignStudentsToCohort: builder.mutation<{ successCount: number; totalProcessed: number }, { cohortId: number; stageId: number }>({
+      query: ({ cohortId }) => ({ url: `/cohorts/${cohortId}/assign-students`, method: 'POST' }),
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: `cohorts-${stageId}` },
+      ],
     }),
 
-    assignAllStudentsByStage: builder.mutation<{ successCount: number; totalProcessed: number }, number>({
-      query: (stageId) => ({ url: `/stages/${stageId}/assign-students`, method: 'POST' }),
-      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    assignAllStudentsByStage: builder.mutation<{ successCount: number; totalProcessed: number }, { stageId: number; partitionLabels?: string[] }>({
+      query: ({ stageId, partitionLabels }) => ({
+        url: `/stages/${stageId}/assign-students`,
+        method: 'POST',
+        body: partitionLabels?.length ? { partitionLabels } : {},
+      }),
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: `cohorts-${stageId}` },
+      ],
     }),
 
     startCohortAssignments: builder.mutation<{ started: number }, number>({
@@ -234,7 +265,10 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     getStageSchedule: builder.query<StageScheduleResponse, number>({
       query: (stageId) => `/stages/${stageId}/schedule`,
-      providesTags: (_r, _e, stageId) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+      providesTags: (_r, _e, stageId) => [
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Service' as const, id: 'LIST' },
+      ],
     }),
 
     createStageSlot: builder.mutation<number, { stageId: number } & CreateStageSlotRequest>({
@@ -262,6 +296,11 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
     }),
 
+    clearSlotAssignments: builder.mutation<{ cleared: number }, { stageId: number; slotId: number }>({
+      query: ({ stageId, slotId }) => ({ url: `/stages/${stageId}/slots/${slotId}/cohorts`, method: 'DELETE' }),
+      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+    }),
+
     publishSchedule: builder.mutation<void, { cohortId: number; stageId: number }>({
       query: ({ cohortId }) => ({ url: `/cohorts/${cohortId}/publish-schedule`, method: 'POST' }),
       invalidatesTags: (_r, _e, { cohortId, stageId }) => [
@@ -282,10 +321,58 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    autoArrangeStageSchedule: builder.mutation<
+      { assigned: number; saturatedServices: number; totalStudents: number; totalCapacity: number },
+      { stageId: number; partitionCount?: number; partitionLabels?: string[]; periodNumbers?: number[] }
+    >({
+      query: ({ stageId, ...body }) => ({
+        url: `/stages/${stageId}/schedule/auto-arrange`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Level' as const, id: 'GROUPS' },
+      ],
+    }),
+
+    publishStageSchedule: builder.mutation<
+      { publishedCohorts: number; periodsCreated: number; skippedCohorts: number },
+      { stageId: number; partitionLabels?: string[]; periodNumbers?: number[] }
+    >({
+      query: ({ stageId, ...body }) => ({
+        url: `/stages/${stageId}/schedule/publish`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: `cohorts-${stageId}` },
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+      ],
+    }),
+
+    generateMacroPlan: builder.mutation<MacroPlanResult, GenerateMacroPlanRequest>({
+      query: (body) => ({ url: '/stages/macro-plan', method: 'POST', body }),
+      invalidatesTags: (_r, _e, { plans }) => [
+        { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Assignment' as const, id: 'LIST' },
+        ...Array.from(new Set(plans.map((p) => p.stageId))).flatMap((id) => [
+          { type: 'Stage' as const, id: `cohorts-${id}` },
+          { type: 'Stage' as const, id: `schedule-${id}` },
+        ]),
+      ],
+    }),
+
     // ─── Groups ──────────────────────────────────────────────────────────────
-    getAcademicGroups: builder.query<AcademicGroupResponse[], { academicYearId?: number; levelId?: number }>({
+    getAcademicGroups: builder.query<AcademicGroupResponse[], { academicYearId?: number; levelId?: number; studentId?: string }>({
       query: (params) => ({ url: '/groups', params }),
       providesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
+    }),
+
+    createGroup: builder.mutation<number, { label: string; academicYearId: number; levelId?: number | null; geographicZone?: string; rotationGroup?: string | null }>({
+      query: (body) => ({ url: '/groups', method: 'POST', body }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
 
     getGroupById: builder.query<GroupDetailResponse, number>({
@@ -293,7 +380,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       providesTags: (_r, _e, id) => [{ type: 'Level' as const, id: `group-${id}` }],
     }),
 
-    updateGroup: builder.mutation<void, { id: number; label: string; geographicZone?: string }>({
+    updateGroup: builder.mutation<void, { id: number; label: string; geographicZone?: string; rotationGroup?: string | null }>({
       query: ({ id, ...body }) => ({ url: `/groups/${id}`, method: 'PUT', body }),
       invalidatesTags: (_r, _e, { id }) => [
         { type: 'Level' as const, id: 'GROUPS' },
@@ -304,6 +391,14 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     deleteGroup: builder.mutation<void, number>({
       query: (id) => ({ url: `/groups/${id}`, method: 'DELETE' }),
       invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
+    }),
+
+    emptyGroup: builder.mutation<{ unassigned: number }, number>({
+      query: (id) => ({ url: `/groups/${id}/students`, method: 'DELETE' }),
+      invalidatesTags: (_r, _e, id) => [
+        { type: 'Level' as const, id: `group-${id}` },
+        { type: 'Level' as const, id: 'GROUPS' },
+      ],
     }),
 
     transferStudent: builder.mutation<void, TransferStudentRequest>({
@@ -318,12 +413,46 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: '/groups/auto-arrange', method: 'POST', body }),
     }),
 
+    assignRotationGroups: builder.mutation<{ labeled: number }, { academicYearId: number; partitionCount: number }>({
+      query: ({ academicYearId, partitionCount }) => ({
+        url: '/groups/assign-partitions',
+        method: 'POST',
+        params: { academicYearId },
+        body: { partitionCount },
+      }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
+    }),
+
+    bulkCreateCohortsFromPartitions: builder.mutation<BulkCohortsFromPartitionsResult, BulkCreateCohortsFromPartitionsRequest>({
+      query: (body) => ({ url: '/cohorts/from-partitions', method: 'POST', body }),
+      invalidatesTags: (_r, _e, { mappings }) =>
+        Array.from(new Set(mappings.map((m) => m.stageId))).map((id) => ({
+          type: 'Stage' as const,
+          id: `cohorts-${id}`,
+        })),
+    }),
+
+    deleteAllStageCohorts: builder.mutation<{ deleted: number }, number>({
+      query: (stageId) => ({ url: `/stages/${stageId}/cohorts/all`, method: 'DELETE' }),
+      invalidatesTags: (_r, _e, stageId) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
+    }),
+
+    deleteAllYearGroups: builder.mutation<{ deleted: number }, number>({
+      query: (academicYearId) => ({ url: '/groups/all', method: 'DELETE', params: { academicYearId } }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
+    }),
+
     createRegistration: builder.mutation<string, CreateRegistrationRequest>({
       query: (body) => ({ url: '/registrations', method: 'POST', body }),
       invalidatesTags: (_r, _e, { studentId }) => [{ type: 'Registration' as const, id: studentId }],
     }),
 
     // ─── Internship Assignments ───────────────────────────────────────────────
+    getAssignmentStatusSummary: builder.query<{ status: string; count: number }[], { cohortIds?: number[]; stageId?: number }>({
+      query: ({ cohortIds, stageId }) => ({ url: '/internship-assignments/status-summary', params: { cohortIds, stageId } }),
+      providesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
     getInternshipAssignments: builder.query<PaginatedResponse<InternshipAssignmentSummaryResponse>, GetAssignmentsParams>({
       query: (params) => ({ url: '/internship-assignments', params }),
       providesTags: (result) =>
@@ -474,15 +603,23 @@ export const {
   useUpdateLevelMutation,
   useGetAcademicGroupsQuery,
   useGetGroupByIdQuery,
+  useCreateGroupMutation,
   useUpdateGroupMutation,
   useDeleteGroupMutation,
+  useEmptyGroupMutation,
   useTransferStudentMutation,
   useAutoArrangeGroupsMutation,
+  useAssignRotationGroupsMutation,
+  useBulkCreateCohortsFromPartitionsMutation,
+  useDeleteAllStageCohortsMutation,
+  useDeleteAllYearGroupsMutation,
   useGetStagesQuery,
   useGetStageByIdQuery,
   useCreateStageMutation,
   useUpdateStageMutation,
   useDeleteStageMutation,
+  useAddAllowedServiceMutation,
+  useRemoveAllowedServiceMutation,
   useGetCohortsByStageQuery,
   useGetCohortByIdQuery,
   useCreateCohortMutation,
@@ -498,13 +635,18 @@ export const {
   useDeleteStageSlotMutation,
   useSetCohortSlotAssignmentMutation,
   useClearCohortSlotAssignmentMutation,
+  useClearSlotAssignmentsMutation,
   usePublishScheduleMutation,
   useUnpublishScheduleMutation,
+  useAutoArrangeStageScheduleMutation,
+  usePublishStageScheduleMutation,
+  useGenerateMacroPlanMutation,
   useCreateRegistrationMutation,
   useUpdateRegistrationMutation,
   useGetServicePeriodsQuery,
   useGetAttendanceByPeriodQuery,
   useRecordAttendanceMutation,
+  useGetAssignmentStatusSummaryQuery,
   useGetInternshipAssignmentsQuery,
   useStartAssignmentMutation,
   useValidateAssignmentMutation,

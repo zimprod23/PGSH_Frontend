@@ -3,7 +3,7 @@ import type { PaginatedResponse } from '../../../common/types';
 import type {
   StudentResponse, StudentHistoryResponse, StudentRegistrationResponse,
   InternshipAssignmentSummary, InternshipAssignmentDetail,
-  AttendanceRecord, ServiceEvaluationDetail,
+  AttendanceRecord, ServiceEvaluationDetail, StudentServiceDetailResponse,
 } from '../types/student.types';
 import type { StageSummaryResponse, StageResponse, GetStagesQuery } from '../types/stage.types';
 
@@ -69,6 +69,11 @@ export const studentApiSlice = apiSlice.injectEndpoints({
       query: (periodId) => `/service-periods/${periodId}/evaluation`,
       providesTags: (_r, _e, id) => [{ type: 'Registration' as const, id: `eval-${id}` }],
     }),
+
+    getServiceById: builder.query<StudentServiceDetailResponse, number>({
+      query: (id) => `/services/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'Service' as const, id: `student-service-${id}` }],
+    }),
   }),
 });
 
@@ -83,4 +88,5 @@ export const {
   useGetAssignmentByIdQuery,
   useGetAttendanceByPeriodQuery,
   useGetEvaluationByPeriodQuery,
+  useGetServiceByIdQuery,
 } = studentApiSlice;

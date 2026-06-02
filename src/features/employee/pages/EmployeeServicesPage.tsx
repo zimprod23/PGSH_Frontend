@@ -17,9 +17,15 @@ import {
   rem,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconBuildingHospital, IconClipboardList, IconCheck } from '@tabler/icons-react';
-import { useState } from 'react';
-import { useGetCurrentUserQuery, useGetMyServicesAsChefQuery, useGetServicePeriodsByServiceQuery, useSubmitEvaluationMutation } from '../api/employeeApi';
+import { IconBuildingHospital, IconClipboardList, IconCheck, IconPencil } from '@tabler/icons-react';
+import { useEffect, useState } from 'react';
+import {
+  useGetCurrentEmployeeQuery,
+  useGetEvaluationByPeriodQuery,
+  useGetServicePeriodsByServiceQuery,
+  useSubmitEvaluationMutation,
+  useUpdateEvaluationMutation,
+} from '../api/employeeApi';
 import type { MyServicePeriodResponse } from '../types/employee.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 
@@ -35,68 +41,111 @@ function EvaluationModal({
   onClose: () => void;
 }) {
   const notify = useNotify();
-  const [score, setScore]     = useState<number>(10);
+  const isEditMode = period?.hasEvaluation ?? false;
+
+  const { data: existing, isLoading: loadingExisting } = useGetEvaluationByPeriodQuery(
+    period?.id ?? '',
+    { skip: !isEditMode || !opened || !period?.id },
+  );
+
+  const [score,   setScore]   = useState<number>(10);
   const [comment, setComment] = useState('');
-  const [submit, { isLoading }] = useSubmitEvaluationMutation();
+
+  useEffect(() => {
+    if (isEditMode && existing) {
+      setScore(Number(existing.totalScore));
+      setComment(existing.supervisorComment ?? '');
+    } else if (!isEditMode) {
+      setScore(10);
+      setComment('');
+    }
+  }, [existing, isEditMode, opened]);
+
+  const [submit, { isLoading: submitting }] = useSubmitEvaluationMutation();
+  const [update, { isLoading: updating   }] = useUpdateEvaluationMutation();
 
   const handleSubmit = async () => {
     if (!period) return;
     try {
-      await submit({
-        servicePeriodId: period.id,
-        totalScore: score,
-        supervisorComment: comment.trim() || undefined,
-        objectiveScores: [],
-      }).unwrap();
-      notify.success('Évaluation soumise');
+      if (isEditMode && existing) {
+        await update({
+          evaluationId:      existing.id,
+          servicePeriodId:   period.id,
+          totalScore:        score,
+          supervisorComment: comment.trim() || undefined,
+          objectiveScores:   existing.objectiveScores.map((o) => ({
+            stageObjectiveId: o.stageObjectiveId,
+            score:            o.score,
+            note:             o.note ?? undefined,
+          })),
+        }).unwrap();
+        notify.success('Évaluation mise à jour');
+      } else {
+        await submit({
+          servicePeriodId:   period.id,
+          totalScore:        score,
+          supervisorComment: comment.trim() || undefined,
+          objectiveScores:   [],
+        }).unwrap();
+        notify.success('Évaluation soumise');
+      }
       onClose();
     } catch {
       notify.error('Erreur lors de la soumission');
     }
   };
 
+  const isBusy = submitting || updating || loadingExisting;
+
   return (
     <Modal
       opened={opened}
       onClose={onClose}
-      title={`Évaluation — ${period?.studentFullName ?? ''}`}
+      title={isEditMode ? 'Modifier l\'évaluation' : 'Nouvelle évaluation'}
       size="sm"
     >
       <Stack gap="md">
         <Text size="sm" c="dimmed">
-          Période : {period?.startDate} → {period?.endDate}
+          {period?.studentFullName} — {period?.startDate} → {period?.endDate}
         </Text>
 
-        <NumberInput
-          label="Note finale (0 – 20)"
-          value={score}
-          onChange={(v) => setScore(Number(v) || 0)}
-          min={0}
-          max={20}
-          step={0.5}
-          decimalScale={2}
-          required
-        />
+        {isEditMode && loadingExisting ? (
+          <Skeleton height={60} radius="md" />
+        ) : (
+          <>
+            <NumberInput
+              label="Note finale (0 – 20)"
+              value={score}
+              onChange={(v) => setScore(Number(v) || 0)}
+              min={0}
+              max={20}
+              step={0.5}
+              decimalScale={2}
+              required
+            />
 
-        <Textarea
-          label="Commentaire du superviseur"
-          placeholder="Observations, points forts, axes d'amélioration…"
-          value={comment}
-          onChange={(e) => setComment(e.currentTarget.value)}
-          minRows={3}
-          maxRows={6}
-          autosize
-        />
+            <Textarea
+              label="Commentaire du superviseur"
+              placeholder="Observations, points forts, axes d'amélioration…"
+              value={comment}
+              onChange={(e) => setComment(e.currentTarget.value)}
+              minRows={3}
+              maxRows={6}
+              autosize
+            />
+          </>
+        )}
 
         <Group justify="flex-end" pt="sm" style={{ borderTop: '1px solid #E2E8F0' }}>
           <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
           <Button
             color="navy"
-            loading={isLoading}
+            loading={isBusy}
+            disabled={isEditMode && loadingExisting}
             leftSection={<IconCheck size={16} stroke={1.5} />}
             onClick={handleSubmit}
           >
-            Soumettre
+            {isEditMode ? 'Enregistrer' : 'Soumettre'}
           </Button>
         </Group>
       </Stack>
@@ -120,9 +169,15 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
   const { data: donePage, isLoading: loadingDone } =
     useGetServicePeriodsByServiceQuery({ serviceId, isComplete: true });
 
-  const active   = activePage?.items ?? [];
-  const done     = donePage?.items ?? [];
-  const pending  = done.filter((p) => !p.hasEvaluation);
+  const active  = activePage?.items ?? [];
+  const done    = donePage?.items   ?? [];
+  const pending = done.filter((p) => !p.hasEvaluation);
+  const evaluated = done.filter((p) => p.hasEvaluation);
+
+  const openFor = (period: MyServicePeriodResponse) => {
+    setEvalPeriod(period);
+    openModal();
+  };
 
   return (
     <>
@@ -138,8 +193,8 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
             </Stack>
           </Group>
 
+          {/* Active rotations */}
           <Divider label="Rotations en cours" labelPosition="left" />
-
           {loadingActive ? (
             <Skeleton height={48} radius="md" />
           ) : active.length === 0 ? (
@@ -165,7 +220,8 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
             </Table>
           )}
 
-          {pending.length > 0 && (
+          {/* Pending evaluations */}
+          {loadingDone ? null : pending.length > 0 && (
             <>
               <Divider
                 label={
@@ -176,41 +232,81 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
                 }
                 labelPosition="left"
               />
-
-              {loadingDone ? (
-                <Skeleton height={48} radius="md" />
-              ) : (
-                <Table striped verticalSpacing="xs" fz="sm">
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Étudiant</Table.Th>
-                      <Table.Th>Période</Table.Th>
-                      <Table.Th w={rem(140)} />
+              <Table striped verticalSpacing="xs" fz="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Étudiant</Table.Th>
+                    <Table.Th>Période</Table.Th>
+                    <Table.Th w={rem(140)} />
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {pending.map((p) => (
+                    <Table.Tr key={p.id}>
+                      <Table.Td>{p.studentFullName}</Table.Td>
+                      <Table.Td>
+                        <Text ff="monospace" size="xs">{p.startDate} → {p.endDate}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          color="navy"
+                          leftSection={<IconClipboardList size={14} stroke={1.5} />}
+                          onClick={() => openFor(p)}
+                        >
+                          Évaluer
+                        </Button>
+                      </Table.Td>
                     </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {pending.map((p) => (
-                      <Table.Tr key={p.id}>
-                        <Table.Td>{p.studentFullName}</Table.Td>
-                        <Table.Td>
-                          <Text ff="monospace" size="xs">{p.startDate} → {p.endDate}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Button
-                            size="xs"
-                            variant="light"
-                            color="navy"
-                            leftSection={<IconClipboardList size={14} stroke={1.5} />}
-                            onClick={() => { setEvalPeriod(p); openModal(); }}
-                          >
-                            Évaluer
-                          </Button>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              )}
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </>
+          )}
+
+          {/* Submitted evaluations */}
+          {loadingDone ? null : evaluated.length > 0 && (
+            <>
+              <Divider
+                label={
+                  <Group gap="xs">
+                    <Text size="xs">Évaluations soumises</Text>
+                    <Badge size="xs" color="teal" variant="light">{evaluated.length}</Badge>
+                  </Group>
+                }
+                labelPosition="left"
+              />
+              <Table striped verticalSpacing="xs" fz="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Étudiant</Table.Th>
+                    <Table.Th>Période</Table.Th>
+                    <Table.Th w={rem(120)} />
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {evaluated.map((p) => (
+                    <Table.Tr key={p.id}>
+                      <Table.Td>{p.studentFullName}</Table.Td>
+                      <Table.Td>
+                        <Text ff="monospace" size="xs">{p.startDate} → {p.endDate}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Button
+                          size="xs"
+                          variant="subtle"
+                          color="gray"
+                          leftSection={<IconPencil size={14} stroke={1.5} />}
+                          onClick={() => openFor(p)}
+                        >
+                          Modifier
+                        </Button>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
             </>
           )}
         </Stack>
@@ -224,13 +320,9 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function EmployeeServicesPage() {
-  const { data: me } = useGetCurrentUserQuery();
+  const { data: me, isLoading } = useGetCurrentEmployeeQuery();
 
-  const { data: servicesPage, isLoading } = useGetMyServicesAsChefQuery(
-    me?.id ?? '', { skip: !me?.id }
-  );
-
-  const services = servicesPage?.items ?? [];
+  const services = me?.services.filter((s) => s.isChef) ?? [];
 
   return (
     <Container fluid>
@@ -262,9 +354,9 @@ export default function EmployeeServicesPage() {
           <Stack gap="lg">
             {services.map((s) => (
               <ServiceCard
-                key={s.id}
-                serviceId={s.id}
-                serviceName={s.name}
+                key={s.serviceId}
+                serviceId={s.serviceId}
+                serviceName={s.serviceName}
                 hospitalName={s.hospitalName}
               />
             ))}

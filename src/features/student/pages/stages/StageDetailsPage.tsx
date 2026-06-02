@@ -3,6 +3,7 @@ import {
   Badge,
   Box,
   Card,
+  Collapse,
   Container,
   Divider,
   Group,
@@ -10,15 +11,20 @@ import {
   SimpleGrid,
   Skeleton,
   Stack,
+  Table,
   Text,
   ThemeIcon,
   Title,
+  UnstyledButton,
   rem,
 } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import {
   IconArrowLeft,
   IconBuildingHospital,
   IconCalendar,
+  IconChevronDown,
+  IconChevronUp,
   IconCircleCheck,
   IconClipboardList,
   IconInfoCircle,
@@ -32,6 +38,7 @@ import {
   useGetMyAssignmentsQuery,
   useGetAssignmentByIdQuery,
   useGetAttendanceByPeriodQuery,
+  useGetEvaluationByPeriodQuery,
 } from '../../api/studentApi';
 import { PATHS } from '../../../../routes/paths';
 import type { ServicePeriodSummary } from '../../types/student.types';
@@ -65,11 +72,75 @@ function AttendanceSummary({ periodId }: { periodId: string }) {
   );
 }
 
+// ─── Evaluation detail expandable section ────────────────────────────────────
+
+function EvaluationDetail({ periodId }: { periodId: string }) {
+  const { data: evaluation, isLoading } = useGetEvaluationByPeriodQuery(periodId);
+
+  if (isLoading) return <Skeleton height={60} radius="md" />;
+  if (!evaluation) return null;
+
+  return (
+    <Stack gap="sm" pt="xs" style={{ borderTop: '1px solid #E2E8F0' }}>
+      <Group justify="space-between">
+        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: rem(0.6) }}>
+          Note finale
+        </Text>
+        <Text size="sm" fw={700} c="navy">{evaluation.totalScore} / 20</Text>
+      </Group>
+
+      {evaluation.objectiveScores.length > 0 && (
+        <Table fz="xs" verticalSpacing={4} withColumnBorders withTableBorder>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Critère</Table.Th>
+              <Table.Th style={{ textAlign: 'right', width: rem(60) }}>Poids</Table.Th>
+              <Table.Th style={{ textAlign: 'right', width: rem(60) }}>Note</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {evaluation.objectiveScores.map((obj) => (
+              <Table.Tr key={obj.id}>
+                <Table.Td>
+                  <Stack gap={0}>
+                    <Text size="xs" fw={500}>{obj.objectiveLabel}</Text>
+                    {obj.note && <Text size="xs" c="dimmed">{obj.note}</Text>}
+                  </Stack>
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>{obj.weight} pts</Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  <Text fw={600} c={obj.score >= obj.weight * 0.6 ? 'teal' : 'red'}>
+                    {obj.score}
+                  </Text>
+                </Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      )}
+
+      {evaluation.supervisorComment && (
+        <Stack gap={2}>
+          <Text size="xs" fw={600} c="dimmed">Commentaire du superviseur</Text>
+          <Text size="xs" c="dimmed" style={{ fontStyle: 'italic' }}>
+            {evaluation.supervisorComment}
+          </Text>
+        </Stack>
+      )}
+    </Stack>
+  );
+}
+
 // ─── One service period ───────────────────────────────────────────────────────
 
 function PeriodCard({ period }: { period: ServicePeriodSummary }) {
+  const [evalOpen, { toggle: toggleEval }] = useDisclosure(false);
+  const navigate = useNavigate();
+
+  const goToService = () => navigate(`${PATHS.STUDENT.ROOT}/services/${period.serviceId}`);
+
   return (
-    <Card padding="md" radius="md" withBorder>
+    <Card padding="md" radius="md" withBorder style={{ cursor: 'pointer' }} onClick={goToService}>
       <Stack gap="sm">
         <Group justify="space-between" wrap="nowrap">
           <Group gap="sm" wrap="nowrap">
@@ -77,7 +148,7 @@ function PeriodCard({ period }: { period: ServicePeriodSummary }) {
               <IconBuildingHospital size={16} stroke={1.5} />
             </ThemeIcon>
             <Stack gap={0}>
-              <Text size="sm" fw={600}>{period.serviceName}</Text>
+              <Text size="sm" fw={600} c="navy">{period.serviceName}</Text>
               <Text size="xs" c="dimmed">{period.hospitalName}</Text>
             </Stack>
           </Group>
@@ -99,6 +170,24 @@ function PeriodCard({ period }: { period: ServicePeriodSummary }) {
         </Group>
 
         {period.isComplete && <AttendanceSummary periodId={period.id} />}
+
+        {period.hasEvaluation && (
+          <>
+            <UnstyledButton onClick={(e) => { e.stopPropagation(); toggleEval(); }}>
+              <Group gap={4}>
+                {evalOpen
+                  ? <IconChevronUp size={13} stroke={1.5} color="#0F4C81" />
+                  : <IconChevronDown size={13} stroke={1.5} color="#0F4C81" />}
+                <Text size="xs" c="navy" fw={500}>
+                  {evalOpen ? 'Masquer l\'évaluation' : 'Voir l\'évaluation'}
+                </Text>
+              </Group>
+            </UnstyledButton>
+            <Collapse in={evalOpen}>
+              <EvaluationDetail periodId={period.id} />
+            </Collapse>
+          </>
+        )}
       </Stack>
     </Card>
   );

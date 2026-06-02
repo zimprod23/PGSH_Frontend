@@ -41,6 +41,7 @@ import {
 } from '../api/adminApi';
 import type { CenterSummaryResponse, HospitalSummaryResponse, ServiceSummaryResponse, StaffMemberResponse } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
+import { ConfirmModal } from '../../../common/components/ConfirmModal';
 
 const PAGE_SIZE = 15;
 
@@ -86,7 +87,9 @@ function CentersTab() {
   const [deleteCenter] = useDeleteCenterMutation();
 
   const [opened, { open, close }] = useDisclosure(false);
-  const [editTarget, setEditTarget] = useState<CenterSummaryResponse | null>(null);
+  const [editTarget, setEditTarget]         = useState<CenterSummaryResponse | null>(null);
+  const [deleteTarget, setDeleteTarget]     = useState<CenterSummaryResponse | null>(null);
+  const [deleteOpen, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
   const [form, setForm] = useState({ name: '', centerType: 'CHU', city: '' });
 
   const openCreate = () => { setEditTarget(null); setForm({ name: '', centerType: 'CHU', city: '' }); open(); };
@@ -102,10 +105,12 @@ function CentersTab() {
     } catch { notify.error('Erreur lors de l\'enregistrement'); }
   };
 
-  const handleDelete = async (c: CenterSummaryResponse) => {
-    if (!window.confirm(`Supprimer "${c.name}" ?`)) return;
-    try { await deleteCenter(c.id).unwrap(); notify.success('Centre supprimé'); }
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    try { await deleteCenter(deleteTarget.id).unwrap(); notify.success('Centre supprimé'); }
     catch { notify.error('Impossible de supprimer ce centre'); }
+    closeDeleteModal();
+    setDeleteTarget(null);
   };
 
   return (
@@ -136,7 +141,7 @@ function CentersTab() {
                 <Table.Td>
                   <Group gap={4} justify="flex-end" wrap="nowrap">
                     <Tooltip label="Modifier"><ActionIcon variant="subtle" color="gray" size="sm" radius="md" onClick={() => openEdit(c)}><IconPencil size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
-                    <Tooltip label="Supprimer"><ActionIcon variant="subtle" color="red" size="sm" radius="md" onClick={() => handleDelete(c)}><IconTrash size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
+                    <Tooltip label="Supprimer"><ActionIcon variant="subtle" color="red" size="sm" radius="md" onClick={() => { setDeleteTarget(c); openDeleteModal(); }}><IconTrash size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
                   </Group>
                 </Table.Td>
               </Table.Tr>
@@ -158,6 +163,14 @@ function CentersTab() {
           </Group>
         </Stack>
       </Modal>
+      <ConfirmModal
+        opened={deleteOpen}
+        onClose={() => { closeDeleteModal(); setDeleteTarget(null); }}
+        title="Supprimer le centre"
+        message={`Supprimer "${deleteTarget?.name}" ?`}
+        confirmLabel="Supprimer"
+        onConfirm={handleDeleteConfirm}
+      />
     </Stack>
   );
 }
@@ -179,7 +192,9 @@ function HospitalsTab() {
   const [deleteHospital] = useDeleteHospitalMutation();
 
   const [opened, { open, close }] = useDisclosure(false);
-  const [editTarget, setEditTarget] = useState<HospitalSummaryResponse | null>(null);
+  const [editTarget, setEditTarget]         = useState<HospitalSummaryResponse | null>(null);
+  const [deleteTarget, setDeleteTarget]     = useState<HospitalSummaryResponse | null>(null);
+  const [deleteOpen, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
   const [form, setForm] = useState({ name: '', centerId: '', hospitalType: 'Central', city: '', email: '', description: '' });
 
   const centerOptions = allCenters.items.map((c) => ({ value: String(c.id), label: c.name }));
@@ -201,10 +216,12 @@ function HospitalsTab() {
     } catch { notify.error('Erreur lors de l\'enregistrement'); }
   };
 
-  const handleDelete = async (h: HospitalSummaryResponse) => {
-    if (!window.confirm(`Supprimer "${h.name}" ?`)) return;
-    try { await deleteHospital(h.id).unwrap(); notify.success('Hôpital supprimé'); }
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    try { await deleteHospital(deleteTarget.id).unwrap(); notify.success('Hôpital supprimé'); }
     catch { notify.error('Impossible de supprimer cet hôpital'); }
+    closeDeleteModal();
+    setDeleteTarget(null);
   };
 
   return (
@@ -240,7 +257,7 @@ function HospitalsTab() {
                 <Table.Td>
                   <Group gap={4} justify="flex-end" wrap="nowrap">
                     <Tooltip label="Modifier"><ActionIcon variant="subtle" color="gray" size="sm" radius="md" onClick={() => openEdit(h)}><IconPencil size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
-                    <Tooltip label="Supprimer"><ActionIcon variant="subtle" color="red" size="sm" radius="md" onClick={() => handleDelete(h)}><IconTrash size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
+                    <Tooltip label="Supprimer"><ActionIcon variant="subtle" color="red" size="sm" radius="md" onClick={() => { setDeleteTarget(h); openDeleteModal(); }}><IconTrash size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
                   </Group>
                 </Table.Td>
               </Table.Tr>
@@ -269,6 +286,14 @@ function HospitalsTab() {
           </Group>
         </Stack>
       </Modal>
+      <ConfirmModal
+        opened={deleteOpen}
+        onClose={() => { closeDeleteModal(); setDeleteTarget(null); }}
+        title="Supprimer l'hôpital"
+        message={`Supprimer "${deleteTarget?.name}" ?`}
+        confirmLabel="Supprimer"
+        onConfirm={handleDeleteConfirm}
+      />
     </Stack>
   );
 }
@@ -427,7 +452,9 @@ function ServicesTab() {
   const [deleteService] = useDeleteServiceMutation();
 
   const [opened, { open, close }] = useDisclosure(false);
-  const [editTarget, setEditTarget] = useState<ServiceSummaryResponse | null>(null);
+  const [editTarget, setEditTarget]         = useState<ServiceSummaryResponse | null>(null);
+  const [deleteTarget, setDeleteTarget]     = useState<ServiceSummaryResponse | null>(null);
+  const [deleteOpen, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
   const [form, setForm] = useState({ name: '', hospitalId: '', serviceType: 'Medical', specialty: '', capacity: 10, description: '' });
   const [staffServiceId, setStaffServiceId] = useState<number | null>(null);
 
@@ -450,10 +477,13 @@ function ServicesTab() {
     } catch { notify.error('Erreur lors de l\'enregistrement'); }
   };
 
-  const handleDelete = async (s: ServiceSummaryResponse) => {
-    if (!window.confirm(`Supprimer "${s.name}" ?`)) return;
+  const handleDeleteConfirm = async () => {
+    const s = deleteTarget;
+    if (!s) return;
     try { await deleteService(s.id).unwrap(); notify.success('Service supprimé'); }
     catch { notify.error('Impossible de supprimer ce service'); }
+    closeDeleteModal();
+    setDeleteTarget(null);
   };
 
   return (
@@ -498,7 +528,7 @@ function ServicesTab() {
                       </ActionIcon>
                     </Tooltip>
                     <Tooltip label="Modifier"><ActionIcon variant="subtle" color="gray" size="sm" radius="md" onClick={() => openEdit(s)}><IconPencil size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
-                    <Tooltip label="Supprimer"><ActionIcon variant="subtle" color="red" size="sm" radius="md" onClick={() => handleDelete(s)}><IconTrash size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
+                    <Tooltip label="Supprimer"><ActionIcon variant="subtle" color="red" size="sm" radius="md" onClick={() => { setDeleteTarget(s); openDeleteModal(); }}><IconTrash size={rem(14)} stroke={1.5} /></ActionIcon></Tooltip>
                   </Group>
                 </Table.Td>
               </Table.Tr>
@@ -529,6 +559,14 @@ function ServicesTab() {
           </Group>
         </Stack>
       </Modal>
+      <ConfirmModal
+        opened={deleteOpen}
+        onClose={() => { closeDeleteModal(); setDeleteTarget(null); }}
+        title="Supprimer le service"
+        message={`Supprimer "${deleteTarget?.name}" ?`}
+        confirmLabel="Supprimer"
+        onConfirm={handleDeleteConfirm}
+      />
     </Stack>
   );
 }

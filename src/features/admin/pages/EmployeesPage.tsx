@@ -31,6 +31,7 @@ import {
 } from '../api/adminApi';
 import type { EmployeeSummaryResponse, Grade, Position, WorkPlace } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
+import { ConfirmModal } from '../../../common/components/ConfirmModal';
 
 const PAGE_SIZE = 20;
 
@@ -119,8 +120,10 @@ export default function EmployeesPage() {
   const [deleteEmployee]                          = useDeleteEmployeeMutation();
 
   // Modal state
-  const [opened, { open, close }]       = useDisclosure(false);
-  const [editEmployeeId, setEditEmployeeId] = useState<string | null>(null);
+  const [opened, { open, close }]               = useDisclosure(false);
+  const [deleteTarget, setDeleteTarget]         = useState<EmployeeSummaryResponse | null>(null);
+  const [deleteOpen, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
+  const [editEmployeeId, setEditEmployeeId]     = useState<string | null>(null);
   const [form, setForm]                 = useState<FormValues>(emptyForm());
   const [errors, setErrors]             = useState<Partial<Record<keyof FormValues, string>>>({});
 
@@ -203,10 +206,12 @@ export default function EmployeesPage() {
     }
   };
 
-  const handleDelete = async (e: EmployeeSummaryResponse) => {
-    if (!window.confirm(`Supprimer "${e.firstName} ${e.lastName}" ?`)) return;
-    try { await deleteEmployee(e.id).unwrap(); notify.success('Employé supprimé'); }
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    try { await deleteEmployee(deleteTarget.id).unwrap(); notify.success('Employé supprimé'); }
     catch { notify.error('Impossible de supprimer cet employé'); }
+    closeDeleteModal();
+    setDeleteTarget(null);
   };
 
   return (
@@ -281,7 +286,7 @@ export default function EmployeesPage() {
                             </ActionIcon>
                           </Tooltip>
                           <Tooltip label="Supprimer">
-                            <ActionIcon variant="subtle" color="red" size="sm" radius="md" onClick={() => handleDelete(e)}>
+                            <ActionIcon variant="subtle" color="red" size="sm" radius="md" onClick={() => { setDeleteTarget(e); openDeleteModal(); }}>
                               <IconTrash size={rem(14)} stroke={1.5} />
                             </ActionIcon>
                           </Tooltip>
@@ -399,6 +404,16 @@ export default function EmployeesPage() {
           </Stack>
         )}
       </Modal>
+
+      <ConfirmModal
+        opened={deleteOpen}
+        onClose={() => { closeDeleteModal(); setDeleteTarget(null); }}
+        title="Supprimer l'employé"
+        message={`Supprimer "${deleteTarget?.firstName} ${deleteTarget?.lastName}" ?`}
+        confirmLabel="Supprimer"
+        confirmColor="red"
+        onConfirm={handleDeleteConfirm}
+      />
     </Container>
   );
 }

@@ -4,12 +4,13 @@ export const PATHS = {
   NO_PROFILE:   '/no-profile',
 
   STUDENT: {
-    ROOT:      '/student',
-    DASHBOARD: '',
-    PROFILE:   'profile',
-    STAGES:    'stages',
-    HISTORY:   'history',
-    DEMANDS:   'demands',
+    ROOT:           '/student',
+    DASHBOARD:      '',
+    PROFILE:        'profile',
+    STAGES:         'stages',
+    HISTORY:        'history',
+    DEMANDS:        'demands',
+    SERVICE_DETAIL: 'services/:serviceId',
   },
 
   ADMIN: {

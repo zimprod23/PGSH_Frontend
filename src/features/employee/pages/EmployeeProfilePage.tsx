@@ -10,7 +10,6 @@ import {
   Stack,
   Tabs,
   Text,
-  ThemeIcon,
   Title,
   rem,
 } from '@mantine/core';
@@ -19,27 +18,34 @@ import {
   IconMail,
   IconUser,
   IconId,
+  IconBuilding,
+  IconMapPin,
+  IconCalendar,
 } from '@tabler/icons-react';
-import { useAuth } from '../../../common/hooks/useAuth';
-import { Roles } from '../../../common/constants/roles';
-import { useGetCurrentUserQuery } from '../api/employeeApi';
+import { useGetCurrentEmployeeQuery } from '../api/employeeApi';
 import { ProfileFieldCell } from '../../student/components/ProfileFieldCell';
+import {
+  GRADE_LABELS,
+  POSITION_LABELS,
+  WORKPLACE_LABELS,
+} from '../types/employee.types';
 
 export default function EmployeeProfilePage() {
-  const { username, email: authEmail, hasRole } = useAuth();
-  const { data: user, isLoading } = useGetCurrentUserQuery();
+  const { data: me, isLoading } = useGetCurrentEmployeeQuery();
 
-  const roleLabel = hasRole(Roles.Professor) ? 'Professeur' : 'Employé';
-
-  const displayName = user
-    ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || username || roleLabel
-    : username || roleLabel;
+  const displayName = me
+    ? `${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.email
+    : '…';
 
   const initials = displayName
     .split(' ')
     .slice(0, 2)
     .map((s: string) => s[0]?.toUpperCase() ?? '')
     .join('');
+
+  const gradeLabel    = me?.grade    ? GRADE_LABELS[me.grade]       : '—';
+  const positionLabel = me?.position ? POSITION_LABELS[me.position] : '—';
+  const workPlaceLabel = me?.workPlace ? WORKPLACE_LABELS[me.workPlace] : '—';
 
   return (
     <Container fluid maw={960}>
@@ -78,9 +84,13 @@ export default function EmployeeProfilePage() {
                 ) : (
                   <Text fw={700} size="md" ta="center">{displayName}</Text>
                 )}
-                <Badge variant="outline" color="navy" radius="xl" size="sm">
-                  {roleLabel}
-                </Badge>
+                {isLoading ? (
+                  <Skeleton height={18} width={80} radius="xl" />
+                ) : (
+                  <Badge variant="outline" color="navy" radius="xl" size="sm">
+                    {gradeLabel}
+                  </Badge>
+                )}
               </Stack>
             </Card>
           </Grid.Col>
@@ -107,41 +117,95 @@ export default function EmployeeProfilePage() {
                         icon={IconUser}
                         iconColor="navy"
                         label="Prénom"
-                        value={user?.firstName || '—'}
+                        value={me?.firstName || '—'}
                       />
                       <ProfileFieldCell
                         icon={IconUser}
                         iconColor="navy"
                         label="Nom"
-                        value={user?.lastName || '—'}
+                        value={me?.lastName || '—'}
                       />
                       <ProfileFieldCell
                         icon={IconMail}
                         iconColor="sky"
                         label="Email"
-                        value={user?.email ?? authEmail ?? '—'}
+                        value={me?.email || '—'}
                       />
                       <ProfileFieldCell
                         icon={IconId}
                         iconColor="teal"
-                        label="Identifiant"
-                        value={username ?? '—'}
+                        label="CIN"
+                        value={me?.cin || '—'}
                         mono
+                      />
+                      <ProfileFieldCell
+                        icon={IconCalendar}
+                        iconColor="gray"
+                        label="Date de naissance"
+                        value={me?.dateOfBirth || '—'}
+                      />
+                      <ProfileFieldCell
+                        icon={IconMapPin}
+                        iconColor="gray"
+                        label="Lieu de naissance"
+                        value={me?.placeOfBirth || '—'}
                       />
                     </SimpleGrid>
                   )}
                 </Tabs.Panel>
 
                 <Tabs.Panel value="professional">
-                  <Stack gap="sm" align="center" py="xl">
-                    <ThemeIcon size={48} radius="xl" variant="light" color="gray">
-                      <IconBriefcase size={24} stroke={1.5} />
-                    </ThemeIcon>
-                    <Text size="sm" fw={600} c="dimmed">Informations professionnelles</Text>
-                    <Text size="xs" c="dimmed" ta="center" maw={320}>
-                      Grade, poste et service seront affichés ici une fois le module employé activé.
-                    </Text>
-                  </Stack>
+                  {isLoading ? (
+                    <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <Skeleton key={i} height={64} radius="md" />
+                      ))}
+                    </SimpleGrid>
+                  ) : (
+                    <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
+                      <ProfileFieldCell
+                        icon={IconBriefcase}
+                        iconColor="navy"
+                        label="Grade"
+                        value={gradeLabel}
+                      />
+                      <ProfileFieldCell
+                        icon={IconBriefcase}
+                        iconColor="sky"
+                        label="Poste"
+                        value={positionLabel}
+                      />
+                      <ProfileFieldCell
+                        icon={IconBuilding}
+                        iconColor="teal"
+                        label="Lieu de travail"
+                        value={workPlaceLabel}
+                      />
+                      <ProfileFieldCell
+                        icon={IconId}
+                        iconColor="gray"
+                        label="PPR"
+                        value={me?.ppr || '—'}
+                        mono
+                      />
+                      {me?.label && (
+                        <ProfileFieldCell
+                          icon={IconUser}
+                          iconColor="gray"
+                          label="Intitulé"
+                          value={me.label}
+                        />
+                      )}
+                      {me?.pvSignatureDate && (
+                        <ProfileFieldCell
+                          icon={IconCalendar}
+                          iconColor="gray"
+                          label="Date PV"
+                          value={me.pvSignatureDate}
+                        />
+                      )}
+                    </SimpleGrid>
+                  )}
                 </Tabs.Panel>
               </Tabs>
             </Card>

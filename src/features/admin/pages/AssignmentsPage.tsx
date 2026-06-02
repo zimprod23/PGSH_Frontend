@@ -9,10 +9,10 @@ import {
   Divider,
   Drawer,
   Group,
-  Modal,
   Pagination,
   rem,
   ScrollArea,
+  SegmentedControl,
   Select,
   Skeleton,
   Stack,
@@ -34,12 +34,13 @@ import {
   IconPlayerStop,
   IconUsersGroup,
 } from '@tabler/icons-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   useGetStagesQuery,
   useGetCohortsByStageQuery,
   useGetCohortByIdQuery,
   useGetInternshipAssignmentsQuery,
+  useGetAssignmentStatusSummaryQuery,
   useStartAssignmentMutation,
   useValidateAssignmentMutation,
   useRejectAssignmentMutation,
@@ -48,11 +49,14 @@ import {
   useValidateCohortAssignmentsMutation,
 } from '../api/adminApi';
 import type {
+  CohortDetailResponse,
   CohortResponse,
   InternshipAssignmentSummaryResponse,
   InternshipStatus,
 } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
+import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { ConfirmModal } from '../../../common/components/ConfirmModal';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -130,7 +134,10 @@ function SidebarContent({
   selectedIds,
   focusedId,
   planGroups,
+  rotationGroups,
   isGrouped,
+  groupingMode,
+  onGroupingModeChange,
   onToggleSelect,
   onFocus,
   onSelectGroup,
@@ -142,7 +149,10 @@ function SidebarContent({
   selectedIds: number[];
   focusedId: number | null;
   planGroups: Record<string, CohortResponse[]>;
+  rotationGroups: Record<string, CohortResponse[]>;
   isGrouped: boolean;
+  groupingMode: 'status' | 'rotation';
+  onGroupingModeChange: (mode: 'status' | 'rotation') => void;
   onToggleSelect: (id: number) => void;
   onFocus: (id: number) => void;
   onSelectGroup: (group: CohortResponse[]) => void;
@@ -151,6 +161,10 @@ function SidebarContent({
 }) {
   const allChecked = selectedIds.length === cohorts.length && cohorts.length > 0;
   const someChecked = selectedIds.length > 0;
+  const hasRotations = Object.keys(rotationGroups).length > 1;
+
+  const activeGroups = groupingMode === 'rotation' ? rotationGroups : planGroups;
+  const showGrouped = groupingMode === 'rotation' ? hasRotations : isGrouped;
 
   return (
     <Stack gap={0}>
@@ -177,6 +191,19 @@ function SidebarContent({
             {selectedIds.length} sélectionnée(s)
           </Text>
         )}
+        {hasRotations && (
+          <SegmentedControl
+            mt="xs"
+            size="xs"
+            fullWidth
+            value={groupingMode}
+            onChange={(v) => onGroupingModeChange(v as 'status' | 'rotation')}
+            data={[
+              { label: 'Par statut', value: 'status' },
+              { label: 'Par rotation', value: 'rotation' },
+            ]}
+          />
+        )}
       </Box>
 
       <Box p="sm">
@@ -188,8 +215,8 @@ function SidebarContent({
           <Text size="xs" c="dimmed" ta="center" py="md">
             Aucune cohorte pour ce stage.
           </Text>
-        ) : isGrouped ? (
-          Object.entries(planGroups).map(([groupKey, group]) => (
+        ) : showGrouped ? (
+          Object.entries(activeGroups).map(([groupKey, group]) => (
             <Box key={groupKey} mb="md">
               <Group justify="space-between" align="center" mb={4}>
                 <Text size="xs" fw={600} c="dimmed">{groupKey}</Text>
@@ -228,25 +255,39 @@ function SidebarContent({
   );
 }
 
-// ─── Confirm modal ────────────────────────────────────────────────────────────
+// ─── Cohort rotation mini-card ────────────────────────────────────────────────
 
-interface ConfirmProps {
-  opened: boolean; onClose: () => void;
-  title: string; message: string;
-  confirmLabel: string; confirmColor: string;
-  onConfirm: () => Promise<void>; loading: boolean;
-}
-function ConfirmModal({ opened, onClose, title, message, confirmLabel, confirmColor, onConfirm, loading }: ConfirmProps) {
+function CohortPlanMiniCard({ cohortId }: { cohortId: number }) {
+  const { data: detail } = useGetCohortByIdQuery(cohortId);
+  if (!detail?.slotAssignments.length) return null;
   return (
-    <Modal opened={opened} onClose={onClose} title={title} radius="lg" size="sm">
-      <Stack gap="md">
-        <Text size="sm" c="dimmed">{message}</Text>
-        <Group justify="flex-end">
-          <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
-          <Button color={confirmColor} loading={loading} onClick={onConfirm}>{confirmLabel}</Button>
-        </Group>
+    <Card padding="sm" radius="lg" withBorder shadow="xs">
+      <Stack gap="xs">
+        <Text size="xs" fw={600} c="dimmed" truncate>{detail.label}</Text>
+        <ScrollArea type="never">
+          <Group gap="xs" align="center" wrap="nowrap">
+            {detail.slotAssignments.map((t: CohortDetailResponse['slotAssignments'][number], i: number) => (
+              <Group key={t.assignmentId} gap="xs" wrap="nowrap" align="center">
+                {i > 0 && <IconArrowRight size={12} stroke={1.5} color="#94A3B8" style={{ flexShrink: 0 }} />}
+                <Card padding="xs" radius="md" withBorder style={{ background: '#F8FAFC', flexShrink: 0 }}>
+                  <Stack gap={2}>
+                    <Group gap={4} wrap="nowrap">
+                      <IconBuildingHospital size={10} stroke={1.5} color="#94A3B8" />
+                      <Text size="xs" fw={600} style={{ whiteSpace: 'nowrap', maxWidth: 120 }} truncate>
+                        {t.serviceName}
+                      </Text>
+                    </Group>
+                    <Text size="xs" c="dimmed" ff="monospace" style={{ whiteSpace: 'nowrap' }}>
+                      {t.startDate} → {t.endDate}
+                    </Text>
+                  </Stack>
+                </Card>
+              </Group>
+            ))}
+          </Group>
+        </ScrollArea>
       </Stack>
-    </Modal>
+    </Card>
   );
 }
 
@@ -258,18 +299,21 @@ export default function AssignmentsPage() {
   const notify = useNotify();
   const isMobile = useMediaQuery('(max-width: 768px)');
 
-  const [stageId,      setStageId]      = useState<string | null>(null);
-  const [selectedIds,  setSelectedIds]  = useState<number[]>([]);
-  const [focusedId,    setFocusedId]    = useState<number | null>(null);
-  const [statusFilter, setStatusFilter] = useState<InternshipStatus | null>(null);
-  const [page,         setPage]         = useState(1);
-  const [drawerOpen,   { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
+  const [stageId,       setStageId]       = useState<string | null>(null);
+  const [selectedIds,   setSelectedIds]   = useState<number[]>([]);
+  const [focusedId,     setFocusedId]     = useState<number | null>(null);
+  const [statusFilter,  setStatusFilter]  = useState<InternshipStatus | null>(null);
+  const [page,          setPage]          = useState(1);
+  const [groupingMode,  setGroupingMode]  = useState<'status' | 'rotation'>('status');
+  const [drawerOpen,    { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
 
   const [target,       setTarget]       = useState<InternshipAssignmentSummaryResponse | null>(null);
   const [validateOpen, { open: openValidate, close: closeValidate }] = useDisclosure(false);
   const [rejectOpen,   { open: openReject,   close: closeReject   }] = useDisclosure(false);
 
   // ── Data ───────────────────────────────────────────────────────────────────
+  const { currentYearId } = useAcademicYear();
+
   const { data: stagesPage } = useGetStagesQuery({ pageSize: 100 });
   const stages = stagesPage?.items ?? [];
 
@@ -277,38 +321,46 @@ export default function AssignmentsPage() {
     Number(stageId), { skip: !stageId }
   );
 
-  const planGroups = cohorts.reduce<Record<string, CohortResponse[]>>((acc, c) => {
+  // Filter cohorts by the globally-selected academic year
+  const visibleCohorts = currentYearId
+    ? cohorts.filter((c) => c.academicYearId === currentYearId)
+    : cohorts;
+
+  // Clear selections when the year or stage changes
+  useEffect(() => {
+    setSelectedIds([]);
+    setFocusedId(null);
+    setPage(1);
+  }, [currentYearId, stageId]);
+
+  const planGroups = visibleCohorts.reduce<Record<string, CohortResponse[]>>((acc, c) => {
     const key = c.isSchedulePublished ? 'Publié' : c.slotAssignmentCount > 0 ? 'Configuré' : 'Sans planning';
     (acc[key] ??= []).push(c);
     return acc;
   }, {});
   const isGrouped = Object.keys(planGroups).some((k) => !k.startsWith('Sans'));
 
+  const rotationGroups = visibleCohorts.reduce<Record<string, CohortResponse[]>>((acc, c) => {
+    const key = c.rotationGroup ?? 'Sans rotation';
+    (acc[key] ??= []).push(c);
+    return acc;
+  }, {});
+
   const cohortDetail = useGetCohortByIdQuery(focusedId!, { skip: !focusedId }).data;
 
   // Plan detection — works for single and multi-selection
-  const selectedCohortObjects = cohorts.filter((c) => selectedIds.includes(c.id));
+  const selectedCohortObjects = visibleCohorts.filter((c) => selectedIds.includes(c.id));
   const cohortIdsWithAssignments = selectedCohortObjects.filter((c) => c.slotAssignmentCount > 0).map((c) => c.id);
-  const planIdsWithValue = cohortIdsWithAssignments;
-  // When exactly one cohort is selected (regardless of focus), use it for schedule display
+  // When exactly one cohort is selected (or focused), use it for schedule display
   const effectiveSingleId =
     selectedIds.length === 1
       ? selectedIds[0]
       : selectedIds.length === 0 && focusedId
       ? focusedId
       : null;
-  // For multi-select: show shared plan if all selected cohorts share the same plan
-  const sharedPlanCohortId =
-    selectedIds.length > 1 && planIdsWithValue.length >= 1
-      ? planIdsWithValue[0]
-      : null;
 
   // Load detail for the single effective cohort (focused or single-checked)
   const singleDetail = useGetCohortByIdQuery(effectiveSingleId!, { skip: !effectiveSingleId }).data;
-
-  const { data: sharedPlanDetail } = useGetCohortByIdQuery(sharedPlanCohortId!, {
-    skip: !sharedPlanCohortId,
-  });
 
   const queryIds = selectedIds.length > 0 ? selectedIds : focusedId ? [focusedId] : [];
 
@@ -317,18 +369,17 @@ export default function AssignmentsPage() {
     { skip: queryIds.length === 0 }
   );
 
-  const { data: allResult } = useGetInternshipAssignmentsQuery(
-    { cohortIds: queryIds.length > 0 ? queryIds : undefined, pageSize: 500 },
+  const { data: statusSummary = [] } = useGetAssignmentStatusSummaryQuery(
+    { cohortIds: queryIds.length > 0 ? queryIds : undefined },
     { skip: queryIds.length === 0 }
   );
 
-  const assignments    = result?.items ?? [];
-  const totalPages     = result?.totalPages ?? 1;
-  const allAssignments = allResult?.items ?? [];
+  const assignments = result?.items ?? [];
+  const totalPages  = result?.totalPages ?? 1;
 
   const byStatus = Object.fromEntries(
     (Object.keys(STATUS_CFG) as InternshipStatus[]).map((s) => [
-      s, allAssignments.filter((a) => a.status === s).length,
+      s, statusSummary.find((x) => x.status === s)?.count ?? 0,
     ])
   ) as Record<InternshipStatus, number>;
 
@@ -406,11 +457,12 @@ export default function AssignmentsPage() {
     : effectiveSingleId ? (singleDetail?.label ?? cohortDetail?.label ?? '…') : null;
 
   const sidebarProps = {
-    cohorts, cohortsLoading, selectedIds, focusedId, planGroups, isGrouped,
+    cohorts: visibleCohorts, cohortsLoading, selectedIds, focusedId, planGroups, rotationGroups, isGrouped,
+    groupingMode, onGroupingModeChange: setGroupingMode,
     onToggleSelect: toggleSelect,
     onFocus: setFocus,
     onSelectGroup: selectGroup,
-    onSelectAll: () => setSelectedIds(cohorts.map((c) => c.id)),
+    onSelectAll: () => setSelectedIds(visibleCohorts.map((c) => c.id)),
     onClearAll:  () => setSelectedIds([]),
   };
 
@@ -570,7 +622,7 @@ export default function AssignmentsPage() {
                                   <Text size="sm" fw={700}>{count}</Text>
                                 </Group>
                               ))}
-                            {allAssignments.length === 0 && !assignmentsLoading && (
+                            {statusSummary.length === 0 && !assignmentsLoading && (
                               <Text size="xs" c="dimmed" ta="center">Aucun étudiant affecté</Text>
                             )}
                           </Stack>
@@ -610,37 +662,13 @@ export default function AssignmentsPage() {
                         </Card>
                       ) : null}
 
-                      {/* Schedule detail (multi-select, show first configured cohort's schedule) */}
-                      {showCohortColumn && sharedPlanCohortId !== null && sharedPlanDetail && sharedPlanDetail.slotAssignments.length > 0 && (
-                        <Card padding="md" radius="lg" withBorder shadow="xs" style={{ flex: 1, minWidth: 0 }}>
-                          <Stack gap="sm">
-                            <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.6px' }}>
-                              Planning de rotation
-                            </Text>
-                            <ScrollArea type="never">
-                              <Group gap="xs" align="center" wrap="nowrap">
-                                {sharedPlanDetail.slotAssignments.map((t, i) => (
-                                  <Group key={t.assignmentId} gap="xs" wrap="nowrap" align="center">
-                                    {i > 0 && <IconArrowRight size={12} stroke={1.5} color="#94A3B8" style={{ flexShrink: 0 }} />}
-                                    <Card padding="xs" radius="md" withBorder style={{ background: '#F8FAFC', flexShrink: 0 }}>
-                                      <Stack gap={2}>
-                                        <Group gap={4} wrap="nowrap">
-                                          <IconBuildingHospital size={10} stroke={1.5} color="#94A3B8" />
-                                          <Text size="xs" fw={600} style={{ whiteSpace: 'nowrap', maxWidth: 120 }} truncate>
-                                            {t.serviceName}
-                                          </Text>
-                                        </Group>
-                                        <Text size="xs" c="dimmed" ff="monospace" style={{ whiteSpace: 'nowrap' }}>
-                                          {t.startDate} → {t.endDate}
-                                        </Text>
-                                      </Stack>
-                                    </Card>
-                                  </Group>
-                                ))}
-                              </Group>
-                            </ScrollArea>
-                          </Stack>
-                        </Card>
+                      {/* Schedule detail (multi-select: one card per cohort with assignments) */}
+                      {showCohortColumn && cohortIdsWithAssignments.length > 0 && (
+                        <Stack gap="xs" style={{ flex: 1, minWidth: 0 }}>
+                          {cohortIdsWithAssignments.map((id) => (
+                            <CohortPlanMiniCard key={id} cohortId={id} />
+                          ))}
+                        </Stack>
                       )}
                     </Group>
 

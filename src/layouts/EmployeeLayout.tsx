@@ -30,7 +30,7 @@ import { useAuth } from '../common/hooks/useAuth';
 import { Roles } from '../common/constants/roles';
 import { ErrorBoundary } from '../common/components/ErrorBoundary';
 import { PATHS } from '../routes/paths';
-import { useGetCurrentUserQuery } from '../features/employee/api/employeeApi';
+import { useGetCurrentEmployeeQuery } from '../features/employee/api/employeeApi';
 
 interface NavItem {
   label: string;
@@ -62,7 +62,7 @@ export function EmployeeLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  useGetCurrentUserQuery(); // prefetch on zone entry; profile page reads from cache
+  useGetCurrentEmployeeQuery(); // prefetch on zone entry; profile page reads from cache
 
   const roleLabel = hasRole(Roles.Professor) ? 'Professeur' : 'Employé';
 
