@@ -22,6 +22,7 @@ export const PATHS = {
     ACADEMIC_YEARS:  'academic-years',
     GROUPS:          'groups',
     GROUP_DETAIL:    'groups/:id',
+    TIMELINE:        'timeline',
     LEVELS:          'levels',
     STAGES:          'stages',
     STAGE_DETAIL:    'stages/:id',

@@ -1,11 +1,14 @@
 import {
   ActionIcon,
+  Alert,
   Badge,
   Box,
   Button,
   Card,
+  Checkbox,
   Chip,
   Combobox,
+  Drawer,
   Group,
   InputBase,
   Loader,
@@ -23,8 +26,10 @@ import {
   rem,
   useCombobox,
 } from '@mantine/core';
+import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import {
+  IconAlertTriangle,
   IconCalendarTime,
   IconCheck,
   IconCircleCheck,
@@ -58,45 +63,109 @@ import { ConfirmModal } from '../../../common/components/ConfirmModal';
 
 // ─── Saturation summary bar ──────────────────────────────────────────────────
 
-function SaturationSummary({ visibleCohorts }: { visibleCohorts: CohortScheduleRow[] }) {
-  const totalStudents = visibleCohorts.reduce((s, c) => s + c.studentCount, 0);
-  if (totalStudents === 0) return null;
+function SaturationSummary(
+  { visibleCohorts, slots }: { visibleCohorts: CohortScheduleRow[]; slots: StageSlotResponse[] },
+) {
+  const [reportOpen, { open: openReport, close: closeReport }] = useDisclosure(false);
+  const periodBySlot = new Map(slots.map((s) => [s.id, s.periodNumber]));
 
-  const occupancy = new Map<string, { occupied: number; capacity: number }>();
+  // cell.occupiedSeats is the backend's true per-(slot × service) load across ALL
+  // partitions, so it stays correct even when the grid is filtered to one partition.
+  const cells = new Map<string, { service: string; hospital: string; period: number; occupied: number; capacity: number }>();
   for (const cohort of visibleCohorts) {
     for (const cell of cohort.cells) {
-      if (!cell) continue;
-      const key = `${cell.stageSlotId}:${cell.serviceId}`;
-      const prev = occupancy.get(key) ?? { occupied: 0, capacity: cell.serviceCapacity };
-      occupancy.set(key, { occupied: prev.occupied + cohort.studentCount, capacity: cell.serviceCapacity });
+      if (!cell || cells.has(`${cell.stageSlotId}:${cell.serviceId}`)) continue;
+      cells.set(`${cell.stageSlotId}:${cell.serviceId}`, {
+        service:  cell.serviceName,
+        hospital: cell.hospitalName,
+        period:   periodBySlot.get(cell.stageSlotId) ?? 0,
+        occupied: cell.occupiedSeats,
+        capacity: cell.serviceCapacity,
+      });
     }
   }
 
-  const saturated = [...occupancy.values()].filter((v) => v.occupied > v.capacity);
+  const saturated = [...cells.values()]
+    .filter((c) => c.occupied > c.capacity)
+    .sort((a, b) => (b.occupied - b.capacity) - (a.occupied - a.capacity));
+
   if (saturated.length === 0) return null;
 
-  const maxRequired = Math.max(...saturated.map((v) => v.occupied));
-  const seen = new Set<string>();
-  let totalCapacity = 0;
-  for (const cohort of visibleCohorts) {
-    for (const cell of cohort.cells) {
-      if (!cell) continue;
-      const key = `${cell.stageSlotId}:${cell.serviceId}`;
-      if (!seen.has(key)) { seen.add(key); totalCapacity += cell.serviceCapacity; }
-    }
-  }
+  const top = saturated.slice(0, 3);
+  const totalOverflow = saturated.reduce((s, c) => s + (c.occupied - c.capacity), 0);
 
   return (
     <Card padding="sm" radius="md" withBorder style={{ borderColor: '#fca5a5', background: '#fff5f5' }}>
-      <Group gap="xs" wrap="wrap">
-        <Badge color="red" variant="light" radius="sm" size="sm">
-          {saturated.length} affectation{saturated.length > 1 ? 's' : ''} saturée{saturated.length > 1 ? 's' : ''}
-        </Badge>
-        <Text size="xs" c="dimmed">
-          {totalStudents} étudiants · {totalCapacity} places disponibles ·{' '}
-          capacité requise par service : au moins <strong>{maxRequired}</strong>
-        </Text>
-      </Group>
+      <Stack gap={6}>
+        <Group gap="xs" wrap="wrap" justify="space-between">
+          <Group gap="xs" wrap="wrap">
+            <Badge color="red" variant="light" radius="sm" size="sm">
+              {saturated.length} affectation{saturated.length > 1 ? 's' : ''} saturée{saturated.length > 1 ? 's' : ''}
+            </Badge>
+            <Text size="xs" c="dimmed">
+              Un service dépasse sa capacité sur une période — augmentez sa capacité ou répartissez sur d'autres services.
+            </Text>
+          </Group>
+          <Button size="compact-xs" variant="light" color="red" radius="md" onClick={openReport}>
+            Voir le rapport
+          </Button>
+        </Group>
+        <Group gap={6} wrap="wrap">
+          {top.map((c) => (
+            <Badge key={`${c.service}-${c.period}`} color="red" variant="outline" radius="sm" size="sm">
+              {c.service} · P{c.period} : {c.occupied}/{c.capacity}
+            </Badge>
+          ))}
+          {saturated.length > top.length && (
+            <Text size="xs" c="dimmed">+{saturated.length - top.length} autre(s)</Text>
+          )}
+        </Group>
+      </Stack>
+
+      <Drawer
+        opened={reportOpen}
+        onClose={closeReport}
+        position="right"
+        size="md"
+        title={<Text fw={700} size="sm">Rapport de saturation</Text>}
+      >
+        <Stack gap="sm">
+          <Text size="xs" c="dimmed">
+            {saturated.length} affectation(s) dépassent la capacité du service sur la période concernée
+            (déficit total : <strong>{totalOverflow}</strong> place(s)). Augmentez la capacité du service à la
+            valeur « requise » ou déplacez des groupes vers d'autres services.
+          </Text>
+          <Table withTableBorder fz="xs" striped>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Service</Table.Th>
+                <Table.Th ta="center">Période</Table.Th>
+                <Table.Th ta="center">Étud. / Cap.</Table.Th>
+                <Table.Th ta="center">Requis</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {saturated.map((c) => (
+                <Table.Tr key={`${c.service}-${c.period}`}>
+                  <Table.Td>
+                    <Stack gap={0}>
+                      <Text size="xs" fw={600}>{c.service}</Text>
+                      <Text size="xs" c="dimmed">{c.hospital}</Text>
+                    </Stack>
+                  </Table.Td>
+                  <Table.Td ta="center">P{c.period}</Table.Td>
+                  <Table.Td ta="center">
+                    <Badge color="red" variant="light" radius="sm" size="sm">{c.occupied}/{c.capacity}</Badge>
+                  </Table.Td>
+                  <Table.Td ta="center">
+                    <Text size="xs" fw={600} c="red">+{c.occupied - c.capacity}</Text>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Stack>
+      </Drawer>
     </Card>
   );
 }
@@ -278,12 +347,20 @@ function AddSlotModal({ opened, onClose, stageId, nextPeriodNumber }: AddSlotMod
       <Stack gap="sm">
         <TextInput label="Libellé (optionnel)" placeholder="Ex: Chirurgie" value={form.label}
           onChange={(e) => { const v = e.currentTarget.value; setForm((f) => ({ ...f, label: v })); }} />
-        <Group grow>
-          <TextInput type="date" label="Début" value={form.startDate}
-            onChange={(e) => { const v = e.currentTarget.value; setForm((f) => ({ ...f, startDate: v })); }} required />
-          <TextInput type="date" label="Fin" value={form.endDate} min={form.startDate}
-            onChange={(e) => { const v = e.currentTarget.value; setForm((f) => ({ ...f, endDate: v })); }} required />
-        </Group>
+        <DatePickerInput
+          type="range"
+          label="Période (début → fin)"
+          placeholder="Sélectionnez les dates"
+          value={[form.startDate || null, form.endDate || null]}
+          onChange={([start, end]) => setForm((f) => ({ ...f, startDate: start ?? '', endDate: end ?? '' }))}
+          allowSingleDateInRange
+          numberOfColumns={2}
+          popoverProps={{ withinPortal: true }}
+          required
+        />
+        <Text size="xs" c="dimmed">
+          {form.startDate && form.endDate ? `${form.startDate} → ${form.endDate}` : 'Cliquez une date de début puis de fin'}
+        </Text>
         <Group justify="flex-end" pt="xs">
           <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
           <Button color="navy" loading={isLoading} disabled={!canSubmit} onClick={handleSubmit}>Ajouter</Button>
@@ -313,7 +390,10 @@ function SlotHeader({ slot, stageId }: { slot: StageSlotResponse; stageId: numbe
   const handleClear = async () => {
     try {
       const res = await clearSlot({ stageId, slotId: slot.id }).unwrap();
-      notify.success(`${res.cleared} affectation(s) vidée(s)`);
+      if (res.skipped > 0)
+        notify.info(`${res.cleared} affectation(s) vidée(s) · ${res.skipped} ignorée(s) (publiées)`);
+      else
+        notify.success(`${res.cleared} affectation(s) vidée(s)`);
     } catch { notify.error('Impossible de vider ce créneau'); }
     closeClear();
   };
@@ -370,11 +450,14 @@ function PublishButton({ cohortId, stageId, isPublished }: { cohortId: number; s
   const [publish, { isLoading: publishing }] = usePublishScheduleMutation();
   const [unpublish, { isLoading: unpublishing }] = useUnpublishScheduleMutation();
   const [unpublishOpen, { open: openUnpublish, close: closeUnpublish }] = useDisclosure(false);
+  const [publishOpen, { open: openPublish, close: closePublish }] = useDisclosure(false);
+  const [allowOverCapacity, setAllowOverCapacity] = useState(false);
   const loading = publishing || unpublishing;
 
   const handlePublish = async () => {
+    closePublish();
     try {
-      await publish({ cohortId, stageId }).unwrap();
+      await publish({ cohortId, stageId, allowOverCapacity }).unwrap();
       notify.success('Planning publié');
     } catch (err: unknown) {
       const detail = (err as { data?: { detail?: string } })?.data?.detail;
@@ -413,11 +496,31 @@ function PublishButton({ cohortId, stageId, isPublished }: { cohortId: number; s
   }
 
   return (
-    <Tooltip label="Publier le planning" position="left">
-      <ActionIcon size="sm" variant="subtle" color="teal" loading={loading} onClick={handlePublish}>
-        <IconRocket size={14} stroke={1.5} />
-      </ActionIcon>
-    </Tooltip>
+    <>
+      <Tooltip label="Publier le planning" position="left">
+        <ActionIcon size="sm" variant="subtle" color="teal" loading={loading} onClick={openPublish}>
+          <IconRocket size={14} stroke={1.5} />
+        </ActionIcon>
+      </Tooltip>
+      <ConfirmModal
+        opened={publishOpen}
+        onClose={closePublish}
+        title="Publier le planning"
+        message="Générer les périodes de service de cette cohorte ?"
+        confirmLabel="Publier"
+        confirmColor="teal"
+        onConfirm={handlePublish}
+        loading={publishing}
+      >
+        <Checkbox
+          checked={allowOverCapacity}
+          onChange={(e) => setAllowOverCapacity(e.currentTarget.checked)}
+          label="Autoriser le dépassement de capacité"
+          description="Publie même si un service dépasse sa capacité sur sa fenêtre."
+          color="orange"
+        />
+      </ConfirmModal>
+    </>
   );
 }
 
@@ -429,6 +532,7 @@ function PublishAllButton(
   const notify = useNotify();
   const [publishStage, { isLoading: loading }] = usePublishStageScheduleMutation();
   const [confirmOpen, { open, close }] = useDisclosure(false);
+  const [allowOverCapacity, setAllowOverCapacity] = useState(false);
 
   const publishable = cohorts.filter((c) => !c.isSchedulePublished && c.cells.some((cell) => cell !== null));
 
@@ -438,9 +542,13 @@ function PublishAllButton(
       const res = await publishStage({
         stageId,
         partitionLabels: activePartition ? [activePartition] : undefined,
+        allowOverCapacity,
       }).unwrap();
       notify.success(`${res.publishedCohorts} cohorte(s) publiée(s) · ${res.periodsCreated} période(s)`);
-    } catch { notify.error('Erreur lors de la publication'); }
+    } catch (err: unknown) {
+      const detail = (err as { data?: { detail?: string } })?.data?.detail;
+      notify.error(detail ?? 'Erreur lors de la publication');
+    }
   };
 
   if (publishable.length === 0) return null;
@@ -466,7 +574,15 @@ function PublishAllButton(
         confirmColor="teal"
         onConfirm={handlePublishAll}
         loading={loading}
-      />
+      >
+        <Checkbox
+          checked={allowOverCapacity}
+          onChange={(e) => setAllowOverCapacity(e.currentTarget.checked)}
+          label="Autoriser le dépassement de capacité"
+          description="Publie même si un service dépasse sa capacité sur sa fenêtre."
+          color="orange"
+        />
+      </ConfirmModal>
     </>
   );
 }
@@ -534,6 +650,21 @@ export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds 
   const visibleCohorts = activePartition
     ? (schedule?.cohorts ?? []).filter((c) => c.rotationGroup === activePartition)
     : (schedule?.cohorts ?? []);
+
+  // Stacking guard: when targeting one partition, warn if the chosen window already
+  // holds cells from OTHER partitions (they'd share services in the same periods → saturation).
+  const targetPeriodNumbers = autoArrangePeriods.length
+    ? autoArrangePeriods.map(Number)
+    : slots.map((s) => s.periodNumber);
+
+  const conflictingPartitions = activePartition
+    ? Array.from(new Set(
+        (schedule?.cohorts ?? [])
+          .filter((c) => c.rotationGroup && c.rotationGroup !== activePartition)
+          .filter((c) => c.cells.some((cell, i) => cell && targetPeriodNumbers.includes(slots[i]?.periodNumber)))
+          .map((c) => c.rotationGroup as string),
+      )).sort()
+    : [];
 
   return (
     <>
@@ -632,7 +763,7 @@ export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds 
             </Card>
           ) : (
             <>
-              <SaturationSummary visibleCohorts={visibleCohorts} />
+              <SaturationSummary visibleCohorts={visibleCohorts} slots={schedule.slots} />
               <ScrollArea>
               <Table withTableBorder withColumnBorders fz="xs" style={{ minWidth: 400 + schedule.slots.length * 170 }}>
                 <Table.Thead>
@@ -748,6 +879,15 @@ export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds 
             onChange={setAutoArrangePeriods}
             clearable
           />
+
+          {conflictingPartitions.length > 0 && (
+            <Alert icon={<IconAlertTriangle size={16} />} color="orange" variant="light" radius="md">
+              Ces créneaux contiennent déjà les affectations de la partition{conflictingPartitions.length > 1 ? 's' : ''}{' '}
+              <strong>{conflictingPartitions.join(', ')}</strong>. La partition {activePartition} partagerait alors les
+              mêmes services sur les mêmes périodes (risque de saturation). Pour le modèle « A puis B », choisissez des
+              périodes libres pour {activePartition}.
+            </Alert>
+          )}
 
           <Group justify="flex-end" pt="xs">
             <Button variant="subtle" color="gray" onClick={closeAutoArrange}>Annuler</Button>

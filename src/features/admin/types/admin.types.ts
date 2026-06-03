@@ -398,6 +398,7 @@ export interface GenerateMacroPlanRequest {
   assignStudents: boolean;
   autoArrange: boolean;
   publish: boolean;
+  allowOverCapacity?: boolean;
 }
 
 export interface MacroPlanResult {
@@ -408,6 +409,45 @@ export interface MacroPlanResult {
   saturatedServices: number;
   cohortsPublished: number;
   periodsPublished: number;
+}
+
+// ─── Stage timeline (calendar) ─────────────────────────────────────────────────
+
+export interface TimelinePartition {
+  label: string | null;       // RotationGroup (A, B, C…); null = unassigned
+  start: string | null;       // YYYY-MM-DD
+  end: string | null;
+  cohortCount: number;
+  studentCount: number;
+  saturated: boolean;
+}
+
+export interface TimelineStage {
+  stageId: number;
+  stageName: string;
+  start: string | null;
+  end: string | null;
+  slotCount: number;
+  cohortCount: number;
+  partitionCount: number;
+  hasSaturation: boolean;
+  partitions: TimelinePartition[];
+}
+
+export interface TimelineLevel {
+  levelId: number;
+  levelLabel: string | null;
+  start: string | null;
+  end: string | null;
+  stages: TimelineStage[];
+}
+
+export interface YearTimelineResponse {
+  academicYearId: number;
+  academicYearLabel: string;
+  start: string | null;
+  end: string | null;
+  levels: TimelineLevel[];
 }
 
 // ─── Groups ──────────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import "@mantine/core/styles.css";
+import "@mantine/dates/styles.css";
 import "@mantine/notifications/styles.css";
 import "./index.css";
 
@@ -6,6 +7,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { ReactKeycloakProvider } from "@react-keycloak/web";
 import { MantineProvider } from "@mantine/core";
+import { DatesProvider } from "@mantine/dates";
+import "dayjs/locale/fr";
 import { Provider } from "react-redux";
 
 import keycloak from "./services/keycloak";
@@ -46,7 +49,9 @@ if (CONFIG.isMaintenanceMode) {
       >
         <Provider store={store}>
           <MantineProvider theme={theme}>
-            <App />
+            <DatesProvider settings={{ locale: "fr", firstDayOfWeek: 1 }}>
+              <App />
+            </DatesProvider>
           </MantineProvider>
         </Provider>
       </ReactKeycloakProvider>

@@ -266,3 +266,45 @@ Known issues identified during design review.
 - **Verify no eager route imports**: Run `vite build --mode analyze` and confirm all page-level components are in separate chunks. Any page imported directly (not via `lazy()`) in `routes/index.tsx` will land in the initial bundle.
 
 - **Attendance endpoint has no pagination**: `GET /service-periods/{periodId}/attendance` returns the full array. Fine for 30-day rotations (~30 records). If rotation durations extend to semesters, add cursor-based pagination matching the `PaginatedResponse<T>` contract already in place.
+
+---
+
+## 🔣 Phase 9 — Stage Timeline / Calendar Visualization
+
+**Status: Phase A complete (2026-06-04) · range picker done · Phase B (drag-to-edit) planned.**
+Backend counterpart in root `PHASES.md` Phase 7.6. Read-only Gantt now live at `/admin/timeline`
+(`StageTimelinePage`, nav "Calendrier"): year picker, sticky month axis, collapsible level rows,
+stage bars → partition-window drawer, saturation flags, horizontal scroll. Custom CSS timeline
+(date→% via dayjs) — no Gantt dependency. The slot start/end range picker (`DatePickerInput type="range"`,
+`@mantine/dates` + `DatesProvider locale=fr`) shipped with it.
+
+### Hierarchy (drill-down)
+`Année → Niveaux (1Med, 2Med…) → Stages (barres Gantt) → clic sur un stage → Partitions (calendrier des fenêtres)`.
+Optional deepest level (Partition → rotation micro par service) reuses the existing `ScheduleGridModal`.
+
+### Phase A — read-only viewer
+- **New feature folder** under `features/admin/` (e.g. `components/StageTimeline/`, a page or a tab
+  on the existing planning area). Data via a new RTK Query hook `useGetYearTimelineQuery({ academicYearId, levelId? })`
+  hitting `GET /academic-years/{id}/timeline` (see backend Phase 7.6).
+- **Rendering approach**: build a **custom timeline with CSS** (map each date to a `%` offset on a
+  shared month/week axis; bars are absolutely positioned `div`s styled with the Mantine theme).
+  Prefer this over a heavy Gantt dependency to keep the design system consistent and the bundle small;
+  only evaluate a library (`frappe-gantt`, `gantt-task-react`) if interactions outgrow custom code.
+- **Layout**: sticky time axis (months/weeks) on top; collapsible **Level** rows; each Stage is a bar
+  spanning its derived `min start … max end`; bar shows stage name + partition count; color by stage.
+  Saturated partitions flagged (reuse the saturation signal from the backend).
+- **Stage click** → Drawer/modal with the **partition calendar**: one bar per partition (A, B, C…)
+  positioned on the same axis showing its window (A→P1–2, B→P3–4), with cohort count + saturation dot.
+- **Empty/loading**: skeleton bars; clear empty state when a level/year has no slots yet (ties into the
+  Phase 7.5 "validate referenced periods exist" gap — stages with no slots show "non planifié").
+- **Responsive**: horizontal scroll on mobile with a frozen label column.
+
+### Phase B — editable (later)
+- Drag to move / resize handles to change a bar's start/end → PUT `StageSlot` dates; re-run the
+  cross-stage capacity check server-side and surface `CapacityExceeded`; confirm-before-save + undo.
+
+### Interactive range date picker (from → to) — ships independently
+- Replace the paired single date inputs for `StageSlot` start/end (in `ScheduleGridModal`) and the
+  macro window setup with **Mantine `DatePickerInput type="range"`** (or inline `DatePicker type="range"`):
+  one visual range selection, presets ("ce mois", "4 semaines"), `minDate`/`maxDate` guards bound to the
+  academic year. Smallest item here; do it first as a quick UX win.

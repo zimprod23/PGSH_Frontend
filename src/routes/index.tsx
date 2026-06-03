@@ -33,6 +33,7 @@ const AcademicYearsPage       = lazy(() => import('../features/admin/pages/Acade
 const LevelsPage              = lazy(() => import('../features/admin/pages/LevelsPage'));
 const GroupsPage              = lazy(() => import('../features/admin/pages/GroupsPage'));
 const GroupDetailPage         = lazy(() => import('../features/admin/pages/GroupDetailPage'));
+const StageTimelinePage       = lazy(() => import('../features/admin/pages/StageTimelinePage'));
 const StagesPage              = lazy(() => import('../features/admin/pages/StagesPage'));
 const StageDetailPage         = lazy(() => import('../features/admin/pages/StageDetailPage'));
 const InfrastructurePage      = lazy(() => import('../features/admin/pages/InfrastructurePage'));
@@ -115,6 +116,7 @@ export const router = createBrowserRouter([
               { path: ':id',  element: wrap(<StageDetailPage />) },
             ],
           },
+          { path: PATHS.ADMIN.TIMELINE,    element: wrap(<StageTimelinePage />) },
           { path: PATHS.ADMIN.HOSPITALS,    element: wrap(<InfrastructurePage />) },
           { path: PATHS.ADMIN.EMPLOYEES,   element: wrap(<EmployeesPage />)      },
           { path: PATHS.ADMIN.ATTENDANCE,  element: wrap(<AttendancePage />)     },

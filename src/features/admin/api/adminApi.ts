@@ -46,6 +46,7 @@ import type {
   BulkCohortsFromPartitionsResult,
   GenerateMacroPlanRequest,
   MacroPlanResult,
+  YearTimelineResponse,
 } from '../types/admin.types';
 
 export const adminApiSlice = apiSlice.injectEndpoints({
@@ -271,6 +272,14 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    getYearTimeline: builder.query<YearTimelineResponse, { academicYearId: number; levelId?: number }>({
+      query: ({ academicYearId, levelId }) => ({
+        url: `/academic-years/${academicYearId}/timeline`,
+        params: levelId ? { levelId } : undefined,
+      }),
+      providesTags: [{ type: 'Stage' as const, id: 'TIMELINE' }],
+    }),
+
     createStageSlot: builder.mutation<number, { stageId: number } & CreateStageSlotRequest>({
       query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/slots`, method: 'POST', body }),
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
@@ -296,18 +305,23 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
     }),
 
-    clearSlotAssignments: builder.mutation<{ cleared: number }, { stageId: number; slotId: number }>({
+    clearSlotAssignments: builder.mutation<{ cleared: number; skipped: number }, { stageId: number; slotId: number }>({
       query: ({ stageId, slotId }) => ({ url: `/stages/${stageId}/slots/${slotId}/cohorts`, method: 'DELETE' }),
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
     }),
 
-    publishSchedule: builder.mutation<void, { cohortId: number; stageId: number }>({
-      query: ({ cohortId }) => ({ url: `/cohorts/${cohortId}/publish-schedule`, method: 'POST' }),
+    publishSchedule: builder.mutation<void, { cohortId: number; stageId: number; allowOverCapacity?: boolean }>({
+      query: ({ cohortId, allowOverCapacity }) => ({
+        url: `/cohorts/${cohortId}/publish-schedule`,
+        method: 'POST',
+        body: { allowOverCapacity: allowOverCapacity ?? false },
+      }),
       invalidatesTags: (_r, _e, { cohortId, stageId }) => [
         { type: 'Assignment' as const, id: 'LIST' },
         { type: 'Stage' as const, id: `cohort-detail-${cohortId}` },
         { type: 'Stage' as const, id: `cohorts-${stageId}` },
         { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'TIMELINE' },
       ],
     }),
 
@@ -338,7 +352,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     publishStageSchedule: builder.mutation<
       { publishedCohorts: number; periodsCreated: number; skippedCohorts: number },
-      { stageId: number; partitionLabels?: string[]; periodNumbers?: number[] }
+      { stageId: number; partitionLabels?: string[]; periodNumbers?: number[]; allowOverCapacity?: boolean }
     >({
       query: ({ stageId, ...body }) => ({
         url: `/stages/${stageId}/schedule/publish`,
@@ -349,6 +363,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         { type: 'Assignment' as const, id: 'LIST' },
         { type: 'Stage' as const, id: `cohorts-${stageId}` },
         { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'TIMELINE' },
       ],
     }),
 
@@ -357,6 +372,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { plans }) => [
         { type: 'Level' as const, id: 'GROUPS' },
         { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: 'TIMELINE' },
         ...Array.from(new Set(plans.map((p) => p.stageId))).flatMap((id) => [
           { type: 'Stage' as const, id: `cohorts-${id}` },
           { type: 'Stage' as const, id: `schedule-${id}` },
@@ -413,11 +429,11 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: '/groups/auto-arrange', method: 'POST', body }),
     }),
 
-    assignRotationGroups: builder.mutation<{ labeled: number }, { academicYearId: number; partitionCount: number }>({
-      query: ({ academicYearId, partitionCount }) => ({
+    assignRotationGroups: builder.mutation<{ labeled: number }, { academicYearId: number; partitionCount: number; levelId?: number }>({
+      query: ({ academicYearId, partitionCount, levelId }) => ({
         url: '/groups/assign-partitions',
         method: 'POST',
-        params: { academicYearId },
+        params: levelId != null ? { academicYearId, levelId } : { academicYearId },
         body: { partitionCount },
       }),
       invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
@@ -439,6 +455,11 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     deleteAllYearGroups: builder.mutation<{ deleted: number }, number>({
       query: (academicYearId) => ({ url: '/groups/all', method: 'DELETE', params: { academicYearId } }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
+    }),
+
+    emptyAllYearGroups: builder.mutation<{ unassigned: number }, number>({
+      query: (academicYearId) => ({ url: '/groups/all/students', method: 'DELETE', params: { academicYearId } }),
       invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
 
@@ -613,6 +634,7 @@ export const {
   useBulkCreateCohortsFromPartitionsMutation,
   useDeleteAllStageCohortsMutation,
   useDeleteAllYearGroupsMutation,
+  useEmptyAllYearGroupsMutation,
   useGetStagesQuery,
   useGetStageByIdQuery,
   useCreateStageMutation,
@@ -630,6 +652,7 @@ export const {
   useCompleteCohortPeriodsMutation,
   useValidateCohortAssignmentsMutation,
   useGetStageScheduleQuery,
+  useGetYearTimelineQuery,
   useCreateStageSlotMutation,
   useUpdateStageSlotMutation,
   useDeleteStageSlotMutation,

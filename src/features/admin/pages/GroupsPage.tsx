@@ -30,6 +30,7 @@ import {
   IconLayoutGrid,
   IconPencil,
   IconPlus,
+  IconEraser,
   IconRefresh,
   IconSearch,
   IconTrash,
@@ -52,6 +53,8 @@ import {
   useAssignRotationGroupsMutation,
   useGenerateMacroPlanMutation,
   useDeleteAllYearGroupsMutation,
+  useEmptyGroupMutation,
+  useEmptyAllYearGroupsMutation,
 } from '../api/adminApi';
 import type { BulkResponse } from '../../../common/types';
 import type { AcademicGroupResponse, MacroPlanResult } from '../types/admin.types';
@@ -215,9 +218,11 @@ function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | n
   const { data: years  = [] } = useGetAcademicYearsQuery();
   const { data: levels = [] } = useGetLevelsQuery(undefined);
 
+  // Partitions are per (year, level): scope the groups to the selected level so each
+  // level keeps its own partition count (e.g. 2 in 1Med, 4 in 2Med).
   const { data: groups = [], isLoading: loadingGroups } = useGetAcademicGroupsQuery(
-    { academicYearId: Number(selectedYear) },
-    { skip: !selectedYear },
+    { academicYearId: Number(selectedYear), levelId: selectedLevel ? Number(selectedLevel) : undefined },
+    { skip: !selectedYear || !selectedLevel },
   );
 
   const { data: stagesPage, isLoading: loadingStages } = useGetStagesQuery(
@@ -281,11 +286,12 @@ function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | n
     raw.split(',').map((p) => Number(p.trim())).filter((n) => Number.isInteger(n) && n > 0);
 
   const handleAssignPartitions = async () => {
-    if (!selectedYear) return;
+    if (!selectedYear || !selectedLevel) return;
     try {
       const res = await assignPartitions({
         academicYearId: Number(selectedYear),
         partitionCount: Number(partitionCount) || 2,
+        levelId: Number(selectedLevel),
       }).unwrap();
       notify.success(`${res.labeled} groupe(s) labelisé(s)`);
     } catch (err: unknown) {
@@ -328,7 +334,7 @@ function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | n
     }, {})
   ).map(([group, items]) => ({ group, items }));
 
-  const showSetup = selectedYear && !loadingGroups && partitions.length === 0;
+  const showSetup = selectedYear && selectedLevel && !loadingGroups && partitions.length === 0;
 
   return (
     <Stack gap="lg">
@@ -338,11 +344,19 @@ function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | n
           value={selectedYear}
           onChange={(v) => { onYearChange(v); setSelection(new Map()); setResult(null); }}
           w={240} />
-        <Select label="Niveau (filtrer les stages)" placeholder="Sélectionner" data={levelOptions}
+        <Select label="Niveau" placeholder="Sélectionner" data={levelOptions}
+          description="Les partitions sont propres à chaque niveau"
           value={selectedLevel}
           onChange={(v) => { setSelectedLevel(v); setSelection(new Map()); setResult(null); }}
           searchable clearable disabled={!selectedYear} w={280} />
       </Group>
+
+      {/* ── Prompt: a level is required (partitions are per level) ── */}
+      {selectedYear && !selectedLevel && (
+        <Alert icon={<IconAlertTriangle size={16} />} color="blue" variant="light">
+          Sélectionnez un niveau pour gérer ses partitions — chaque niveau a ses propres partitions et stages.
+        </Alert>
+      )}
 
       {/* ── Step 1: assign partition labels if none exist ── */}
       {showSetup && (
@@ -355,7 +369,7 @@ function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | n
               <Stack gap={0}>
                 <Text fw={600} size="sm">Étape 1 — Assigner les partitions</Text>
                 <Text size="xs" c="dimmed">
-                  Aucun groupe n'a encore de label de partition pour cette année.
+                  Aucun groupe de ce niveau n'a encore de label de partition.
                   Définissez le nombre de partitions et assignez-les.
                 </Text>
               </Stack>
@@ -383,17 +397,17 @@ function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | n
             </Group>
 
             <Alert icon={<IconAlertTriangle size={14} />} color="blue" variant="light">
-              Les groupes sont distribués équitablement entre les partitions par ordre de numéro.
-              Ces labels (A, B, C…) sont persistants et seront réutilisés dans tous les stages de l'année.
+              Les groupes de ce niveau sont distribués équitablement entre les partitions par ordre de numéro.
+              Ces labels (A, B, C…) sont persistants et réutilisés dans tous les stages de ce niveau.
             </Alert>
           </Stack>
         </Card>
       )}
 
-      {/* ── Hint: select a level to see stages ── */}
-      {selectedYear && partitions.length > 0 && stages.length === 0 && !loadingStages && (
+      {/* ── Hint: level has no stages ── */}
+      {selectedLevel && partitions.length > 0 && stages.length === 0 && !loadingStages && (
         <Alert icon={<IconAlertTriangle size={16} />} color="blue" variant="light">
-          Sélectionnez un niveau pour afficher les stages disponibles.
+          Ce niveau n'a aucun stage défini. Créez ses stages avant de générer le plan.
         </Alert>
       )}
 
@@ -406,6 +420,7 @@ function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | n
                 <Text fw={600} size="sm">Matrice Partition × Stage</Text>
                 <Text size="xs" c="dimmed">
                   Cochez (partition × stage) et indiquez la fenêtre de périodes (ex&nbsp;: «&nbsp;1,2&nbsp;», vide = toutes).
+                  Les numéros renvoient aux créneaux <strong>déjà définis</strong> dans la grille de planning (ils ne sont pas créés ici).
                 </Text>
               </Stack>
               {totalSelected > 0 && (
@@ -686,6 +701,9 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
   const [deleteTarget, setDeleteTarget]   = useState<AcademicGroupResponse | null>(null);
   const [deleteOpen, { open: openDelete, close: closeDelete }] = useDisclosure(false);
   const [deleteAllOpen, { open: openDeleteAll, close: closeDeleteAll }] = useDisclosure(false);
+  const [emptyTarget, setEmptyTarget]     = useState<AcademicGroupResponse | null>(null);
+  const [emptyOpen, { open: openEmpty, close: closeEmpty }] = useDisclosure(false);
+  const [emptyAllOpen, { open: openEmptyAll, close: closeEmptyAll }] = useDisclosure(false);
 
   // Student search state
   const [studentSearch, setStudentSearch] = useState('');
@@ -714,6 +732,8 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
 
   const [deleteGroup, { isLoading: deleting }] = useDeleteGroupMutation();
   const [deleteAllGroups, { isLoading: deletingAllGroups }] = useDeleteAllYearGroupsMutation();
+  const [emptyGroup, { isLoading: emptying }] = useEmptyGroupMutation();
+  const [emptyAllGroups, { isLoading: emptyingAll }] = useEmptyAllYearGroupsMutation();
 
   const yearOptions = years.map((y) => ({
     value: String(y.id),
@@ -751,6 +771,29 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
     closeDeleteAll();
   };
 
+  const handleEmptyConfirm = async () => {
+    if (!emptyTarget) return;
+    try {
+      const res = await emptyGroup(emptyTarget.id).unwrap();
+      notify.success(`${res.unassigned} étudiant${res.unassigned !== 1 ? 's' : ''} retiré${res.unassigned !== 1 ? 's' : ''} du groupe`);
+    } catch {
+      notify.error('Impossible de vider ce groupe');
+    }
+    closeEmpty();
+    setEmptyTarget(null);
+  };
+
+  const handleEmptyAllConfirm = async () => {
+    if (!selectedYear) return;
+    try {
+      const res = await emptyAllGroups(Number(selectedYear)).unwrap();
+      notify.success(`${res.unassigned} étudiant${res.unassigned !== 1 ? 's' : ''} retiré${res.unassigned !== 1 ? 's' : ''} de leurs groupes`);
+    } catch {
+      notify.error('Impossible de vider les groupes');
+    }
+    closeEmptyAll();
+  };
+
   const yearLabel = years.find((y) => String(y.id) === selectedYear)?.label ?? selectedYear ?? '';
   const foundStudent = studentSearch2?.items[0];
   const highlightedGroupIds = new Set(studentGroups.map((g) => g.id));
@@ -785,6 +828,23 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
         >
           Créer un groupe
         </Button>
+        {selectedYear && groups.length > 0 && (
+          <Tooltip
+            label="Retire tous les étudiants de leurs groupes (les groupes et leurs cohortes restent)."
+            position="top"
+            multiline
+            w={280}
+          >
+            <Button
+              size="sm" color="orange" variant="subtle" radius="md"
+              leftSection={<IconEraser size={14} stroke={1.5} />}
+              loading={emptyingAll}
+              onClick={openEmptyAll}
+            >
+              Vider toutes
+            </Button>
+          </Tooltip>
+        )}
         {selectedYear && groups.length > 0 && (
           <Tooltip
             label="Supprime tous les groupes et leurs cohortes. Bloqué si des étudiants sont affectés ou si des affectations ont démarré."
@@ -911,6 +971,12 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
                             <IconPencil size={14} stroke={1.5} />
                           </ActionIcon>
                         </Tooltip>
+                        <Tooltip label="Vider le groupe (retirer les étudiants)" position="top">
+                          <ActionIcon variant="subtle" color="orange" size="sm"
+                            onClick={() => { setEmptyTarget(g); openEmpty(); }}>
+                            <IconEraser size={14} stroke={1.5} />
+                          </ActionIcon>
+                        </Tooltip>
                         <Tooltip label="Supprimer" position="top">
                           <ActionIcon variant="subtle" color="red" size="sm"
                             onClick={() => { setDeleteTarget(g); openDelete(); }}>
@@ -949,6 +1015,26 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
         confirmColor="red"
         onConfirm={handleDeleteAllConfirm}
         loading={deletingAllGroups}
+      />
+      <ConfirmModal
+        opened={emptyOpen}
+        onClose={() => { closeEmpty(); setEmptyTarget(null); }}
+        title="Vider le groupe"
+        message={`Retirer tous les étudiants du groupe "${emptyTarget?.label}" ? Le groupe est conservé.`}
+        confirmLabel="Vider"
+        confirmColor="orange"
+        onConfirm={handleEmptyConfirm}
+        loading={emptying}
+      />
+      <ConfirmModal
+        opened={emptyAllOpen}
+        onClose={closeEmptyAll}
+        title="Vider tous les groupes"
+        message={`Retirer tous les étudiants de leurs groupes pour l'année "${yearLabel}" ? Les groupes et leurs cohortes sont conservés.`}
+        confirmLabel="Vider toutes"
+        confirmColor="orange"
+        onConfirm={handleEmptyAllConfirm}
+        loading={emptyingAll}
       />
     </Stack>
   );

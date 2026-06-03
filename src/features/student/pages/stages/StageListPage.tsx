@@ -35,7 +35,7 @@ import { PATHS } from '../../../../routes/paths';
 // ─── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_CFG: Record<InternshipStatus, { label: string; color: string }> = {
-  Planned:   { label: 'Planifié',  color: 'gray'   },
+  Planned:   { label: 'Planifié',  color: 'indigo' },
   Ongoing:   { label: 'En cours',  color: 'blue'   },
   Completed: { label: 'Terminé',   color: 'teal'   },
   Evaluated: { label: 'Évalué',    color: 'violet' },
@@ -53,7 +53,7 @@ function StageCard({ stage, assignment }: {
   const weeks = Math.round(stage.durationInDays / 7);
 
   const status = assignment?.status;
-  const cfg    = status ? STATUS_CFG[status] : { label: 'Planifié', color: 'gray' };
+  const cfg    = status ? STATUS_CFG[status] : { label: 'Non planifié', color: 'gray' };
 
   const hasEvaluation =
     assignment !== null &&
@@ -162,7 +162,7 @@ function StageCardSkeleton() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Filter = 'all' | 'planned' | 'ongoing' | 'completed';
+type Filter = 'all' | 'unplanned' | 'planned' | 'ongoing' | 'completed';
 
 export default function StageListPage() {
   const [filter, setFilter] = useState<Filter>('all');
@@ -194,14 +194,16 @@ export default function StageListPage() {
 
   const categorize = (stage: StageSummaryResponse): Filter => {
     const a = assignmentByStageId.get(stage.id);
-    if (!a || a.status === 'Planned') return 'planned';
+    if (!a) return 'unplanned';
+    if (a.status === 'Planned') return 'planned';
     if (a.status === 'Ongoing') return 'ongoing';
     if (COMPLETED_STATUSES.includes(a.status)) return 'completed';
-    return 'planned';
+    return 'unplanned';
   };
 
   const counts: Record<Filter, number> = {
     all:       stages.length,
+    unplanned: stages.filter((s) => categorize(s) === 'unplanned').length,
     planned:   stages.filter((s) => categorize(s) === 'planned').length,
     ongoing:   stages.filter((s) => categorize(s) === 'ongoing').length,
     completed: stages.filter((s) => categorize(s) === 'completed').length,
@@ -251,7 +253,13 @@ export default function StageListPage() {
             <Tabs.Tab value="planned">
               <Group gap={6}>
                 <span>Planifiés</span>
-                <Badge size="xs" variant="light" color="gray" radius="xl">{counts.planned}</Badge>
+                <Badge size="xs" variant="light" color="indigo" radius="xl">{counts.planned}</Badge>
+              </Group>
+            </Tabs.Tab>
+            <Tabs.Tab value="unplanned">
+              <Group gap={6}>
+                <span>Non planifiés</span>
+                <Badge size="xs" variant="light" color="gray" radius="xl">{counts.unplanned}</Badge>
               </Group>
             </Tabs.Tab>
           </Tabs.List>
@@ -279,6 +287,8 @@ export default function StageListPage() {
                     ? 'Aucun stage terminé'
                     : filter === 'planned'
                     ? 'Aucun stage planifié'
+                    : filter === 'unplanned'
+                    ? 'Aucun stage en attente de planification'
                     : 'Aucun stage disponible'}
                 </Text>
                 <Text size="sm" c="dimmed" ta="center">

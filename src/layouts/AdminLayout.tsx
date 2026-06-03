@@ -93,6 +93,7 @@ const NAV: NavEntry[] = [
     icon: IconStethoscope,
     items: [
       { kind: 'leaf', label: 'Stages',   icon: IconStethoscope, path: `${ROOT}/stages`   },
+      { kind: 'leaf', label: 'Calendrier', icon: IconCalendarEvent, path: `${ROOT}/timeline` },
     ],
   },
   {
