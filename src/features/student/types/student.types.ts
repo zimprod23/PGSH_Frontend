@@ -49,6 +49,9 @@ export interface StudentSummaryResponse {
   appogee: string;
   academicProgram: AcademicProgram;
   cin: string | null;
+  currentLevelLabel: string | null;
+  currentGroupLabel: string | null;
+  currentStatus: RegistrationStatus | null;
 }
 
 // ─── GET /students/{id}/history ──────────────────────────────────────────────
@@ -132,10 +135,15 @@ export interface AttendanceRecord {
   status: import('../../../common/types').AttendanceStatus;
 }
 
+export type EvaluationMode = 'Numeric' | 'ValidatePeriod' | 'ValidateObjectives';
+export type EvaluationOutcome = 'Validated' | 'NotValidated';
+
 export interface ServiceEvaluationDetail {
   id: string;
   servicePeriodId: string;
-  totalScore: number;
+  mode: EvaluationMode;
+  totalScore: number | null;
+  outcome: EvaluationOutcome | null;
   supervisorComment: string | null;
   objectiveScores: ObjectiveScoreDetail[];
 }
@@ -146,7 +154,8 @@ export interface ObjectiveScoreDetail {
   objectiveLabel: string;
   weight: number;
   isMandatory: boolean;
-  score: number;
+  score: number | null;
+  outcome: EvaluationOutcome | null;
   note: string | null;
 }
 
@@ -196,6 +205,7 @@ export interface GetStudentsQuery {
   cne?: string;
   appogee?: string;
   cin?: string;
+  program?: AcademicProgram;
   pageNumber?: number;
   pageSize?: number;
 }

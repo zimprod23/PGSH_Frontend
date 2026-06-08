@@ -27,3 +27,13 @@ export const HISTORY_CONFIG: Record<HistoryType, HistoryTypeConfig> = {
   CohortTransfer:  { icon: IconArrowsTransferUp,    color: 'violet',  label: 'Changement de cohorte' },
   StatusChange:    { icon: IconInfoCircle,          color: 'gray',    label: 'Changement de statut'  },
 };
+
+const FALLBACK_CONFIG: HistoryTypeConfig = {
+  icon: IconInfoCircle,
+  color: 'gray',
+  label: 'Événement',
+};
+
+/** Never throws on an unknown/missing type — keeps one bad row from crashing the timeline. */
+export const getHistoryConfig = (type: HistoryType | string | null | undefined): HistoryTypeConfig =>
+  (type && HISTORY_CONFIG[type as HistoryType]) || FALLBACK_CONFIG;

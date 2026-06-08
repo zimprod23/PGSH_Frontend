@@ -25,6 +25,7 @@ import type {
   ServiceDetailResponse,
   StageSummaryResponse,
   StageDetailResponse,
+  AllowedServiceSummary,
   CreateStageRequest,
   UpdateStageRequest,
   GetStagesParams,
@@ -186,12 +187,26 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { id }) => [{ type: 'Stage', id }, { type: 'Stage', id: 'LIST' }],
     }),
 
-    addAllowedService: builder.mutation<void, { stageId: number; serviceId: number }>({
-      query: ({ stageId, serviceId }) => ({
+    addAllowedService: builder.mutation<void, { stageId: number; service: AllowedServiceSummary }>({
+      query: ({ stageId, service }) => ({
         url: `/stages/${stageId}/allowed-services`,
         method: 'POST',
-        body: { serviceId },
+        body: { serviceId: service.id },
       }),
+      // Optimistic: show the chip immediately, roll back only if the request fails.
+      // The invalidation below still reconciles with server truth in the background.
+      async onQueryStarted({ stageId, service }, { dispatch, queryFulfilled }) {
+        const patch = dispatch(
+          adminApiSlice.util.updateQueryData('getStageById', stageId, (draft) => {
+            if (draft.allowedServices.some((s) => s.id === service.id)) return;
+            draft.allowedServices.push(service);
+            draft.allowedServices.sort(
+              (a, b) => a.hospitalName.localeCompare(b.hospitalName) || a.name.localeCompare(b.name),
+            );
+          }),
+        );
+        try { await queryFulfilled; } catch { patch.undo(); }
+      },
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: stageId }],
     }),
 
@@ -200,6 +215,14 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         url: `/stages/${stageId}/allowed-services/${serviceId}`,
         method: 'DELETE',
       }),
+      async onQueryStarted({ stageId, serviceId }, { dispatch, queryFulfilled }) {
+        const patch = dispatch(
+          adminApiSlice.util.updateQueryData('getStageById', stageId, (draft) => {
+            draft.allowedServices = draft.allowedServices.filter((s) => s.id !== serviceId);
+          }),
+        );
+        try { await queryFulfilled; } catch { patch.undo(); }
+      },
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: stageId }],
     }),
 
@@ -249,13 +272,21 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    startCohortAssignments: builder.mutation<{ started: number }, number>({
-      query: (id) => ({ url: `/cohorts/${id}/start-assignments`, method: 'POST' }),
+    startCohortAssignments: builder.mutation<{ started: number }, { cohortId: number; periodNumbers?: number[] }>({
+      query: ({ cohortId, periodNumbers }) => ({
+        url: `/cohorts/${cohortId}/start-assignments`,
+        method: 'POST',
+        body: periodNumbers?.length ? { periodNumbers } : {},
+      }),
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
     }),
 
-    completeCohortPeriods: builder.mutation<{ completed: number }, number>({
-      query: (id) => ({ url: `/cohorts/${id}/complete-periods`, method: 'POST' }),
+    completeCohortPeriods: builder.mutation<{ completed: number }, { cohortId: number; periodNumbers?: number[] }>({
+      query: ({ cohortId, periodNumbers }) => ({
+        url: `/cohorts/${cohortId}/complete-periods`,
+        method: 'POST',
+        body: periodNumbers?.length ? { periodNumbers } : {},
+      }),
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
     }),
 

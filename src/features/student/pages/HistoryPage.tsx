@@ -19,7 +19,7 @@ import { useGetCurrentStudentQuery, useGetStudentHistoryQuery } from '../api/stu
 import type { StudentHistoryResponse } from '../types/student.types';
 import type { HistoryType } from '../../../common/types';
 import { formatDate, getAcademicYear } from '../utils/format';
-import { HISTORY_CONFIG } from '../utils/historyConfig';
+import { getHistoryConfig } from '../utils/historyConfig';
 
 // ─── Single timeline event ────────────────────────────────────────────────────
 
@@ -30,7 +30,7 @@ function HistoryItem({
   event: StudentHistoryResponse;
   isLast: boolean;
 }) {
-  const { icon: Icon, color, label } = HISTORY_CONFIG[event.historyType];
+  const { icon: Icon, color, label } = getHistoryConfig(event.historyType);
 
   const metaEntries = event.metadata
     ? Object.entries(event.metadata).filter(([, v]) => v !== null && v !== '')
@@ -183,7 +183,7 @@ function StatsCard({ events }: { events: StudentHistoryResponse[] }) {
                 Par type
               </Text>
               {entries.map((type) => {
-                const { color, label } = HISTORY_CONFIG[type];
+                const { color, label } = getHistoryConfig(type);
                 return (
                   <Group key={type} justify="space-between">
                     <Badge variant="light" color={color} radius="xl" size="sm">

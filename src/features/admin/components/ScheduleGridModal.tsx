@@ -43,7 +43,7 @@ import {
   IconEraser,
   IconX,
 } from '@tabler/icons-react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, memo } from 'react';
 import {
   useGetStageScheduleQuery,
   useCreateStageSlotMutation,
@@ -170,20 +170,120 @@ function SaturationSummary(
   );
 }
 
-// ─── Service search combobox (per cell) ──────────────────────────────────────
+// ─── Cell face (shared presentational) ────────────────────────────────────────
+// Pure render of a cell's current state. Used by both the lightweight read-only
+// cell and the active editor, so the two always look identical.
+
+interface CellFaceProps {
+  cell: SlotCellResponse | null;
+  loading?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+  onClear?: (e: React.MouseEvent) => void;
+}
+
+function CellFace({ cell, loading, disabled, onClick, onClear }: CellFaceProps) {
+  const capacityOk = !cell || (cell.occupiedSeats <= cell.serviceCapacity);
+  const capacityColor = !cell ? 'gray' : capacityOk ? 'teal' : 'red';
+
+  return (
+    <Box
+      onClick={onClick}
+      style={{
+        display: 'flex', flexDirection: 'column', gap: 2,
+        padding: '6px 8px',
+        borderRadius: rem(6),
+        cursor: disabled || loading ? 'default' : 'pointer',
+        minWidth: 130,
+        background: cell ? '#f0fdf4' : '#fafafa',
+        border: `1px dashed ${cell ? '#86efac' : '#e2e8f0'}`,
+        transition: 'background 120ms',
+      }}
+    >
+      {loading ? (
+        <Loader size={12} />
+      ) : cell ? (
+        <>
+          <Group gap={4} wrap="nowrap" justify="space-between">
+            <Stack gap={0} style={{ minWidth: 0, flex: 1 }}>
+              <Text size="xs" fw={600} truncate style={{ maxWidth: 100 }}>{cell.serviceName}</Text>
+              <Text size="xs" c="dimmed" truncate style={{ maxWidth: 100 }}>{cell.hospitalName}</Text>
+            </Stack>
+            <ActionIcon size={12} variant="transparent" color="red" onClick={onClear} style={{ flexShrink: 0 }}>
+              <IconX size={10} />
+            </ActionIcon>
+          </Group>
+          <Group gap={4} wrap="nowrap">
+            <Tooltip
+              label={
+                capacityOk
+                  ? `${cell.occupiedSeats} étudiant(s) — dans la limite des ${cell.serviceCapacity} places`
+                  : `${cell.occupiedSeats} étudiant(s) pour ${cell.serviceCapacity} places — augmentez la capacité du service à ${cell.occupiedSeats} pour éviter la saturation`
+              }
+              position="top"
+              withArrow
+              multiline
+              w={240}
+            >
+              <Badge size="xs" radius="xl" color={capacityColor} variant="light">
+                {cell.occupiedSeats} / {cell.serviceCapacity}
+              </Badge>
+            </Tooltip>
+          </Group>
+        </>
+      ) : (
+        <Text size="xs" c="dimmed" ta="center" style={{ lineHeight: '28px' }}>— Vide —</Text>
+      )}
+    </Box>
+  );
+}
+
+// ─── Lightweight cell (read-only until clicked) ───────────────────────────────
+// The grid mounts one of these per cell. It carries no Combobox, query or mutation
+// subscription — clicking promotes it to the heavy ServicePicker editor in the
+// parent. Memoized so opening one cell doesn't re-render the other ~160.
+
+interface ServiceCellProps {
+  cell: SlotCellResponse | null;
+  cohortId: number;
+  slotId: number;
+  disabled?: boolean;
+  clearing?: boolean;
+  onEdit: (cohortId: number, slotId: number) => void;
+  onClear: (cohortId: number, slotId: number) => void;
+}
+
+const ServiceCell = memo(function ServiceCell(
+  { cell, cohortId, slotId, disabled, clearing, onEdit, onClear }: ServiceCellProps,
+) {
+  return (
+    <CellFace
+      cell={cell}
+      loading={clearing}
+      disabled={disabled}
+      onClick={() => { if (!disabled && !clearing) onEdit(cohortId, slotId); }}
+      onClear={(e) => { e.stopPropagation(); onClear(cohortId, slotId); }}
+    />
+  );
+});
+
+// ─── Service search combobox (active cell only) ───────────────────────────────
+// Mounted only for the single cell currently being edited, so its Combobox, debounce
+// and service query exist at most once at a time instead of once per cell.
 
 interface ServicePickerProps {
   cell: SlotCellResponse | null;
   stageId: number;
   slotId: number;
   cohortId: number;
-  disabled?: boolean;
   allowedServiceIds?: number[];
+  onClose: () => void;
+  onClear: (e: React.MouseEvent) => void;
 }
 
-function ServicePicker({ cell, stageId, slotId, cohortId, disabled, allowedServiceIds = [] }: ServicePickerProps) {
+function ServicePicker({ cell, stageId, slotId, cohortId, allowedServiceIds = [], onClose, onClear }: ServicePickerProps) {
   const notify = useNotify();
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState(true);
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebouncedValue(search, 300);
   const combobox = useCombobox({ onDropdownClose: () => combobox.resetSelectedOption() });
@@ -194,9 +294,6 @@ function ServicePicker({ cell, stageId, slotId, cohortId, disabled, allowedServi
   );
 
   const [setAssignment, { isLoading: setting }] = useSetCohortSlotAssignmentMutation();
-  const [clearAssignment, { isLoading: clearing }] = useClearCohortSlotAssignmentMutation();
-
-  const isLoading = setting || clearing;
 
   const handleSelect = useCallback(async (serviceId: number) => {
     try {
@@ -206,66 +303,20 @@ function ServicePicker({ cell, stageId, slotId, cohortId, disabled, allowedServi
     } catch { notify.error('Impossible de définir ce service'); }
   }, [stageId, slotId, cohortId, setAssignment, notify]);
 
-  const handleClear = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    try { await clearAssignment({ stageId, slotId, cohortId }).unwrap(); }
-    catch { notify.error('Impossible de supprimer cette affectation'); }
-  }, [stageId, slotId, cohortId, clearAssignment, notify]);
-
-  const capacityOk = !cell || (cell.occupiedSeats <= cell.serviceCapacity);
-  const capacityColor = !cell ? 'gray' : capacityOk ? 'teal' : 'red';
+  const handlePopoverChange = (o: boolean) => {
+    setOpened(o);
+    if (!o) onClose();
+  };
 
   return (
-    <Popover opened={opened} onChange={setOpened} withArrow shadow="md" radius="md" width={300}>
+    <Popover opened={opened} onChange={handlePopoverChange} withArrow shadow="md" radius="md" width={300}>
       <Popover.Target>
-        <Box
-          onClick={() => !disabled && !isLoading && setOpened((o) => !o)}
-          style={{
-            display: 'flex', flexDirection: 'column', gap: 2,
-            padding: '6px 8px',
-            borderRadius: rem(6),
-            cursor: disabled || isLoading ? 'default' : 'pointer',
-            minWidth: 130,
-            background: cell ? '#f0fdf4' : '#fafafa',
-            border: `1px dashed ${cell ? '#86efac' : '#e2e8f0'}`,
-            transition: 'background 120ms',
-          }}
-        >
-          {isLoading ? (
-            <Loader size={12} />
-          ) : cell ? (
-            <>
-              <Group gap={4} wrap="nowrap" justify="space-between">
-                <Stack gap={0} style={{ minWidth: 0, flex: 1 }}>
-                  <Text size="xs" fw={600} truncate style={{ maxWidth: 100 }}>{cell.serviceName}</Text>
-                  <Text size="xs" c="dimmed" truncate style={{ maxWidth: 100 }}>{cell.hospitalName}</Text>
-                </Stack>
-                <ActionIcon size={12} variant="transparent" color="red" onClick={handleClear} style={{ flexShrink: 0 }}>
-                  <IconX size={10} />
-                </ActionIcon>
-              </Group>
-              <Group gap={4} wrap="nowrap">
-                <Tooltip
-                  label={
-                    capacityOk
-                      ? `${cell.occupiedSeats} étudiant(s) — dans la limite des ${cell.serviceCapacity} places`
-                      : `${cell.occupiedSeats} étudiant(s) pour ${cell.serviceCapacity} places — augmentez la capacité du service à ${cell.occupiedSeats} pour éviter la saturation`
-                  }
-                  position="top"
-                  withArrow
-                  multiline
-                  w={240}
-                >
-                  <Badge size="xs" radius="xl" color={capacityColor} variant="light">
-                    {cell.occupiedSeats} / {cell.serviceCapacity}
-                  </Badge>
-                </Tooltip>
-              </Group>
-            </>
-          ) : (
-            <Text size="xs" c="dimmed" ta="center" style={{ lineHeight: '28px' }}>— Vide —</Text>
-          )}
-        </Box>
+        <CellFace
+          cell={cell}
+          loading={setting}
+          onClick={() => setOpened((o) => !o)}
+          onClear={onClear}
+        />
       </Popover.Target>
 
       <Popover.Dropdown>
@@ -279,6 +330,7 @@ function ServicePicker({ cell, stageId, slotId, cohortId, disabled, allowedServi
                 onChange={(e) => { setSearch(e.currentTarget.value); combobox.openDropdown(); }}
                 onClick={() => combobox.openDropdown()}
                 rightSection={isFetching ? <Loader size={12} /> : null}
+                autoFocus
               />
             </Combobox.Target>
             <Combobox.Dropdown>
@@ -602,12 +654,32 @@ export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds 
   const [activePartition, setActivePartition] = useState<string | null>(null);
   const [autoArrangePeriods, setAutoArrangePeriods] = useState<string[]>([]);
   const [autoArrangeOpen, { open: openAutoArrange, close: closeAutoArrange }] = useDisclosure(false);
+  const [editing, setEditing] = useState<{ cohortId: number; slotId: number } | null>(null);
+  const [clearingKey, setClearingKey] = useState<string | null>(null);
   const { data: schedule, isLoading } = useGetStageScheduleQuery(stageId, { skip: !opened });
   const [autoArrange, { isLoading: arranging }] = useAutoArrangeStageScheduleMutation();
+  const [clearAssignment] = useClearCohortSlotAssignmentMutation();
 
-  const partitions = Array.from(
-    new Set(schedule?.cohorts.map((c) => c.rotationGroup).filter((g): g is string => g != null))
-  ).sort();
+  const handleClose = useCallback(() => { setEditing(null); onClose(); }, [onClose]);
+
+  const handleEditCell = useCallback(
+    (cohortId: number, slotId: number) => setEditing({ cohortId, slotId }),
+    [],
+  );
+
+  const handleClearCell = useCallback(async (cohortId: number, slotId: number) => {
+    setClearingKey(`${cohortId}:${slotId}`);
+    try { await clearAssignment({ stageId, slotId, cohortId }).unwrap(); }
+    catch { notify.error('Impossible de supprimer cette affectation'); }
+    finally { setClearingKey(null); }
+  }, [stageId, clearAssignment, notify]);
+
+  const partitions = useMemo(
+    () => Array.from(
+      new Set(schedule?.cohorts.map((c) => c.rotationGroup).filter((g): g is string => g != null)),
+    ).sort(),
+    [schedule],
+  );
 
   const handleAutoArrange = async () => {
     closeAutoArrange();
@@ -645,32 +717,50 @@ export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds 
     }
   };
 
-  const slots = schedule?.slots ?? [];
+  const slots = useMemo(() => schedule?.slots ?? [], [schedule]);
   const nextPeriodNumber = slots.length > 0 ? Math.max(0, ...slots.map((s) => s.periodNumber)) + 1 : 1;
-  const visibleCohorts = activePartition
-    ? (schedule?.cohorts ?? []).filter((c) => c.rotationGroup === activePartition)
-    : (schedule?.cohorts ?? []);
+  const visibleCohorts = useMemo(
+    () => (activePartition
+      ? (schedule?.cohorts ?? []).filter((c) => c.rotationGroup === activePartition)
+      : (schedule?.cohorts ?? [])),
+    [schedule, activePartition],
+  );
+
+  // Periods with no cell assigned in any visible cohort — i.e. the freshly-added columns.
+  // Arranging only these continues the existing rotation instead of rewriting everything.
+  const emptySlotPeriods = useMemo(
+    () => slots
+      .filter((_, i) => !visibleCohorts.some((c) => c.cells[i] != null))
+      .map((s) => s.periodNumber),
+    [slots, visibleCohorts],
+  );
 
   // Stacking guard: when targeting one partition, warn if the chosen window already
   // holds cells from OTHER partitions (they'd share services in the same periods → saturation).
-  const targetPeriodNumbers = autoArrangePeriods.length
-    ? autoArrangePeriods.map(Number)
-    : slots.map((s) => s.periodNumber);
+  const targetPeriodNumbers = useMemo(
+    () => (autoArrangePeriods.length
+      ? autoArrangePeriods.map(Number)
+      : slots.map((s) => s.periodNumber)),
+    [autoArrangePeriods, slots],
+  );
 
-  const conflictingPartitions = activePartition
-    ? Array.from(new Set(
-        (schedule?.cohorts ?? [])
-          .filter((c) => c.rotationGroup && c.rotationGroup !== activePartition)
-          .filter((c) => c.cells.some((cell, i) => cell && targetPeriodNumbers.includes(slots[i]?.periodNumber)))
-          .map((c) => c.rotationGroup as string),
-      )).sort()
-    : [];
+  const conflictingPartitions = useMemo(
+    () => (activePartition
+      ? Array.from(new Set(
+          (schedule?.cohorts ?? [])
+            .filter((c) => c.rotationGroup && c.rotationGroup !== activePartition)
+            .filter((c) => c.cells.some((cell, i) => cell && targetPeriodNumbers.includes(slots[i]?.periodNumber)))
+            .map((c) => c.rotationGroup as string),
+        )).sort()
+      : []),
+    [schedule, activePartition, targetPeriodNumbers, slots],
+  );
 
   return (
     <>
       <Modal
         opened={opened}
-        onClose={onClose}
+        onClose={handleClose}
         title={
           <Group gap="sm">
             <ThemeIcon size={28} radius="md" variant="light" color="navy">
@@ -805,20 +895,37 @@ export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds 
                           </Stack>
                         </Group>
                       </Table.Td>
-                      {schedule.slots.map((slot, i) => (
-                        <Table.Td key={slot.id} style={{ textAlign: 'center', verticalAlign: 'middle' }}>
-                          <Group justify="center">
-                            <ServicePicker
-                              cell={row.cells[i] ?? null}
-                              stageId={stageId}
-                              slotId={slot.id}
-                              cohortId={row.cohortId}
-                              disabled={row.isSchedulePublished}
-                              allowedServiceIds={allowedServiceIds}
-                            />
-                          </Group>
-                        </Table.Td>
-                      ))}
+                      {schedule.slots.map((slot, i) => {
+                        const cellData = row.cells[i] ?? null;
+                        const isEditing = editing?.cohortId === row.cohortId && editing?.slotId === slot.id;
+                        return (
+                          <Table.Td key={slot.id} style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                            <Group justify="center">
+                              {isEditing ? (
+                                <ServicePicker
+                                  cell={cellData}
+                                  stageId={stageId}
+                                  slotId={slot.id}
+                                  cohortId={row.cohortId}
+                                  allowedServiceIds={allowedServiceIds}
+                                  onClose={() => setEditing(null)}
+                                  onClear={(e) => { e.stopPropagation(); handleClearCell(row.cohortId, slot.id); }}
+                                />
+                              ) : (
+                                <ServiceCell
+                                  cell={cellData}
+                                  cohortId={row.cohortId}
+                                  slotId={slot.id}
+                                  disabled={row.isSchedulePublished}
+                                  clearing={clearingKey === `${row.cohortId}:${slot.id}`}
+                                  onEdit={handleEditCell}
+                                  onClear={handleClearCell}
+                                />
+                              )}
+                            </Group>
+                          </Table.Td>
+                        );
+                      })}
                       {schedule.slots.length === 0 && <Table.Td />}
                       <Table.Td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                         <Group justify="center">
@@ -834,7 +941,7 @@ export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds 
           )}
 
           <Group justify="flex-end" pt="xs" style={{ borderTop: '1px solid #e2e8f0' }}>
-            <Button variant="subtle" color="gray" onClick={onClose}>Fermer</Button>
+            <Button variant="subtle" color="gray" onClick={handleClose}>Fermer</Button>
           </Group>
         </Stack>
       </Modal>
@@ -879,6 +986,23 @@ export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds 
             onChange={setAutoArrangePeriods}
             clearable
           />
+
+          {emptySlotPeriods.length > 0 && (
+            <Group gap="xs" wrap="wrap">
+              <Button
+                size="compact-xs"
+                variant="light"
+                color="violet"
+                radius="md"
+                onClick={() => setAutoArrangePeriods(emptySlotPeriods.map(String))}
+              >
+                Nouveaux créneaux uniquement ({emptySlotPeriods.length})
+              </Button>
+              <Text size="xs" c="dimmed">
+                Cible les créneaux encore vides — la rotation existante n'est pas touchée.
+              </Text>
+            </Group>
+          )}
 
           {conflictingPartitions.length > 0 && (
             <Alert icon={<IconAlertTriangle size={16} />} color="orange" variant="light" radius="md">

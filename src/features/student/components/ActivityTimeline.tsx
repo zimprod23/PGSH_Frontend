@@ -11,7 +11,7 @@ import {
 } from '@mantine/core';
 import type { StudentHistoryResponse } from '../types/student.types';
 import { timeAgo } from '../utils/format';
-import { HISTORY_CONFIG } from '../utils/historyConfig';
+import { getHistoryConfig } from '../utils/historyConfig';
 
 interface Props {
   events: StudentHistoryResponse[];
@@ -50,7 +50,7 @@ export function ActivityTimeline({ events, loading, onSeeAll }: Props) {
       ) : (
         <Stack gap={0}>
           {events.map((event, index) => {
-            const { icon: Icon, color, label } = HISTORY_CONFIG[event.historyType];
+            const { icon: Icon, color, label } = getHistoryConfig(event.historyType);
             const isLast = index === events.length - 1;
 
             return (

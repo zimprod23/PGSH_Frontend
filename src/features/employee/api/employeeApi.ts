@@ -3,6 +3,7 @@ import type { PaginatedResponse } from '../../../common/types';
 import type {
   EmployeeResponse,
   MyServicePeriodResponse,
+  PeriodObjective,
   ServiceEvaluationDetail,
   SubmitEvaluationRequest,
   UpdateEvaluationRequest,
@@ -20,8 +21,8 @@ export const employeeApiSlice = apiSlice.injectEndpoints({
       { serviceId: number; isComplete?: boolean }
     >({
       query: ({ serviceId, isComplete }) => ({
-        url: '/service-periods',
-        params: { serviceId, isComplete, pageSize: 100 },
+        url: '/employees/me/service-periods',
+        params: { serviceId, isComplete },
       }),
       providesTags: (_r, _e, { serviceId }) => [
         { type: 'Service' as const, id: `periods-${serviceId}` },
@@ -29,9 +30,9 @@ export const employeeApiSlice = apiSlice.injectEndpoints({
     }),
 
     submitEvaluation: builder.mutation<string, SubmitEvaluationRequest>({
-      query: (body) => ({ url: '/service-evaluations', method: 'POST', body }),
-      invalidatesTags: (_r, _e, { servicePeriodId }) => [
-        { type: 'Service' as const, id: `periods-${servicePeriodId}` },
+      query: ({ serviceId: _sid, ...body }) => ({ url: '/service-evaluations', method: 'POST', body }),
+      invalidatesTags: (_r, _e, { serviceId }) => [
+        { type: 'Service' as const, id: `periods-${serviceId}` },
       ],
     }),
 
@@ -42,15 +43,22 @@ export const employeeApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    getPeriodObjectives: builder.query<PeriodObjective[], string>({
+      query: (periodId) => `/employees/me/service-periods/${periodId}/objectives`,
+      providesTags: (_r, _e, periodId) => [
+        { type: 'Service' as const, id: `objectives-${periodId}` },
+      ],
+    }),
+
     updateEvaluation: builder.mutation<void, UpdateEvaluationRequest>({
-      query: ({ evaluationId, servicePeriodId: _, ...body }) => ({
+      query: ({ evaluationId, servicePeriodId: _, serviceId: _sid, ...body }) => ({
         url: `/service-evaluations/${evaluationId}`,
         method: 'PUT',
         body,
       }),
-      invalidatesTags: (_r, _e, { servicePeriodId }) => [
+      invalidatesTags: (_r, _e, { servicePeriodId, serviceId }) => [
         { type: 'Service' as const, id: `eval-${servicePeriodId}` },
-        { type: 'Service' as const, id: `periods-${servicePeriodId}` },
+        { type: 'Service' as const, id: `periods-${serviceId}` },
       ],
     }),
   }),
@@ -61,5 +69,6 @@ export const {
   useGetServicePeriodsByServiceQuery,
   useSubmitEvaluationMutation,
   useGetEvaluationByPeriodQuery,
+  useGetPeriodObjectivesQuery,
   useUpdateEvaluationMutation,
 } = employeeApiSlice;

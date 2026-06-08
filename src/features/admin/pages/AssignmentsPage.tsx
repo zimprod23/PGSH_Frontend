@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Chip,
   Container,
   Divider,
   Drawer,
@@ -39,6 +40,7 @@ import {
   useGetStagesQuery,
   useGetCohortsByStageQuery,
   useGetCohortByIdQuery,
+  useGetStageScheduleQuery,
   useGetInternshipAssignmentsQuery,
   useGetAssignmentStatusSummaryQuery,
   useStartAssignmentMutation,
@@ -73,6 +75,9 @@ function StatusBadge({ status }: { status: InternshipStatus }) {
   const cfg = STATUS_CFG[status] ?? { label: status, color: 'gray' };
   return <Badge variant="light" color={cfg.color} size="sm" radius="xl">{cfg.label}</Badge>;
 }
+
+// "2026-05-01" → "01/05"
+const fmtDM = (iso: string) => { const [, m, d] = iso.split('-'); return `${d}/${m}`; };
 
 // ─── Cohort sidebar card ──────────────────────────────────────────────────────
 
@@ -301,6 +306,7 @@ export default function AssignmentsPage() {
 
   const [stageId,       setStageId]       = useState<string | null>(null);
   const [selectedIds,   setSelectedIds]   = useState<number[]>([]);
+  const [selectedPeriods, setSelectedPeriods] = useState<number[]>([]);
   const [focusedId,     setFocusedId]     = useState<number | null>(null);
   const [statusFilter,  setStatusFilter]  = useState<InternshipStatus | null>(null);
   const [page,          setPage]          = useState(1);
@@ -321,15 +327,49 @@ export default function AssignmentsPage() {
     Number(stageId), { skip: !stageId }
   );
 
-  // Filter cohorts by the globally-selected academic year
-  const visibleCohorts = currentYearId
+  // Stage periods (P1, P2…) — used to scope bulk start/close to a chosen window.
+  const { data: schedule } = useGetStageScheduleQuery(Number(stageId), { skip: !stageId });
+  const scheduleSlots = schedule?.slots ?? [];
+  const slots = [...scheduleSlots].sort((a, b) => a.periodNumber - b.periodNumber);
+  const allPeriodNumbers = slots.map((s) => s.periodNumber);
+  // Empty selection means "all periods" — the chips render fully selected by default.
+  const effectivePeriods = selectedPeriods.length ? selectedPeriods : allPeriodNumbers;
+  const periodArg = selectedPeriods.length ? selectedPeriods : undefined;
+  const isAllPeriods = selectedPeriods.length === 0 || selectedPeriods.length >= allPeriodNumbers.length;
+
+  // Which periods each cohort actually occupies, read off the schedule grid (cells aligned to slots).
+  const cohortPeriods = new Map<number, Set<number>>();
+  schedule?.cohorts.forEach((row) => {
+    const set = new Set<number>();
+    row.cells.forEach((cell, i) => { if (cell && scheduleSlots[i]) set.add(scheduleSlots[i].periodNumber); });
+    cohortPeriods.set(row.cohortId, set);
+  });
+
+  // Filter cohorts by the globally-selected academic year, then by the selected periods
+  // (a cohort shows only if it runs in at least one targeted period). All periods → no period filter.
+  const yearCohorts = currentYearId
     ? cohorts.filter((c) => c.academicYearId === currentYearId)
     : cohorts;
+  const visibleCohorts = isAllPeriods
+    ? yearCohorts
+    : yearCohorts.filter((c) => {
+        const occupied = cohortPeriods.get(c.id);
+        return occupied ? [...occupied].some((pn) => selectedPeriods.includes(pn)) : false;
+      });
+
+  // Block start/close when none of the checked cohorts actually runs in the chosen period(s)
+  // — e.g. trying to act on partition B in a window where only A has a rotation.
+  const selectionHasTargetPeriod = cohortPeriods.size === 0
+    || selectedIds.some((id) => {
+        const occupied = cohortPeriods.get(id);
+        return occupied ? [...occupied].some((pn) => effectivePeriods.includes(pn)) : false;
+      });
 
   // Clear selections when the year or stage changes
   useEffect(() => {
     setSelectedIds([]);
     setFocusedId(null);
+    setSelectedPeriods([]);
     setPage(1);
   }, [currentYearId, stageId]);
 
@@ -402,8 +442,8 @@ export default function AssignmentsPage() {
     notify.success(`${total} opération(s) — ${label}`);
   };
 
-  const handleBulkStart    = () => runForSelected('démarrage',  (id) => startCohort(id).unwrap(),     'started');
-  const handleBulkComplete = () => runForSelected('clôture',    (id) => completePeriods(id).unwrap(), 'completed');
+  const handleBulkStart    = () => runForSelected('démarrage',  (id) => startCohort({ cohortId: id, periodNumbers: periodArg }).unwrap(),     'started');
+  const handleBulkComplete = () => runForSelected('clôture',    (id) => completePeriods({ cohortId: id, periodNumbers: periodArg }).unwrap(), 'completed');
   const handleBulkValidate = () => runForSelected('validation', (id) => validateCohort(id).unwrap(),  'validated');
 
   const handleStartOne = async (a: InternshipAssignmentSummaryResponse) => {
@@ -444,6 +484,7 @@ export default function AssignmentsPage() {
     setStageId(v);
     setSelectedIds([]);
     setFocusedId(null);
+    setSelectedPeriods([]);
     setStatusFilter(null);
     setPage(1);
   };
@@ -548,37 +589,68 @@ export default function AssignmentsPage() {
             {/* ── Main area ─────────────────────────────────────────── */}
             <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
 
+              {/* Period filter bar — always visible (scopes the cohort list AND the bulk actions) */}
+              {slots.length > 0 && (
+                <Box
+                  px={{ base: 'md', sm: 'xl' }} py="sm"
+                  style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}
+                >
+                  <Group gap={6} wrap="wrap" align="center">
+                    <Text size="xs" fw={600} c="navy.7">Période(s) :</Text>
+                    <Chip.Group
+                      multiple
+                      value={effectivePeriods.map(String)}
+                      onChange={(v) => setSelectedPeriods(v.map(Number))}
+                    >
+                      {slots.map((s) => (
+                        <Chip key={s.id} value={String(s.periodNumber)} size="xs" variant="outline" color="navy" radius="sm">
+                          P{s.periodNumber} · {fmtDM(s.startDate)}→{fmtDM(s.endDate)}
+                        </Chip>
+                      ))}
+                    </Chip.Group>
+                    <Text size="xs" c="dimmed">
+                      {isAllPeriods ? '(toutes les périodes)' : `${selectedPeriods.length} / ${allPeriodNumbers.length} période(s)`}
+                    </Text>
+                  </Group>
+                </Box>
+              )}
+
               {/* Bulk actions bar */}
               {someChecked && (
                 <Box
                   px={{ base: 'md', sm: 'xl' }} py="sm"
                   style={{ background: '#EBF4FF', borderBottom: '1px solid #BFDBFE' }}
                 >
-                  <ScrollArea type="never">
-                    <Group gap="sm" wrap="nowrap" align="center" style={{ minWidth: 0 }}>
-                      <Text size="xs" fw={600} c="navy.7" style={{ flexShrink: 0 }}>
-                        {selectedIds.length} cohorte(s) :
-                      </Text>
-                      <Button size="xs" color="blue" variant="light" radius="md" style={{ flexShrink: 0 }}
-                        leftSection={<IconPlayerPlay size={12} stroke={1.5} />}
-                        loading={startingCohort} disabled={bulkLoading}
-                        onClick={handleBulkStart}>
-                        Démarrer
-                      </Button>
-                      <Button size="xs" color="teal" variant="light" radius="md" style={{ flexShrink: 0 }}
-                        leftSection={<IconPlayerStop size={12} stroke={1.5} />}
-                        loading={completingPeriods} disabled={bulkLoading}
-                        onClick={handleBulkComplete}>
-                        Clôturer
-                      </Button>
-                      <Button size="xs" color="green" variant="light" radius="md" style={{ flexShrink: 0 }}
-                        leftSection={<IconCircleCheck size={12} stroke={1.5} />}
-                        loading={validatingCohort} disabled={bulkLoading}
-                        onClick={handleBulkValidate}>
-                        Valider
-                      </Button>
-                    </Group>
-                  </ScrollArea>
+                    <ScrollArea type="never">
+                      <Group gap="sm" wrap="nowrap" align="center" style={{ minWidth: 0 }}>
+                        <Text size="xs" fw={600} c="navy.7" style={{ flexShrink: 0 }}>
+                          {selectedIds.length} cohorte(s){selectedPeriods.length ? ` · ${selectedPeriods.length} période(s)` : ''} :
+                        </Text>
+                        <Button size="xs" color="blue" variant="light" radius="md" style={{ flexShrink: 0 }}
+                          leftSection={<IconPlayerPlay size={12} stroke={1.5} />}
+                          loading={startingCohort} disabled={bulkLoading || !selectionHasTargetPeriod}
+                          onClick={handleBulkStart}>
+                          Démarrer
+                        </Button>
+                        <Button size="xs" color="teal" variant="light" radius="md" style={{ flexShrink: 0 }}
+                          leftSection={<IconPlayerStop size={12} stroke={1.5} />}
+                          loading={completingPeriods} disabled={bulkLoading || !selectionHasTargetPeriod}
+                          onClick={handleBulkComplete}>
+                          Clôturer
+                        </Button>
+                        {!selectionHasTargetPeriod && (
+                          <Text size="xs" c="dimmed" fs="italic" style={{ flexShrink: 0 }}>
+                            aucune rotation dans la période choisie
+                          </Text>
+                        )}
+                        <Button size="xs" color="green" variant="light" radius="md" style={{ flexShrink: 0 }}
+                          leftSection={<IconCircleCheck size={12} stroke={1.5} />}
+                          loading={validatingCohort} disabled={bulkLoading}
+                          onClick={handleBulkValidate}>
+                          Valider
+                        </Button>
+                      </Group>
+                    </ScrollArea>
                 </Box>
               )}
 

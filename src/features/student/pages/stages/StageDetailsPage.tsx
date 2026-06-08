@@ -80,13 +80,21 @@ function EvaluationDetail({ periodId }: { periodId: string }) {
   if (isLoading) return <Skeleton height={60} radius="md" />;
   if (!evaluation) return null;
 
+  const isNumeric = evaluation.mode === 'Numeric';
+
   return (
     <Stack gap="sm" pt="xs" style={{ borderTop: '1px solid #E2E8F0' }}>
       <Group justify="space-between">
         <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: rem(0.6) }}>
-          Note finale
+          {isNumeric ? 'Note finale' : 'Résultat'}
         </Text>
-        <Text size="sm" fw={700} c="navy">{evaluation.totalScore} / 20</Text>
+        {isNumeric ? (
+          <Text size="sm" fw={700} c="navy">{evaluation.totalScore} / 20</Text>
+        ) : (
+          <Badge size="sm" variant="light" color={evaluation.outcome === 'Validated' ? 'teal' : 'red'}>
+            {evaluation.outcome === 'Validated' ? 'Validé' : 'Non validé'}
+          </Badge>
+        )}
       </Group>
 
       {evaluation.objectiveScores.length > 0 && (
@@ -95,7 +103,7 @@ function EvaluationDetail({ periodId }: { periodId: string }) {
             <Table.Tr>
               <Table.Th>Critère</Table.Th>
               <Table.Th style={{ textAlign: 'right', width: rem(60) }}>Poids</Table.Th>
-              <Table.Th style={{ textAlign: 'right', width: rem(60) }}>Note</Table.Th>
+              <Table.Th style={{ textAlign: 'right', width: rem(80) }}>{isNumeric ? 'Note' : 'Résultat'}</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -109,9 +117,15 @@ function EvaluationDetail({ periodId }: { periodId: string }) {
                 </Table.Td>
                 <Table.Td style={{ textAlign: 'right' }}>{obj.weight} pts</Table.Td>
                 <Table.Td style={{ textAlign: 'right' }}>
-                  <Text fw={600} c={obj.score >= obj.weight * 0.6 ? 'teal' : 'red'}>
-                    {obj.score}
-                  </Text>
+                  {obj.score != null ? (
+                    <Text fw={600} c={obj.score >= obj.weight * 0.6 ? 'teal' : 'red'}>
+                      {obj.score}
+                    </Text>
+                  ) : (
+                    <Badge size="xs" variant="light" color={obj.outcome === 'Validated' ? 'teal' : 'red'}>
+                      {obj.outcome === 'Validated' ? 'Validé' : 'Non validé'}
+                    </Badge>
+                  )}
                 </Table.Td>
               </Table.Tr>
             ))}

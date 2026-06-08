@@ -28,10 +28,24 @@ export interface EmployeeResponse {
   services: EmployeeServiceAssignment[];
 }
 
+export type TransferDirection = 'Outgoing' | 'Incoming';
+
+export interface TransferMarker {
+  direction: TransferDirection;
+  /** Destination group for outgoing rows; origin group for incoming rows. */
+  groupLabel: string;
+  /** Destination service (outgoing) / origin service (incoming); null if unknown. */
+  serviceName: string | null;
+  reason: string | null;
+  date: string | null;
+}
+
 export interface MyServicePeriodResponse {
   id: string;
   internshipAssignmentId: string;
   studentFullName: string;
+  studentCne: string;
+  studentAppogee: string;
   serviceId: number;
   serviceName: string;
   hospitalName: string;
@@ -39,17 +53,35 @@ export interface MyServicePeriodResponse {
   endDate: string;
   isComplete: boolean;
   hasEvaluation: boolean;
+  academicGroupLabel: string;
+  /** Set when the row reflects a group transfer rather than a live roster entry. */
+  transfer: TransferMarker | null;
 }
+
+export interface PeriodObjective {
+  id: number;
+  label: string;
+  description: string | null;
+  weight: number;
+  isMandatory: boolean;
+}
+
+export type EvaluationMode = 'Numeric' | 'ValidatePeriod' | 'ValidateObjectives';
+export type EvaluationOutcome = 'Validated' | 'NotValidated';
 
 export interface ObjectiveScoreDto {
   stageObjectiveId: number;
-  score: number;
+  score?: number | null;
+  outcome?: EvaluationOutcome | null;
   note?: string;
 }
 
 export interface SubmitEvaluationRequest {
   servicePeriodId: string;
-  totalScore: number;
+  serviceId: number;
+  mode: EvaluationMode;
+  totalScore?: number | null;
+  outcome?: EvaluationOutcome | null;
   supervisorComment?: string;
   objectiveScores: ObjectiveScoreDto[];
 }
@@ -57,7 +89,10 @@ export interface SubmitEvaluationRequest {
 export interface UpdateEvaluationRequest {
   evaluationId: string;
   servicePeriodId: string;
-  totalScore: number;
+  serviceId: number;
+  mode: EvaluationMode;
+  totalScore?: number | null;
+  outcome?: EvaluationOutcome | null;
   supervisorComment?: string;
   objectiveScores: ObjectiveScoreDto[];
 }
@@ -65,7 +100,9 @@ export interface UpdateEvaluationRequest {
 export interface ServiceEvaluationDetail {
   id: string;
   servicePeriodId: string;
-  totalScore: number;
+  mode: EvaluationMode;
+  totalScore: number | null;
+  outcome: EvaluationOutcome | null;
   supervisorComment: string | null;
   objectiveScores: {
     id: string;
@@ -73,7 +110,8 @@ export interface ServiceEvaluationDetail {
     objectiveLabel: string;
     weight: number;
     isMandatory: boolean;
-    score: number;
+    score: number | null;
+    outcome: EvaluationOutcome | null;
     note: string | null;
   }[];
 }

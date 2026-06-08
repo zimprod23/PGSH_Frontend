@@ -39,9 +39,10 @@ import { PATHS } from '../../../routes/paths';
 
 // ─── Transfer modal ───────────────────────────────────────────────────────────
 
-function TransferModal({ student, currentGroupYearId, opened, onClose }: {
+function TransferModal({ student, academicYearId, currentGroupId, opened, onClose }: {
   student: GroupStudentResponse | null;
-  currentGroupYearId: number;
+  academicYearId: number;
+  currentGroupId: number;
   opened: boolean;
   onClose: () => void;
 }) {
@@ -51,15 +52,16 @@ function TransferModal({ student, currentGroupYearId, opened, onClose }: {
   const [transfer, { isLoading }]         = useTransferStudentMutation();
 
   const { data: groups = [] } = useGetAcademicGroupsQuery(
-    currentGroupYearId ? { academicYearId: currentGroupYearId } : {}
+    academicYearId ? { academicYearId } : {}
   );
 
+  // Exclude the student's own group — you can't transfer someone into the group they're already in.
   const groupOptions = groups
-    .filter((g) => String(g.id) !== String(currentGroupYearId))
+    .filter((g) => g.id !== currentGroupId)
     .map((g) => ({ value: String(g.id), label: g.label }));
 
   const handleTransfer = async () => {
-    if (!student || !targetGroupId) return;
+    if (!student || !targetGroupId || !reason.trim()) return;
     try {
       await transfer({
         registrationId: student.registrationId,
@@ -94,20 +96,21 @@ function TransferModal({ student, currentGroupYearId, opened, onClose }: {
           required
         />
         <Textarea
-          label="Motif du transfert (optionnel)"
+          label="Motif du transfert"
           placeholder="Raison du changement de groupe…"
           value={reason}
           onChange={(e) => setReason(e.currentTarget.value)}
           minRows={2}
           maxRows={4}
           autosize
+          required
         />
         <Group justify="flex-end">
           <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
           <Button
             color="navy"
             loading={isLoading}
-            disabled={!targetGroupId}
+            disabled={!targetGroupId || !reason.trim()}
             leftSection={<IconArrowsTransferUp size={16} stroke={1.5} />}
             onClick={handleTransfer}
           >
@@ -252,7 +255,8 @@ export default function GroupDetailPage() {
 
       <TransferModal
         student={transferTarget}
-        currentGroupYearId={group?.academicYearId ?? 0}
+        academicYearId={group?.academicYearId ?? 0}
+        currentGroupId={groupId}
         opened={modalOpen}
         onClose={() => { closeModal(); setTransferTarget(null); }}
       />

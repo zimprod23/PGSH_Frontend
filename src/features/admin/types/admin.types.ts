@@ -413,6 +413,13 @@ export interface MacroPlanResult {
 
 // ─── Stage timeline (calendar) ─────────────────────────────────────────────────
 
+export interface TimelineGroup {
+  groupId: number;
+  groupLabel: string;
+  groupNumber: number;
+  studentCount: number;
+}
+
 export interface TimelinePartition {
   label: string | null;       // RotationGroup (A, B, C…); null = unassigned
   start: string | null;       // YYYY-MM-DD
@@ -420,6 +427,7 @@ export interface TimelinePartition {
   cohortCount: number;
   studentCount: number;
   saturated: boolean;
+  groups: TimelineGroup[];
 }
 
 export interface TimelineStage {

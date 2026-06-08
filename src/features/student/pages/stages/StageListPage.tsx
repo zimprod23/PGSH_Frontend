@@ -19,7 +19,14 @@ import {
   IconStar,
   IconBuildingHospital,
   IconClipboardCheck,
+  IconCalendarClock,
+  IconActivityHeartbeat,
+  IconCircleCheck,
+  IconCircleX,
+  IconHourglassEmpty,
+  type IconProps,
 } from '@tabler/icons-react';
+import type { ComponentType } from 'react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -34,14 +41,18 @@ import { PATHS } from '../../../../routes/paths';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
-const STATUS_CFG: Record<InternshipStatus, { label: string; color: string }> = {
-  Planned:   { label: 'Planifié',  color: 'indigo' },
-  Ongoing:   { label: 'En cours',  color: 'blue'   },
-  Completed: { label: 'Terminé',   color: 'teal'   },
-  Evaluated: { label: 'Évalué',    color: 'violet' },
-  Validated: { label: 'Validé',    color: 'green'  },
-  Rejected:  { label: 'Rejeté',    color: 'red'    },
+type StatusEntry = { label: string; color: string; Icon: ComponentType<IconProps> };
+
+const STATUS_CFG: Record<InternshipStatus, StatusEntry> = {
+  Planned:   { label: 'Planifié',  color: 'indigo', Icon: IconCalendarClock     },
+  Ongoing:   { label: 'En cours',  color: 'blue',   Icon: IconActivityHeartbeat },
+  Completed: { label: 'Terminé',   color: 'teal',   Icon: IconCircleCheck       },
+  Evaluated: { label: 'Évalué',    color: 'violet', Icon: IconStar              },
+  Validated: { label: 'Validé',    color: 'green',  Icon: IconCircleCheck       },
+  Rejected:  { label: 'Rejeté',    color: 'red',    Icon: IconCircleX           },
 };
+
+const UNPLANNED_CFG: StatusEntry = { label: 'Non planifié', color: 'gray', Icon: IconHourglassEmpty };
 
 // ─── Stage card ───────────────────────────────────────────────────────────────
 
@@ -53,7 +64,8 @@ function StageCard({ stage, assignment }: {
   const weeks = Math.round(stage.durationInDays / 7);
 
   const status = assignment?.status;
-  const cfg    = status ? STATUS_CFG[status] : { label: 'Non planifié', color: 'gray' };
+  const cfg    = status ? STATUS_CFG[status] : UNPLANNED_CFG;
+  const StatusIcon = cfg.Icon;
 
   const hasEvaluation =
     assignment !== null &&
@@ -63,18 +75,31 @@ function StageCard({ stage, assignment }: {
     navigate(`${PATHS.STUDENT.ROOT}/${PATHS.STUDENT.STAGES}/${stage.id}`);
 
   return (
-    <Card padding="lg" radius="lg" withBorder shadow="sm">
+    <Card
+      padding="lg"
+      radius="lg"
+      withBorder
+      shadow="sm"
+      style={{ borderLeft: `4px solid var(--mantine-color-${cfg.color}-5)` }}
+    >
       <Stack gap="sm">
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-            <ThemeIcon variant="light" color="navy" size={32} radius="md" style={{ flexShrink: 0 }}>
+            <ThemeIcon variant="light" color={cfg.color} size={32} radius="md" style={{ flexShrink: 0 }}>
               <IconStethoscope size={16} stroke={1.5} />
             </ThemeIcon>
             <Text fw={600} size="sm" lineClamp={2} style={{ minWidth: 0 }}>
               {stage.name}
             </Text>
           </Group>
-          <Badge variant="light" color={cfg.color} radius="xl" size="sm" style={{ flexShrink: 0 }}>
+          <Badge
+            variant="light"
+            color={cfg.color}
+            radius="xl"
+            size="sm"
+            style={{ flexShrink: 0 }}
+            leftSection={<StatusIcon size={12} stroke={2} />}
+          >
             {cfg.label}
           </Badge>
         </Group>

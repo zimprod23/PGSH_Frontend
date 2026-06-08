@@ -5,12 +5,14 @@ import {
   Box,
   Button,
   Center,
+  Collapse,
   Drawer,
   Group,
   Loader,
   Paper,
   ScrollArea,
   Select,
+  SimpleGrid,
   Stack,
   Text,
   ThemeIcon,
@@ -27,7 +29,7 @@ import {
 } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import { useGetAcademicYearsQuery, useGetYearTimelineQuery } from '../api/adminApi';
-import type { TimelineStage, TimelineLevel } from '../types/admin.types';
+import type { TimelineStage, TimelineLevel, TimelinePartition } from '../types/admin.types';
 
 // ─── Date axis helpers ──────────────────────────────────────────────────────
 
@@ -57,6 +59,8 @@ function position(axis: Axis, start: string | null, end: string | null) {
   };
 }
 
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 function monthTicks(axis: Axis) {
   const ticks: { label: string; left: string }[] = [];
   let cursor = axis.start.startOf('month');
@@ -64,11 +68,36 @@ function monthTicks(axis: Axis) {
   while (cursor.isBefore(axis.end) || cursor.isSame(axis.end, 'month')) {
     const left = (cursor.diff(axis.start, 'day') / axis.totalDays) * 100;
     if (left >= 0 && left <= 100) {
-      ticks.push({ label: cursor.format('MMM YY'), left: `${left}%` });
+      ticks.push({ label: cap(cursor.locale('fr').format('MMM YYYY')), left: `${left}%` });
     }
     cursor = cursor.add(1, 'month');
   }
   return ticks;
+}
+
+// Alternating month-wide bands give the grid a calendar feel and make spans easier to read.
+function monthBands(axis: Axis) {
+  const bands: { left: number; width: number; shaded: boolean }[] = [];
+  let cursor = axis.start.startOf('month');
+  let idx = 0;
+  while (cursor.isBefore(axis.end)) {
+    const next = cursor.add(1, 'month');
+    const segStart = cursor.isBefore(axis.start) ? axis.start : cursor;
+    const segEnd = next.isAfter(axis.end) ? axis.end : next;
+    const left = (segStart.diff(axis.start, 'day') / axis.totalDays) * 100;
+    const width = (segEnd.diff(segStart, 'day') / axis.totalDays) * 100;
+    if (width > 0) bands.push({ left, width, shaded: idx % 2 === 1 });
+    cursor = next;
+    idx += 1;
+  }
+  return bands;
+}
+
+// Position of "today" on the axis, or null when outside the planned range.
+function todayLeft(axis: Axis): number | null {
+  const now = dayjs();
+  if (now.isBefore(axis.start) || now.isAfter(axis.end)) return null;
+  return (now.diff(axis.start, 'day') / axis.totalDays) * 100;
 }
 
 const fmt = (d: string | null) => (d ? dayjs(d).format('DD/MM/YYYY') : '—');
@@ -77,14 +106,22 @@ const fmt = (d: string | null) => (d ? dayjs(d).format('DD/MM/YYYY') : '—');
 
 function AxisHeader({ axis }: { axis: Axis }) {
   const ticks = monthTicks(axis);
+  const today = todayLeft(axis);
   return (
-    <Box style={{ position: 'relative', height: 22, borderBottom: '1px solid var(--mantine-color-gray-3)' }}>
+    <Box style={{ position: 'relative', height: 24, borderBottom: '1px solid var(--mantine-color-gray-3)' }}>
       {ticks.map((t, i) => (
         <Box key={i} style={{ position: 'absolute', left: t.left, top: 0, transform: 'translateX(-1px)' }}>
           <Box style={{ width: 1, height: 8, background: 'var(--mantine-color-gray-3)' }} />
-          <Text size="10px" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{t.label}</Text>
+          <Text size="10px" c="dimmed" fw={500} style={{ whiteSpace: 'nowrap' }}>{t.label}</Text>
         </Box>
       ))}
+      {today !== null && (
+        <Box style={{ position: 'absolute', left: `${today}%`, top: 0, transform: 'translateX(-50%)' }}>
+          <Badge size="xs" color="red" variant="filled" radius="sm" style={{ whiteSpace: 'nowrap' }}>
+            Aujourd'hui
+          </Badge>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -92,12 +129,23 @@ function AxisHeader({ axis }: { axis: Axis }) {
 // ─── A positioned bar on a track ───────────────────────────────────────────────
 
 function Track({ axis, children, height = 32 }: { axis: Axis; children: ReactNode; height?: number }) {
-  const ticks = monthTicks(axis);
+  const bands = monthBands(axis);
+  const today = todayLeft(axis);
   return (
-    <Box style={{ position: 'relative', height, flex: 1, minWidth: 0 }}>
-      {ticks.map((t, i) => (
-        <Box key={i} style={{ position: 'absolute', left: t.left, top: 0, bottom: 0, width: 1, background: 'var(--mantine-color-gray-1)' }} />
+    <Box style={{ position: 'relative', height, flex: 1, minWidth: 0, borderRadius: 6, overflow: 'hidden' }}>
+      {bands.map((b, i) => (
+        <Box
+          key={i}
+          style={{
+            position: 'absolute', left: `${b.left}%`, width: `${b.width}%`, top: 0, bottom: 0,
+            background: b.shaded ? 'var(--mantine-color-gray-0)' : 'transparent',
+            borderRight: '1px solid var(--mantine-color-gray-1)',
+          }}
+        />
       ))}
+      {today !== null && (
+        <Box style={{ position: 'absolute', left: `${today}%`, top: 0, bottom: 0, width: 2, background: 'var(--mantine-color-red-4)' }} />
+      )}
       {children}
     </Box>
   );
@@ -178,6 +226,82 @@ function LevelSection({ axis, level, onOpen, baseColorIndex }: {
   );
 }
 
+// ─── Partition row (expands to list its groups) ────────────────────────────────
+
+function PartitionRow({ axis, partition }: { axis: Axis | null; partition: TimelinePartition }) {
+  const [open, setOpen] = useState(false);
+  const p = partition;
+  const pos = axis ? position(axis, p.start, p.end) : null;
+  const hasGroups = p.groups.length > 0;
+
+  return (
+    <Stack gap={4}>
+      <Group gap="sm" wrap="nowrap" style={{ height: 36 }}>
+        <UnstyledButton
+          onClick={() => hasGroups && setOpen((o) => !o)}
+          style={{ flexShrink: 0, cursor: hasGroups ? 'pointer' : 'default' }}
+        >
+          <Group gap={4} w={120} wrap="nowrap">
+            {hasGroups ? (
+              open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />
+            ) : (
+              <Box w={14} />
+            )}
+            <Badge size="sm" variant="light" color={p.saturated ? 'red' : 'indigo'} radius="sm">
+              {p.label ?? '—'}
+            </Badge>
+            <Text size="10px" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{p.groups.length} gr.</Text>
+            {p.saturated && <IconAlertTriangle size={13} color="var(--mantine-color-red-6)" />}
+          </Group>
+        </UnstyledButton>
+        {axis ? (
+          <Track axis={axis} height={30}>
+            {pos && (
+              <Tooltip label={`${fmt(p.start)} → ${fmt(p.end)} · ${p.cohortCount} cohorte(s) · ${p.studentCount} étud.`} withinPortal>
+                <UnstyledButton
+                  onClick={() => hasGroups && setOpen((o) => !o)}
+                  style={{
+                    position: 'absolute', left: pos.left, width: pos.width, top: 4, height: 22,
+                    background: p.saturated ? 'var(--mantine-color-red-5)' : 'var(--mantine-color-indigo-5)',
+                    borderRadius: 6, display: 'flex', alignItems: 'center', padding: '0 8px',
+                    cursor: hasGroups ? 'pointer' : 'default',
+                  }}
+                >
+                  <Text size="10px" c="white" fw={600} lineClamp={1}>
+                    {p.cohortCount} coh. · {p.studentCount} étud.
+                  </Text>
+                </UnstyledButton>
+              </Tooltip>
+            )}
+          </Track>
+        ) : (
+          <Text size="xs" c="dimmed">Aucune fenêtre planifiée</Text>
+        )}
+      </Group>
+
+      {hasGroups && (
+        <Collapse in={open}>
+          <Box pl={28} pb={4}>
+            <SimpleGrid cols={{ base: 2, sm: 3 }} spacing={6} verticalSpacing={6}>
+              {p.groups.map((g) => (
+                <Paper key={g.groupId} withBorder radius="sm" px="xs" py={6} bg="var(--mantine-color-gray-0)">
+                  <Group justify="space-between" gap={4} wrap="nowrap">
+                    <Text size="xs" fw={600} lineClamp={1}>{g.groupLabel}</Text>
+                    <Badge size="xs" variant="light" color="gray" radius="sm" style={{ flexShrink: 0 }}>
+                      {g.studentCount} ét.
+                    </Badge>
+                  </Group>
+                  <Text size="10px" c="dimmed">Groupe {g.groupNumber}</Text>
+                </Paper>
+              ))}
+            </SimpleGrid>
+          </Box>
+        </Collapse>
+      )}
+    </Stack>
+  );
+}
+
 // ─── Partition drill-down drawer ───────────────────────────────────────────────
 
 function PartitionDrawer({ stage, onClose }: { stage: TimelineStage | null; onClose: () => void }) {
@@ -200,39 +324,11 @@ function PartitionDrawer({ stage, onClose }: { stage: TimelineStage | null; onCl
             </Alert>
           )}
           {axis && <AxisHeader axis={axis} />}
+          <Text size="10px" c="dimmed">Cliquez une partition pour voir ses groupes.</Text>
           <Stack gap={6}>
-            {stage.partitions.map((p) => {
-              const pos = axis ? position(axis, p.start, p.end) : null;
-              return (
-                <Group key={p.label ?? '—'} gap="sm" wrap="nowrap" style={{ height: 36 }}>
-                  <Group gap={6} w={90} style={{ flexShrink: 0 }} wrap="nowrap">
-                    <Badge size="sm" variant="light" color={p.saturated ? 'red' : 'indigo'} radius="sm">
-                      {p.label ?? '—'}
-                    </Badge>
-                    {p.saturated && <IconAlertTriangle size={13} color="var(--mantine-color-red-6)" />}
-                  </Group>
-                  {axis ? (
-                    <Track axis={axis} height={30}>
-                      {pos && (
-                        <Tooltip label={`${fmt(p.start)} → ${fmt(p.end)} · ${p.cohortCount} cohorte(s) · ${p.studentCount} étud.`} withinPortal>
-                          <Box style={{
-                            position: 'absolute', left: pos.left, width: pos.width, top: 4, height: 22,
-                            background: p.saturated ? 'var(--mantine-color-red-5)' : 'var(--mantine-color-indigo-5)',
-                            borderRadius: 6, display: 'flex', alignItems: 'center', padding: '0 8px',
-                          }}>
-                            <Text size="10px" c="white" fw={600} lineClamp={1}>
-                              {p.cohortCount} coh. · {p.studentCount} étud.
-                            </Text>
-                          </Box>
-                        </Tooltip>
-                      )}
-                    </Track>
-                  ) : (
-                    <Text size="xs" c="dimmed">Aucune fenêtre planifiée</Text>
-                  )}
-                </Group>
-              );
-            })}
+            {stage.partitions.map((p) => (
+              <PartitionRow key={p.label ?? '—'} axis={axis} partition={p} />
+            ))}
           </Stack>
         </Stack>
       )}

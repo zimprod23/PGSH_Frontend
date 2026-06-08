@@ -58,6 +58,7 @@ import {
   useDeleteAllStageCohortsMutation,
 } from '../api/adminApi';
 import { ScheduleGridModal } from '../components/ScheduleGridModal';
+import type { AllowedServiceSummary } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import { PATHS } from '../../../routes/paths';
@@ -144,8 +145,9 @@ export default function StageDetailPage() {
   const [removeAllowedService, { isLoading: removingService  }] = useRemoveAllowedServiceMutation();
   const allowedIds = new Set(stage?.allowedServices.map((s) => s.id) ?? []);
 
-  const handleAddService = async (serviceId: number) => {
-    try { await addAllowedService({ stageId, serviceId }).unwrap(); setServiceSearch(''); }
+  const handleAddService = async (service: AllowedServiceSummary) => {
+    setServiceSearch('');
+    try { await addAllowedService({ stageId, service }).unwrap(); }
     catch { notify.error('Impossible d\'ajouter ce service'); }
   };
   const handleRemoveService = async (serviceId: number) => {
@@ -288,7 +290,7 @@ export default function StageDetailPage() {
   const handleStartAssignments = async (cohortId: number, label: string) => {
     setStartingCohortId(cohortId);
     try {
-      const res = await startAssignments(cohortId).unwrap();
+      const res = await startAssignments({ cohortId }).unwrap();
       notify.success(`${res.started} affectation(s) démarrée(s) pour "${label}"`);
     } catch { notify.error('Impossible de démarrer les affectations — vérifiez que le plan est publié'); }
     finally { setStartingCohortId(null); }
@@ -476,7 +478,11 @@ export default function StageDetailPage() {
                           label: `${s.name} — ${s.hospitalName}`,
                         }))}
                       nothingFoundMessage={serviceSearch.length < 2 ? 'Tapez pour rechercher…' : 'Aucun service trouvé'}
-                      onChange={(v) => { if (v) handleAddService(Number(v)); }}
+                      onChange={(v) => {
+                        if (!v) return;
+                        const svc = (servicesPage?.items ?? []).find((s) => s.id === Number(v));
+                        if (svc) handleAddService({ id: svc.id, name: svc.name, hospitalName: svc.hospitalName });
+                      }}
                       disabled={addingService}
                       leftSection={<IconPlus size={12} stroke={1.5} />}
                     />
