@@ -465,6 +465,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { registrationId }) => [
         { type: 'Registration' as const, id: registrationId },
         { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Assignment' as const, id: 'LIST' },
       ],
     }),
 

@@ -6,6 +6,7 @@ import {
   Container,
   Group,
   Modal,
+  SegmentedControl,
   Select,
   Skeleton,
   Stack,
@@ -16,6 +17,7 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import { skipToken } from '@reduxjs/toolkit/query';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import {
   IconArrowLeft,
@@ -28,10 +30,11 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   useGetGroupByIdQuery,
   useGetAcademicGroupsQuery,
+  useGetInternshipAssignmentsQuery,
   useTransferStudentMutation,
   useEmptyGroupMutation,
 } from '../api/adminApi';
-import type { GroupStudentResponse } from '../types/admin.types';
+import type { GroupStudentResponse, TransferType } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { RegistrationBadge } from '../../student/components/RegistrationBadge';
 
@@ -47,7 +50,9 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
   onClose: () => void;
 }) {
   const notify = useNotify();
+  const [type, setType]                   = useState<TransferType>('Temporary');
   const [targetGroupId, setTargetGroupId] = useState<string | null>(null);
+  const [stageId, setStageId]             = useState<string | null>(null);
   const [reason, setReason]               = useState('');
   const [transfer, { isLoading }]         = useTransferStudentMutation();
 
@@ -55,22 +60,42 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
     academicYearId ? { academicYearId } : {}
   );
 
+  // A temporary transfer moves one stage only, so list this student's still-movable assignments.
+  const { data: assignments } = useGetInternshipAssignmentsQuery(
+    student ? { registrationId: student.registrationId, pageSize: 200 } : skipToken
+  );
+
+  const stageOptions = (assignments?.items ?? [])
+    .filter((a) => a.status === 'Planned' || a.status === 'Ongoing')
+    .map((a) => ({ value: String(a.stageId), label: a.stageName }));
+
   // Exclude the student's own group — you can't transfer someone into the group they're already in.
   const groupOptions = groups
     .filter((g) => g.id !== currentGroupId)
     .map((g) => ({ value: String(g.id), label: g.label }));
 
+  const stageMissing = type === 'Temporary' && !stageId;
+  const canSubmit = !!targetGroupId && !!reason.trim() && !stageMissing;
+
+  const reset = () => {
+    setType('Temporary');
+    setTargetGroupId(null);
+    setStageId(null);
+    setReason('');
+  };
+
   const handleTransfer = async () => {
-    if (!student || !targetGroupId || !reason.trim()) return;
+    if (!student || !canSubmit) return;
     try {
       await transfer({
         registrationId: student.registrationId,
         targetGroupId:  Number(targetGroupId),
-        reason:         reason.trim() || undefined,
+        reason:         reason.trim(),
+        type,
+        stageId:        type === 'Temporary' ? Number(stageId) : undefined,
       }).unwrap();
       notify.success(`${student.fullName} transféré(e)`);
-      setTargetGroupId(null);
-      setReason('');
+      reset();
       onClose();
     } catch {
       notify.error('Impossible de transférer cet étudiant');
@@ -86,6 +111,34 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
       size="sm"
     >
       <Stack gap="md">
+        <SegmentedControl
+          fullWidth
+          value={type}
+          onChange={(v) => setType(v as TransferType)}
+          data={[
+            { value: 'Temporary', label: 'Temporaire (1 stage)' },
+            { value: 'Definitive', label: 'Définitif (année)' },
+          ]}
+        />
+        <Text size="xs" c="dimmed">
+          {type === 'Temporary'
+            ? "L'étudiant rejoint le groupe cible pour un seul stage, puis revient automatiquement à son groupe d'origine une fois le stage terminé."
+            : "Changement de groupe permanent pour le reste de l'année : tous les stages à venir suivront le nouveau groupe."}
+        </Text>
+
+        {type === 'Temporary' && (
+          <Select
+            label="Stage concerné"
+            placeholder={stageOptions.length ? 'Choisir un stage' : 'Aucun stage en cours'}
+            data={stageOptions}
+            value={stageId}
+            onChange={setStageId}
+            disabled={!stageOptions.length}
+            searchable
+            required
+          />
+        )}
+
         <Select
           label="Groupe cible"
           placeholder="Choisir un groupe"
@@ -110,7 +163,7 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
           <Button
             color="navy"
             loading={isLoading}
-            disabled={!targetGroupId || !reason.trim()}
+            disabled={!canSubmit}
             leftSection={<IconArrowsTransferUp size={16} stroke={1.5} />}
             onClick={handleTransfer}
           >

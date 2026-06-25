@@ -292,10 +292,14 @@ export interface GroupStudentResponse {
   registrationStatus: RegistrationStatus;
 }
 
+export type TransferType = 'Temporary' | 'Definitive';
+
 export interface TransferStudentRequest {
   registrationId: string;
   targetGroupId: number;
   reason?: string;
+  type: TransferType;
+  stageId?: number;
 }
 
 // ─── Service Periods ─────────────────────────────────────────────────────────
@@ -341,6 +345,7 @@ export interface InternshipAssignmentSummaryResponse {
   cohortId: number;
   cohortLabel: string;
   stageId: number;
+  stageName: string;
   status: InternshipStatus;
   finalScore: number | null;
   result: StageAssignmentResult | null;
