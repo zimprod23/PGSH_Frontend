@@ -295,6 +295,18 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
     }),
 
+    // Stage-level bulk start/close — one round-trip for the whole selection (replaces the
+    // per-cohort loop). cohortIds scopes the selection; periodNumbers narrows to a window.
+    startStagePeriods: builder.mutation<{ started: number }, { stageId: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
+      query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/start`, method: 'POST', body }),
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    completeStagePeriods: builder.mutation<{ completed: number }, { stageId: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
+      query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/complete`, method: 'POST', body }),
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
     getStageSchedule: builder.query<StageScheduleResponse, number>({
       query: (stageId) => `/stages/${stageId}/schedule`,
       providesTags: (_r, _e, stageId) => [
@@ -500,8 +512,8 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Internship Assignments ───────────────────────────────────────────────
-    getAssignmentStatusSummary: builder.query<{ status: string; count: number }[], { cohortIds?: number[]; stageId?: number }>({
-      query: ({ cohortIds, stageId }) => ({ url: '/internship-assignments/status-summary', params: { cohortIds, stageId } }),
+    getAssignmentStatusSummary: builder.query<{ status: string; count: number }[], { cohortIds?: number[]; stageId?: number; periodNumbers?: number[] }>({
+      query: ({ cohortIds, stageId, periodNumbers }) => ({ url: '/internship-assignments/status-summary', params: { cohortIds, stageId, periodNumbers } }),
       providesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
     }),
 
@@ -682,6 +694,8 @@ export const {
   useStartCohortAssignmentsMutation,
   useCompleteCohortPeriodsMutation,
   useValidateCohortAssignmentsMutation,
+  useStartStagePeriodsMutation,
+  useCompleteStagePeriodsMutation,
   useGetStageScheduleQuery,
   useGetYearTimelineQuery,
   useCreateStageSlotMutation,

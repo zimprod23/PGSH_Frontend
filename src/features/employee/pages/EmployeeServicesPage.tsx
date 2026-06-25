@@ -34,6 +34,7 @@ import {
   IconCheck,
   IconPencil,
   IconSearch,
+  IconStethoscope,
   IconUsers,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -234,6 +235,12 @@ function EvaluationModal({
           <Text size="sm" c="dimmed">
             {period?.studentFullName} — {period?.startDate} → {period?.endDate}
           </Text>
+          {period?.stageName && (
+            <Badge size="xs" variant="light" color="navy"
+              leftSection={<IconStethoscope size={11} stroke={1.5} />}>
+              {period.stageName}
+            </Badge>
+          )}
           {period?.studentCne && (
             <Badge size="xs" variant="outline" color="gray" ff="monospace">CNE {period.studentCne}</Badge>
           )}
@@ -440,12 +447,18 @@ interface WindowBucket {
   key: string;
   startDate: string;
   endDate: string;
+  stageName: string;
+  levelLabel: string | null;
   groups: GroupBucket[];
   counts: Record<PeriodStatus, number>;
   total: number;
   transferIn: number;
   transferOut: number;
 }
+
+/** Distinct, non-empty stage names across a set of rows (a window is usually one stage). */
+const distinctStages = (rows: MyServicePeriodResponse[]) =>
+  Array.from(new Set(rows.map((r) => r.stageName).filter(Boolean)));
 
 function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V) {
   const arr = map.get(key);
@@ -482,7 +495,9 @@ function buildWindows(periods: MyServicePeriodResponse[]): WindowBucket[] {
     }
 
     const total = rows.length - transferIn - transferOut;
-    windows.push({ key, startDate, endDate, groups, counts, total, transferIn, transferOut });
+    const stageName = distinctStages(rows).join(' · ');
+    const levelLabel = rows.find((r) => r.levelLabel)?.levelLabel ?? null;
+    windows.push({ key, startDate, endDate, stageName, levelLabel, groups, counts, total, transferIn, transferOut });
   }
 
   return windows.sort((a, b) => a.startDate.localeCompare(b.startDate));
@@ -515,6 +530,10 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
     () => Array.from(new Set(periods.map((p) => p.academicGroupLabel))).sort(),
     [periods],
   );
+
+  // The stage(s) this chef evaluates in this service — usually one, but a service can host
+  // different rotations across windows, so show every distinct stage present.
+  const stages = useMemo(() => distinctStages(periods), [periods]);
 
   const counts = useMemo(() => {
     const c: Record<PeriodStatus, number> = { active: 0, toEvaluate: 0, evaluated: 0 };
@@ -626,9 +645,15 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
               <ThemeIcon size={40} radius="md" variant="light" color="navy">
                 <IconBuildingHospital size={20} stroke={1.5} />
               </ThemeIcon>
-              <Stack gap={0} style={{ minWidth: 0 }}>
+              <Stack gap={2} style={{ minWidth: 0 }}>
                 <Text fw={700} size="md" truncate>{serviceName}</Text>
                 <Text size="xs" c="dimmed" truncate>{hospitalName}</Text>
+                {stages.length > 0 && (
+                  <Group gap={4} wrap="nowrap" style={{ minWidth: 0 }}>
+                    <IconStethoscope size={12} stroke={1.5} color="#0F4C81" style={{ flexShrink: 0 }} />
+                    <Text size="xs" fw={600} c="navy.6" truncate>{stages.join(' · ')}</Text>
+                  </Group>
+                )}
               </Stack>
             </Group>
             <Group gap={6} justify="flex-end" style={{ flexWrap: 'wrap', maxWidth: '55%' }}>
@@ -718,8 +743,17 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
                             <ThemeIcon variant="light" color="navy" size={34} radius="md">
                               <IconCalendarEvent size={18} stroke={1.5} />
                             </ThemeIcon>
-                            <Stack gap={0}>
+                            <Stack gap={2}>
                               <Text fw={600} size="sm">{fmtDate(w.startDate)} → {fmtDate(w.endDate)}</Text>
+                              {w.stageName && (
+                                <Group gap={6} wrap="nowrap">
+                                  <Badge size="sm" variant="light" color="navy" radius="sm"
+                                    leftSection={<IconStethoscope size={12} stroke={1.5} />}>
+                                    {w.stageName}
+                                  </Badge>
+                                  {w.levelLabel && <Text size="xs" c="dimmed">{w.levelLabel}</Text>}
+                                </Group>
+                              )}
                               <Text size="xs" c="dimmed">
                                 {w.total} étudiant{w.total > 1 ? 's' : ''} · {w.groups.length} groupe{w.groups.length > 1 ? 's' : ''}
                               </Text>

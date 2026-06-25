@@ -46,8 +46,8 @@ import {
   useStartAssignmentMutation,
   useValidateAssignmentMutation,
   useRejectAssignmentMutation,
-  useStartCohortAssignmentsMutation,
-  useCompleteCohortPeriodsMutation,
+  useStartStagePeriodsMutation,
+  useCompleteStagePeriodsMutation,
   useValidateCohortAssignmentsMutation,
 } from '../api/adminApi';
 import type {
@@ -410,7 +410,7 @@ export default function AssignmentsPage() {
   );
 
   const { data: statusSummary = [] } = useGetAssignmentStatusSummaryQuery(
-    { cohortIds: queryIds.length > 0 ? queryIds : undefined },
+    { cohortIds: queryIds.length > 0 ? queryIds : undefined, periodNumbers: periodArg },
     { skip: queryIds.length === 0 }
   );
 
@@ -427,12 +427,13 @@ export default function AssignmentsPage() {
   const [startOne,       { isLoading: startingOne      }] = useStartAssignmentMutation();
   const [validateOne,    { isLoading: validatingOne    }] = useValidateAssignmentMutation();
   const [rejectOne,      { isLoading: rejectingOne     }] = useRejectAssignmentMutation();
-  const [startCohort,    { isLoading: startingCohort   }] = useStartCohortAssignmentsMutation();
-  const [completePeriods,{ isLoading: completingPeriods}] = useCompleteCohortPeriodsMutation();
+  const [startStage,     { isLoading: startingStage    }] = useStartStagePeriodsMutation();
+  const [completeStage,  { isLoading: completingStage  }] = useCompleteStagePeriodsMutation();
   const [validateCohort, { isLoading: validatingCohort }] = useValidateCohortAssignmentsMutation();
-  const bulkLoading = startingCohort || completingPeriods || validatingCohort;
+  const bulkLoading = startingStage || completingStage || validatingCohort;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
+  // Validate still loops (cohort-scoped); start/close act on the whole selection in one round-trip.
   const runForSelected = async <T,>(label: string, fn: (id: number) => Promise<T>, countKey: keyof T) => {
     let total = 0;
     for (const id of selectedIds) {
@@ -442,8 +443,20 @@ export default function AssignmentsPage() {
     notify.success(`${total} opération(s) — ${label}`);
   };
 
-  const handleBulkStart    = () => runForSelected('démarrage',  (id) => startCohort({ cohortId: id, periodNumbers: periodArg }).unwrap(),     'started');
-  const handleBulkComplete = () => runForSelected('clôture',    (id) => completePeriods({ cohortId: id, periodNumbers: periodArg }).unwrap(), 'completed');
+  const handleBulkStart = async () => {
+    if (!stageId) return;
+    try {
+      const res = await startStage({ stageId: Number(stageId), cohortIds: selectedIds, periodNumbers: periodArg }).unwrap();
+      notify.success(`${res.started} période(s) démarrée(s)`);
+    } catch { notify.error('Impossible de démarrer'); }
+  };
+  const handleBulkComplete = async () => {
+    if (!stageId) return;
+    try {
+      const res = await completeStage({ stageId: Number(stageId), cohortIds: selectedIds, periodNumbers: periodArg }).unwrap();
+      notify.success(`${res.completed} période(s) clôturée(s)`);
+    } catch { notify.error('Impossible de clôturer'); }
+  };
   const handleBulkValidate = () => runForSelected('validation', (id) => validateCohort(id).unwrap(),  'validated');
 
   const handleStartOne = async (a: InternshipAssignmentSummaryResponse) => {
@@ -628,13 +641,13 @@ export default function AssignmentsPage() {
                         </Text>
                         <Button size="xs" color="blue" variant="light" radius="md" style={{ flexShrink: 0 }}
                           leftSection={<IconPlayerPlay size={12} stroke={1.5} />}
-                          loading={startingCohort} disabled={bulkLoading || !selectionHasTargetPeriod}
+                          loading={startingStage} disabled={bulkLoading || !selectionHasTargetPeriod}
                           onClick={handleBulkStart}>
                           Démarrer
                         </Button>
                         <Button size="xs" color="teal" variant="light" radius="md" style={{ flexShrink: 0 }}
                           leftSection={<IconPlayerStop size={12} stroke={1.5} />}
-                          loading={completingPeriods} disabled={bulkLoading || !selectionHasTargetPeriod}
+                          loading={completingStage} disabled={bulkLoading || !selectionHasTargetPeriod}
                           onClick={handleBulkComplete}>
                           Clôturer
                         </Button>

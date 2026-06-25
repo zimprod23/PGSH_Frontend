@@ -54,6 +54,10 @@ export interface MyServicePeriodResponse {
   isComplete: boolean;
   hasEvaluation: boolean;
   academicGroupLabel: string;
+  /** The stage (rotation type) the chef is evaluating students for in this period. */
+  stageName: string;
+  /** Academic level of that stage, e.g. "3ème année Médecine" (null if unset). */
+  levelLabel: string | null;
   /** Set when the row reflects a group transfer rather than a live roster entry. */
   transfer: TransferMarker | null;
 }
