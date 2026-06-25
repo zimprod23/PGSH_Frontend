@@ -518,7 +518,12 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
   const [serviceOpen, setServiceOpen] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
-  const { data: page, isLoading } = useGetServicePeriodsByServiceQuery({ serviceId });
+  // Admin pause/resume/start mutations live in the admin API slice and don't invalidate this
+  // employee-slice query, so refetch on mount/arg change to keep the chef worklist status live.
+  const { data: page, isLoading } = useGetServicePeriodsByServiceQuery(
+    { serviceId },
+    { refetchOnMountOrArgChange: true },
+  );
 
   const periods = useMemo(() => page?.items ?? [], [page]);
 

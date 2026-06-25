@@ -222,7 +222,12 @@ function PeriodCard({ period }: { period: ServicePeriodSummary }) {
 // ─── Assignment detail section ────────────────────────────────────────────────
 
 function AssignmentSection({ assignmentId }: { assignmentId: string }) {
-  const { data: assignment, isLoading } = useGetAssignmentByIdQuery(assignmentId);
+  // Pause/resume/transfer mutations live in the admin & employee API slices, so they can't
+  // invalidate this student-slice query's cache. Refetch on mount/arg change so revisiting the
+  // stage always shows live period status (En cours / En pause / Planifié) instead of a stale snapshot.
+  const { data: assignment, isLoading } = useGetAssignmentByIdQuery(assignmentId, {
+    refetchOnMountOrArgChange: true,
+  });
 
   if (isLoading)
     return (
@@ -290,7 +295,7 @@ export default function StageDetailsPage() {
 
   const { data: assignmentsPage, isLoading: assignmentsLoading } = useGetMyAssignmentsQuery(
     { registrationId: registrationId ?? '', stageId },
-    { skip: !registrationId },
+    { skip: !registrationId, refetchOnMountOrArgChange: true },
   );
   const myAssignment = assignmentsPage?.items?.[0] ?? null;
 
