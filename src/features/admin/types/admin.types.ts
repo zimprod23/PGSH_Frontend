@@ -300,6 +300,8 @@ export interface TransferStudentRequest {
   reason?: string;
   type: TransferType;
   stageId?: number;
+  // Forced mid-stage hand-off: re-route the in-flight rotation to the target group's services.
+  reschedule?: boolean;
 }
 
 // ─── Service Periods ─────────────────────────────────────────────────────────

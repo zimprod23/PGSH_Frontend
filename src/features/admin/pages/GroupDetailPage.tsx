@@ -10,6 +10,7 @@ import {
   Select,
   Skeleton,
   Stack,
+  Switch,
   Table,
   Text,
   Textarea,
@@ -53,6 +54,7 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
   const [type, setType]                   = useState<TransferType>('Temporary');
   const [targetGroupId, setTargetGroupId] = useState<string | null>(null);
   const [stageId, setStageId]             = useState<string | null>(null);
+  const [reschedule, setReschedule]       = useState(false);
   const [reason, setReason]               = useState('');
   const [transfer, { isLoading }]         = useTransferStudentMutation();
 
@@ -81,6 +83,7 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
     setType('Temporary');
     setTargetGroupId(null);
     setStageId(null);
+    setReschedule(false);
     setReason('');
   };
 
@@ -93,6 +96,7 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
         reason:         reason.trim(),
         type,
         stageId:        type === 'Temporary' ? Number(stageId) : undefined,
+        reschedule,
       }).unwrap();
       notify.success(`${student.fullName} transféré(e)`);
       reset();
@@ -157,6 +161,12 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
           maxRows={4}
           autosize
           required
+        />
+        <Switch
+          checked={reschedule}
+          onChange={(e) => setReschedule(e.currentTarget.checked)}
+          label="Transfert en cours de stage"
+          description="Cas exceptionnel : réaffecte immédiatement la rotation en cours vers le service du groupe cible (la période en cours est clôturée à la date du transfert et conservée dans l'historique). Le groupe cible doit avoir une répartition planifiée pour les périodes concernées."
         />
         <Group justify="flex-end">
           <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
