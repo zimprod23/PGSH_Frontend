@@ -112,6 +112,7 @@ export interface InternshipAssignmentSummary {
   status: import('../../../common/types').InternshipStatus;
   finalScore: number | null;
   result: string | null;
+  isPaused: boolean;
 }
 
 export interface InternshipAssignmentDetail extends InternshipAssignmentSummary {
@@ -127,6 +128,9 @@ export interface ServicePeriodSummary {
   endDate: string;     // YYYY-MM-DD
   isComplete: boolean;
   hasEvaluation: boolean;
+  isStarted: boolean;
+  isPaused: boolean;
+  pauseReason: string | null;
 }
 
 export interface AttendanceRecord {

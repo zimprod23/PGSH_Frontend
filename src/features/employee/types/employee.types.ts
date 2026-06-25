@@ -60,6 +60,10 @@ export interface MyServicePeriodResponse {
   levelLabel: string | null;
   /** Set when the row reflects a group transfer rather than a live roster entry. */
   transfer: TransferMarker | null;
+  /** True while the rotation is suspended (e.g. an exam week); not actionable until resumed. */
+  isPaused: boolean;
+  /** Free-text reason for the active pause, if any. */
+  pauseReason: string | null;
 }
 
 export interface PeriodObjective {

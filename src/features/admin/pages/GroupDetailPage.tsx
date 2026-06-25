@@ -287,7 +287,29 @@ export default function GroupDetailPage() {
                 ) : (
                   (group?.students ?? []).map((s) => (
                     <Table.Tr key={s.registrationId}>
-                      <Table.Td><Text size="sm" fw={500}>{s.fullName}</Text></Table.Td>
+                      <Table.Td>
+                        <Group gap="xs" wrap="nowrap">
+                          <Text size="sm" fw={500}>{s.fullName}</Text>
+                          {s.loanedToGroup && (
+                            <Tooltip
+                              label={`En prêt temporaire vers ${s.loanedToGroup}${s.loanedStage ? ` pour le stage ${s.loanedStage}` : ''} — revient automatiquement à la fin du stage`}
+                              multiline
+                              w={240}
+                            >
+                              <Badge
+                                variant="light"
+                                color="grape"
+                                size="sm"
+                                radius="sm"
+                                leftSection={<IconArrowsTransferUp size={11} stroke={1.5} />}
+                              >
+                                Prêt → {s.loanedToGroup}
+                                {s.loanedStage ? ` · ${s.loanedStage}` : ''}
+                              </Badge>
+                            </Tooltip>
+                          )}
+                        </Group>
+                      </Table.Td>
                       <Table.Td>
                         <Badge variant="light" color="gray" size="sm" radius="md" ff="monospace">
                           {s.cne}
@@ -314,6 +336,46 @@ export default function GroupDetailPage() {
             </Table>
           </Stack>
         </Card>
+
+        {/* Incoming temporary loans — students from other groups doing one stage here */}
+        {!isLoading && (group?.incomingLoans.length ?? 0) > 0 && (
+          <Card padding="lg" radius="lg" withBorder shadow="sm">
+            <Stack gap="md">
+              <Group gap="sm">
+                <IconArrowsTransferUp size={18} stroke={1.5} color="#9C36B5" />
+                <Text fw={600} size="sm">
+                  {group?.incomingLoans.length} prêt(s) entrant(s)
+                </Text>
+              </Group>
+              <Table verticalSpacing="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Nom</Table.Th>
+                    <Table.Th>CNE</Table.Th>
+                    <Table.Th>Groupe d'origine</Table.Th>
+                    <Table.Th>Stage</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {(group?.incomingLoans ?? []).map((l) => (
+                    <Table.Tr key={`${l.studentId}-${l.stage}`}>
+                      <Table.Td><Text size="sm" fw={500}>{l.fullName}</Text></Table.Td>
+                      <Table.Td>
+                        <Badge variant="light" color="gray" size="sm" radius="md" ff="monospace">
+                          {l.cne}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td><Text size="sm">{l.fromGroup}</Text></Table.Td>
+                      <Table.Td>
+                        <Badge variant="light" color="grape" size="sm" radius="sm">{l.stage}</Badge>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Stack>
+          </Card>
+        )}
       </Stack>
 
       <TransferModal

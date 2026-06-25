@@ -10,6 +10,7 @@ import {
   Divider,
   Drawer,
   Group,
+  Modal,
   Pagination,
   rem,
   ScrollArea,
@@ -19,6 +20,7 @@ import {
   Stack,
   Table,
   Text,
+  Textarea,
   ThemeIcon,
   Title,
   Tooltip,
@@ -31,6 +33,7 @@ import {
   IconCircleX,
   IconClipboardCheck,
   IconLayoutSidebar,
+  IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
   IconUsersGroup,
@@ -48,6 +51,8 @@ import {
   useRejectAssignmentMutation,
   useStartStagePeriodsMutation,
   useCompleteStagePeriodsMutation,
+  usePauseStagePeriodsMutation,
+  useResumeStagePeriodsMutation,
   useValidateCohortAssignmentsMutation,
 } from '../api/adminApi';
 import type {
@@ -55,6 +60,7 @@ import type {
   CohortResponse,
   InternshipAssignmentSummaryResponse,
   InternshipStatus,
+  PauseKind,
 } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { useAcademicYear } from '../contexts/AcademicYearContext';
@@ -65,11 +71,18 @@ import { ConfirmModal } from '../../../common/components/ConfirmModal';
 const STATUS_CFG: Record<InternshipStatus, { label: string; color: string }> = {
   Planned:   { label: 'Planifiée',  color: 'gray'   },
   Ongoing:   { label: 'En cours',   color: 'blue'   },
+  Paused:    { label: 'En pause',   color: 'orange' },
   Completed: { label: 'Terminée',   color: 'teal'   },
   Evaluated: { label: 'Évaluée',    color: 'violet' },
   Validated: { label: 'Validée',    color: 'green'  },
   Rejected:  { label: 'Rejetée',    color: 'red'    },
 };
+
+const PAUSE_KIND_OPTIONS: { value: PauseKind; label: string }[] = [
+  { value: 'Exam',    label: 'Examens'   },
+  { value: 'Holiday', label: 'Vacances'  },
+  { value: 'Other',   label: 'Autre'     },
+];
 
 function StatusBadge({ status }: { status: InternshipStatus }) {
   const cfg = STATUS_CFG[status] ?? { label: status, color: 'gray' };
@@ -429,8 +442,15 @@ export default function AssignmentsPage() {
   const [rejectOne,      { isLoading: rejectingOne     }] = useRejectAssignmentMutation();
   const [startStage,     { isLoading: startingStage    }] = useStartStagePeriodsMutation();
   const [completeStage,  { isLoading: completingStage  }] = useCompleteStagePeriodsMutation();
+  const [pauseStage,     { isLoading: pausingStage     }] = usePauseStagePeriodsMutation();
+  const [resumeStage,    { isLoading: resumingStage    }] = useResumeStagePeriodsMutation();
   const [validateCohort, { isLoading: validatingCohort }] = useValidateCohortAssignmentsMutation();
-  const bulkLoading = startingStage || completingStage || validatingCohort;
+  const bulkLoading = startingStage || completingStage || pausingStage || resumingStage || validatingCohort;
+
+  // Pause modal (exam week etc.) — captures a reason kind + free text before suspending.
+  const [pauseOpen, { open: openPause, close: closePause }] = useDisclosure(false);
+  const [pauseKind, setPauseKind] = useState<PauseKind>('Exam');
+  const [pauseReason, setPauseReason] = useState('');
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   // Validate still loops (cohort-scoped); start/close act on the whole selection in one round-trip.
@@ -458,6 +478,25 @@ export default function AssignmentsPage() {
     } catch { notify.error('Impossible de clôturer'); }
   };
   const handleBulkValidate = () => runForSelected('validation', (id) => validateCohort(id).unwrap(),  'validated');
+  const handleBulkPause = async () => {
+    if (!stageId) return;
+    try {
+      const res = await pauseStage({
+        stageId: Number(stageId), kind: pauseKind, reason: pauseReason.trim() || undefined,
+        cohortIds: selectedIds, periodNumbers: periodArg,
+      }).unwrap();
+      notify.success(`${res.paused} rotation(s) en pause`);
+      setPauseReason('');
+      closePause();
+    } catch { notify.error('Impossible de mettre en pause'); }
+  };
+  const handleBulkResume = async () => {
+    if (!stageId) return;
+    try {
+      const res = await resumeStage({ stageId: Number(stageId), cohortIds: selectedIds, periodNumbers: periodArg }).unwrap();
+      notify.success(`${res.resumed} rotation(s) reprise(s)`);
+    } catch { notify.error('Impossible de reprendre'); }
+  };
 
   const handleStartOne = async (a: InternshipAssignmentSummaryResponse) => {
     try { await startOne(a.id).unwrap(); notify.success(`${a.studentFullName} — démarrée`); }
@@ -503,7 +542,11 @@ export default function AssignmentsPage() {
   };
 
   const stageOptions  = stages.map((s) => ({ value: String(s.id), label: s.name }));
-  const statusOptions = (Object.entries(STATUS_CFG) as [InternshipStatus, { label: string }][]).map(([value, { label }]) => ({ value, label }));
+  // 'Paused' is a per-period count bucket, not a persisted assignment status — filtering by it
+  // would return nothing, so it's excluded from the status filter (it still shows in the card).
+  const statusOptions = (Object.entries(STATUS_CFG) as [InternshipStatus, { label: string }][])
+    .filter(([value]) => value !== 'Paused')
+    .map(([value, { label }]) => ({ value, label }));
 
   const showCohortColumn = selectedIds.length > 1;
   const contentTitle = showCohortColumn
@@ -650,6 +693,18 @@ export default function AssignmentsPage() {
                           loading={completingStage} disabled={bulkLoading || !selectionHasTargetPeriod}
                           onClick={handleBulkComplete}>
                           Clôturer
+                        </Button>
+                        <Button size="xs" color="orange" variant="light" radius="md" style={{ flexShrink: 0 }}
+                          leftSection={<IconPlayerPause size={12} stroke={1.5} />}
+                          disabled={bulkLoading || !selectionHasTargetPeriod}
+                          onClick={openPause}>
+                          Pause
+                        </Button>
+                        <Button size="xs" color="orange" variant="subtle" radius="md" style={{ flexShrink: 0 }}
+                          leftSection={<IconPlayerPlay size={12} stroke={1.5} />}
+                          loading={resumingStage} disabled={bulkLoading || !selectionHasTargetPeriod}
+                          onClick={handleBulkResume}>
+                          Reprendre
                         </Button>
                         {!selectionHasTargetPeriod && (
                           <Text size="xs" c="dimmed" fs="italic" style={{ flexShrink: 0 }}>
@@ -821,7 +876,12 @@ export default function AssignmentsPage() {
                                         <Text size="xs" c="dimmed">{a.cohortLabel}</Text>
                                       </Table.Td>
                                     )}
-                                    <Table.Td><StatusBadge status={a.status} /></Table.Td>
+                                    <Table.Td>
+                                      <Group gap={4} wrap="nowrap">
+                                        <StatusBadge status={a.status} />
+                                        {a.isPaused && <StatusBadge status="Paused" />}
+                                      </Group>
+                                    </Table.Td>
                                     <Table.Td>
                                       {a.finalScore !== null
                                         ? <Text size="sm" fw={600} c="navy.6" ff="monospace">{a.finalScore.toFixed(2)}</Text>
@@ -894,6 +954,38 @@ export default function AssignmentsPage() {
         confirmLabel="Rejeter" confirmColor="red"
         onConfirm={handleRejectOne} loading={rejectingOne}
       />
+
+      <Modal opened={pauseOpen} onClose={closePause} title="Mettre la rotation en pause" radius="lg" size="sm">
+        <Stack gap="md">
+          <Text size="xs" c="dimmed">
+            Suspend les rotations en cours de la sélection ({selectedIds.length} cohorte(s)
+            {selectedPeriods.length ? ` · ${selectedPeriods.length} période(s)` : ''}). À la reprise,
+            les jours d'interruption sont reportés sur la fin de la période et décalent la suite du planning.
+          </Text>
+          <Select
+            label="Motif"
+            data={PAUSE_KIND_OPTIONS}
+            value={pauseKind}
+            onChange={(v) => setPauseKind((v as PauseKind) ?? 'Exam')}
+            allowDeselect={false}
+          />
+          <Textarea
+            label="Précision (optionnel)"
+            placeholder="Ex. examens du 1er semestre…"
+            value={pauseReason}
+            onChange={(e) => setPauseReason(e.currentTarget.value)}
+            minRows={2} maxRows={4} autosize
+          />
+          <Group justify="flex-end">
+            <Button variant="subtle" color="gray" onClick={closePause}>Annuler</Button>
+            <Button color="orange" loading={pausingStage}
+              leftSection={<IconPlayerPause size={16} stroke={1.5} />}
+              onClick={handleBulkPause}>
+              Mettre en pause
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Container>
   );
 }

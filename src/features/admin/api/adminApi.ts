@@ -48,6 +48,7 @@ import type {
   GenerateMacroPlanRequest,
   MacroPlanResult,
   YearTimelineResponse,
+  PauseKind,
 } from '../types/admin.types';
 
 export const adminApiSlice = apiSlice.injectEndpoints({
@@ -305,6 +306,18 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     completeStagePeriods: builder.mutation<{ completed: number }, { stageId: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
       query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/complete`, method: 'POST', body }),
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    // Suspend / resume an in-flight rotation (e.g. an exam week). Resume shifts the rotation forward
+    // by the paused days, so the timeline must refetch too.
+    pauseStagePeriods: builder.mutation<{ paused: number }, { stageId: number; kind?: PauseKind; reason?: string; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
+      query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/pause`, method: 'POST', body }),
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }, { type: 'Stage' as const, id: 'TIMELINE' }],
+    }),
+
+    resumeStagePeriods: builder.mutation<{ resumed: number }, { stageId: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
+      query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/resume`, method: 'POST', body }),
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }, { type: 'Stage' as const, id: 'TIMELINE' }],
     }),
 
     getStageSchedule: builder.query<StageScheduleResponse, number>({
@@ -697,6 +710,8 @@ export const {
   useValidateCohortAssignmentsMutation,
   useStartStagePeriodsMutation,
   useCompleteStagePeriodsMutation,
+  usePauseStagePeriodsMutation,
+  useResumeStagePeriodsMutation,
   useGetStageScheduleQuery,
   useGetYearTimelineQuery,
   useCreateStageSlotMutation,

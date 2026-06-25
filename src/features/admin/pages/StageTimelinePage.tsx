@@ -35,6 +35,12 @@ import type { TimelineStage, TimelineLevel, TimelinePartition } from '../types/a
 
 const BAR_COLORS = ['indigo', 'teal', 'grape', 'orange', 'cyan', 'pink', 'lime', 'blue'] as const;
 
+const PAUSE_LABELS: Record<string, string> = {
+  Exam: 'Examens',
+  Holiday: 'Vacances',
+  Other: 'Pause',
+};
+
 interface Axis {
   start: dayjs.Dayjs;
   end: dayjs.Dayjs;
@@ -273,6 +279,28 @@ function PartitionRow({ axis, partition }: { axis: Axis | null; partition: Timel
                 </UnstyledButton>
               </Tooltip>
             )}
+            {/* Hatched bands mark exam/holiday suspensions over the rotation window. */}
+            {p.pauses.map((band, i) => {
+              const bandPos = position(axis, band.start, band.end ?? p.end);
+              if (!bandPos) return null;
+              return (
+                <Tooltip
+                  key={i}
+                  withinPortal
+                  label={`${PAUSE_LABELS[band.kind] ?? 'Pause'} · ${fmt(band.start)}${band.end ? ` → ${fmt(band.end)}` : ' (en cours)'}`}
+                >
+                  <Box
+                    style={{
+                      position: 'absolute', left: bandPos.left, width: bandPos.width, top: 2, height: 26,
+                      borderRadius: 4,
+                      border: '1px solid var(--mantine-color-orange-5)',
+                      background:
+                        'repeating-linear-gradient(45deg, var(--mantine-color-orange-2) 0, var(--mantine-color-orange-2) 4px, transparent 4px, transparent 8px)',
+                    }}
+                  />
+                </Tooltip>
+              );
+            })}
           </Track>
         ) : (
           <Text size="xs" c="dimmed">Aucune fenêtre planifiée</Text>

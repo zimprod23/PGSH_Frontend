@@ -33,6 +33,7 @@ import {
   IconClipboardList,
   IconCheck,
   IconPencil,
+  IconPlayerPause,
   IconSearch,
   IconStethoscope,
   IconUsers,
@@ -584,6 +585,20 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
 
   const actionFor = (p: MyServicePeriodResponse, status: PeriodStatus) => {
     if (status === 'active') {
+      // Suspended mid-rotation (e.g. an exam week) — frozen until the administration resumes it.
+      if (p.isPaused) {
+        return (
+          <Tooltip
+            label={p.pauseReason ? `En pause : ${p.pauseReason}` : 'Rotation suspendue par l\'administration'}
+            withArrow multiline w={220}
+          >
+            <Badge variant="light" color="orange" size="sm" radius="sm"
+              leftSection={<IconPlayerPause size={11} stroke={1.5} />}>
+              En pause
+            </Badge>
+          </Tooltip>
+        );
+      }
       // Closing a period is an administrative act (done when the scheduled window ends).
       // The chef can only evaluate once it's closed — so no action here, just a hint.
       return (

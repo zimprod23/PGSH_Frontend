@@ -281,6 +281,7 @@ export interface GroupDetailResponse {
   academicYearId: number;
   academicYearLabel: string;
   students: GroupStudentResponse[];
+  incomingLoans: IncomingLoanResponse[];
 }
 
 export interface GroupStudentResponse {
@@ -290,6 +291,16 @@ export interface GroupStudentResponse {
   cne: string;
   email: string;
   registrationStatus: RegistrationStatus;
+  loanedToGroup: string | null;
+  loanedStage: string | null;
+}
+
+export interface IncomingLoanResponse {
+  studentId: string;
+  fullName: string;
+  cne: string;
+  fromGroup: string;
+  stage: string;
 }
 
 export type TransferType = 'Temporary' | 'Definitive';
@@ -336,7 +347,10 @@ export type InternshipStatus =
   | 'Completed'
   | 'Evaluated'
   | 'Validated'
-  | 'Rejected';
+  | 'Rejected'
+  | 'Paused';
+
+export type PauseKind = 'Exam' | 'Holiday' | 'Other';
 
 export type StageAssignmentResult = 'NonÉvalué' | 'Validé' | 'NonValidé';
 
@@ -351,6 +365,7 @@ export interface InternshipAssignmentSummaryResponse {
   status: InternshipStatus;
   finalScore: number | null;
   result: StageAssignmentResult | null;
+  isPaused: boolean;
 }
 
 export interface GetAssignmentsParams {
@@ -427,6 +442,12 @@ export interface TimelineGroup {
   studentCount: number;
 }
 
+export interface TimelinePauseBand {
+  start: string;              // YYYY-MM-DD
+  end: string | null;         // null = still paused
+  kind: PauseKind;
+}
+
 export interface TimelinePartition {
   label: string | null;       // RotationGroup (A, B, C…); null = unassigned
   start: string | null;       // YYYY-MM-DD
@@ -435,6 +456,7 @@ export interface TimelinePartition {
   studentCount: number;
   saturated: boolean;
   groups: TimelineGroup[];
+  pauses: TimelinePauseBand[];
 }
 
 export interface TimelineStage {

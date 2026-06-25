@@ -15,6 +15,7 @@ import {
   Text,
   ThemeIcon,
   Title,
+  Tooltip,
   UnstyledButton,
   rem,
 } from '@mantine/core';
@@ -167,9 +168,20 @@ function PeriodCard({ period }: { period: ServicePeriodSummary }) {
             </Stack>
           </Group>
           <Stack gap={4} align="flex-end">
-            <Badge size="xs" color={period.isComplete ? 'teal' : 'blue'} variant="light">
-              {period.isComplete ? 'Terminé' : 'En cours'}
-            </Badge>
+            {period.isPaused && !period.isComplete ? (
+              <Tooltip
+                label={period.pauseReason ? `En pause : ${period.pauseReason}` : 'Rotation suspendue (examens)'}
+                withArrow multiline w={220}
+              >
+                <Badge size="xs" color="orange" variant="light">En pause</Badge>
+              </Tooltip>
+            ) : period.isComplete ? (
+              <Badge size="xs" color="teal" variant="light">Terminé</Badge>
+            ) : period.isStarted ? (
+              <Badge size="xs" color="blue" variant="light">En cours</Badge>
+            ) : (
+              <Badge size="xs" color="gray" variant="light">Planifié</Badge>
+            )}
             {period.hasEvaluation && (
               <Badge size="xs" color="navy" variant="dot">Évalué</Badge>
             )}

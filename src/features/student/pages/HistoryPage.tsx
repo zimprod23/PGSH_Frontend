@@ -14,12 +14,28 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core';
-import { IconTimeline } from '@tabler/icons-react';
+import { IconTimeline, IconArrowNarrowRight, IconArrowBackUp } from '@tabler/icons-react';
 import { useGetCurrentStudentQuery, useGetStudentHistoryQuery } from '../api/studentApi';
 import type { StudentHistoryResponse } from '../types/student.types';
 import type { HistoryType } from '../../../common/types';
 import { formatDate, getAcademicYear } from '../utils/format';
 import { getHistoryConfig } from '../utils/historyConfig';
+
+// French labels for the generic (non-transfer) metadata keys. Internal flags are never shown.
+const META_LABELS: Record<string, string> = {
+  from: 'De',
+  to: 'Vers',
+  fromGroup: 'De',
+  toGroup: 'Vers',
+  stage: 'Stage',
+  reason: 'Motif',
+  service: 'Service',
+  score: 'Note',
+};
+const HIDDEN_META_KEYS = new Set(['temporary', 'temporaryReturn', 'fromGroup', 'toGroup', 'stage', 'reason']);
+
+const str = (v: unknown): string | undefined =>
+  v === null || v === undefined || v === '' ? undefined : String(v);
 
 // ─── Single timeline event ────────────────────────────────────────────────────
 
@@ -30,11 +46,31 @@ function HistoryItem({
   event: StudentHistoryResponse;
   isLast: boolean;
 }) {
-  const { icon: Icon, color, label } = getHistoryConfig(event.historyType);
+  const config = getHistoryConfig(event.historyType);
+  const meta = (event.metadata ?? {}) as Record<string, unknown>;
 
-  const metaEntries = event.metadata
-    ? Object.entries(event.metadata).filter(([, v]) => v !== null && v !== '')
-    : [];
+  const fromGroup = str(meta.fromGroup);
+  const toGroup = str(meta.toGroup);
+  const stage = str(meta.stage);
+  const reason = str(meta.reason);
+  const isReturn = meta.temporaryReturn === true;
+  const isTemporary = meta.temporary === true;
+  const isGroupMove = Boolean(fromGroup && toGroup);
+
+  // Override the generic config label so a loan/return reads correctly instead of the
+  // catch-all "Changement de groupe".
+  const title = isReturn
+    ? 'Retour de prêt'
+    : isTemporary
+      ? 'Prêt temporaire'
+      : config.label;
+  const Icon = isReturn ? IconArrowBackUp : config.icon;
+  const color = isReturn ? 'teal' : isTemporary ? 'grape' : config.color;
+
+  // Generic metadata rows for non-transfer events (transfer rows render their own block).
+  const metaEntries = Object.entries(meta).filter(
+    ([k, v]) => !HIDDEN_META_KEYS.has(k) && str(v) !== undefined,
+  );
 
   return (
     <Group gap="sm" align="flex-start">
@@ -59,29 +95,47 @@ function HistoryItem({
       {/* Content */}
       <Stack gap={4} pb={isLast ? 0 : 'lg'} style={{ flex: 1, minWidth: 0 }}>
         <Group justify="space-between" wrap="nowrap">
-          <Text size="sm" fw={600}>{label}</Text>
+          <Group gap="xs" wrap="nowrap">
+            <Text size="sm" fw={600}>{title}</Text>
+            {stage && (
+              <Badge size="xs" variant="light" color="navy" radius="sm">{stage}</Badge>
+            )}
+          </Group>
           <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
             {formatDate(event.createdAt)}
           </Text>
         </Group>
 
-        {metaEntries.length > 0 && (
+        {isGroupMove ? (
           <Box
             p="xs"
-            style={{
-              background: '#F8FAFC',
-              borderRadius: rem(6),
-              border: '1px solid #E2E8F0',
-            }}
+            style={{ background: '#F8FAFC', borderRadius: rem(6), border: '1px solid #E2E8F0' }}
+          >
+            <Group gap="xs" wrap="nowrap">
+              <Badge size="sm" variant="light" color="gray" radius="sm">{fromGroup}</Badge>
+              <IconArrowNarrowRight size={16} color="#94A3B8" />
+              <Badge size="sm" variant="light" color={color} radius="sm">{toGroup}</Badge>
+            </Group>
+            {reason && (
+              <Group gap={6} mt={6} wrap="nowrap">
+                <Text size="xs" c="dimmed">Motif :</Text>
+                <Text size="xs">{reason}</Text>
+              </Group>
+            )}
+          </Box>
+        ) : metaEntries.length > 0 ? (
+          <Box
+            p="xs"
+            style={{ background: '#F8FAFC', borderRadius: rem(6), border: '1px solid #E2E8F0' }}
           >
             {metaEntries.map(([key, value]) => (
               <Group key={key} gap="xs">
-                <Text size="xs" c="dimmed" tt="capitalize">{key}:</Text>
+                <Text size="xs" c="dimmed">{META_LABELS[key] ?? key} :</Text>
                 <Text size="xs">{String(value)}</Text>
               </Group>
             ))}
           </Box>
-        )}
+        ) : null}
       </Stack>
     </Group>
   );
