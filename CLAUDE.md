@@ -162,6 +162,61 @@ Every major route segment has its own `<ErrorBoundary>`. A crash in the History 
 
 ---
 
+## Performance & Pre-flight Validation
+
+Two recurring quality rules — apply them everywhere, not just where the examples below are called out.
+
+### 1. Guard actions on the client before they can fail (pre-flight validation)
+
+**Validate as much as possible on the frontend before sending a request.** A request that the server is
+guaranteed to reject (or that is a no-op) should never leave the browser — disable the control and tell the
+user why. This avoids wasted round-trips, DB hits, error toasts, and confusing partial states.
+
+Rules:
+- **Disable any submit/action button whose preconditions aren't met**, and surface the reason inline
+  (helper text, a dimmed hint, or a tooltip on the disabled control). Never let the user click an action that
+  can only fail.
+- Mirror the backend's required fields and invariants in the form (required selects, non-empty reason,
+  enum-in-range, FK selected, at least one item checked, a target period chosen, etc.). The backend
+  `FluentValidation` is the source of truth — the client guard is the fast path, not a replacement.
+- Prefer **`disabled` + reason** over letting the click through and showing an error toast.
+- The server still validates — client guards are UX/perf, never security.
+
+Known offenders to fix when touched (this list is tracked in root `HANDOFF.md` → "Optimization sweep"):
+- **Planning grid / `ScheduleGridModal`**: "Répartition automatique" is clickable even when **no period /
+  slot exists** for the stage — it should be disabled with "ajoutez d'abord des périodes". (Same class of
+  bug the Suivi bar already fixed with `selectionHasTargetPeriod`.)
+- Audit every page's primary mutation for an equivalent "can this even succeed right now?" guard.
+
+### 2. Debounce every search / free-text-filtered query input
+
+Typing into a field that drives a server query must **not** fire a request per keystroke — it causes the
+"laggy input" feel (e.g. the academic-group student search).
+
+Standard pattern (already used in `EmployeesPage`, `GroupsPage`, `InfrastructurePage`, `ScheduleGridModal`):
+
+```ts
+const [search, setSearch] = useState('');
+const [debouncedSearch] = useDebouncedValue(search, 350);      // @mantine/hooks, 300–350ms
+// reset pagination when the term changes
+useEffect(() => setPage(1), [debouncedSearch]);
+const { data, isFetching } = useGetXxxQuery(
+  { searchTerm: debouncedSearch || undefined, pageNumber: page },
+  { skip: debouncedSearch.length < 2 },                        // don't query on 0–1 chars
+);
+```
+
+Rules:
+- Bind the **input** to the raw `search` state (so typing stays instant); feed only the **debounced** value
+  to the query.
+- `skip` the query until the term is meaningful (`length < 2`) to avoid a full-table fetch on the first
+  keystroke.
+- Use `isFetching` (not `isLoading`) for the in-place "refreshing" spinner so the list doesn't unmount.
+- For purely **client-side** filtering of an already-loaded small list, memoize the filter
+  (`useMemo`) instead of recomputing on every render.
+
+---
+
 ## Environment Variables
 
 All vars must be prefixed `VITE_` to be accessible in the browser.
