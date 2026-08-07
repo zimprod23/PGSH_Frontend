@@ -221,7 +221,16 @@ export function StudentRecordModal({ assignmentId, opened, onClose }: Props) {
   const [fetchFiche, { isFetching: ficheLoading }] = useLazyGetFicheDeValidationQuery();
   const [evalTarget, setEvalTarget] = useState<EvaluationTarget | null>(null);
 
-  const canPrintFiche = record?.result === 'Validé';
+  // The fiche needs both halves: passing marks AND the administration's ratification. Mirrors the
+  // gate in GetFicheDeValidationQueryHandler so the button never offers a document the server refuses.
+  const marksPassed  = record?.result === 'Validé';
+  const isRatified   = record?.status === 'Validated';
+  const canPrintFiche = marksPassed && isRatified;
+  const ficheHint = canPrintFiche
+    ? 'Imprimer la fiche de validation'
+    : marksPassed
+      ? 'Fiche disponible une fois le stage ratifié par la scolarité'
+      : 'Fiche disponible une fois le stage validé';
 
   const openEvaluation = (p: StagePeriodRecord, r: StudentStageRecordResponse) =>
     setEvalTarget({
@@ -305,7 +314,7 @@ export function StudentRecordModal({ assignmentId, opened, onClose }: Props) {
             size="xs"
             style={{ alignSelf: 'flex-start' }}
           >
-            {canPrintFiche ? 'Imprimer la fiche de validation' : 'Fiche disponible une fois le stage validé'}
+            {ficheHint}
           </Button>
 
           <Divider label="Périodes" labelPosition="left" />
