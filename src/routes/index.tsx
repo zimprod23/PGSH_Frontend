@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Outlet } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { Loader, Center } from '@mantine/core';
 import { PATHS } from './paths';
@@ -89,6 +89,10 @@ export const router = createBrowserRouter([
       },
 
       // ── Admin zone ────────────────────────────────────────────────────────
+      // A secrétaire is an employee, not administration: the only screen here she may use is
+      // Présences, which the backend scopes to the services she is staff of. Everything else needs
+      // an administrative role, and gating it here keeps the menu from offering her pages the API
+      // will refuse. Mirrors Roles.Administrative on the backend.
       {
         path: PATHS.ADMIN.ROOT,
         element: (
@@ -97,30 +101,39 @@ export const router = createBrowserRouter([
           </AuthGuard>
         ),
         children: [
-          { index: true,                          element: wrap(<AdminDashboardPage />)         },
-          { path: PATHS.ADMIN.STUDENTS,           element: wrap(<StudentListPage />)           },
-          { path: PATHS.ADMIN.STUDENT_DETAIL,     element: wrap(<AdminStudentDetailPage />)    },
-          { path: PATHS.ADMIN.ACADEMIC_YEARS,     element: wrap(<AcademicYearsPage />)         },
-          { path: PATHS.ADMIN.LEVELS,             element: wrap(<LevelsPage />)                },
+          { path: PATHS.ADMIN.ATTENDANCE,  element: wrap(<AttendancePage />) },
           {
-            path: PATHS.ADMIN.GROUPS,
+            element: (
+              <AuthGuard requiredRole={[Roles.Scolarite, Roles.SuperUser]}>
+                <Outlet />
+              </AuthGuard>
+            ),
             children: [
-              { index: true, element: wrap(<GroupsPage />)       },
-              { path: ':id',  element: wrap(<GroupDetailPage />) },
+              { index: true,                          element: wrap(<AdminDashboardPage />)         },
+              { path: PATHS.ADMIN.STUDENTS,           element: wrap(<StudentListPage />)           },
+              { path: PATHS.ADMIN.STUDENT_DETAIL,     element: wrap(<AdminStudentDetailPage />)    },
+              { path: PATHS.ADMIN.ACADEMIC_YEARS,     element: wrap(<AcademicYearsPage />)         },
+              { path: PATHS.ADMIN.LEVELS,             element: wrap(<LevelsPage />)                },
+              {
+                path: PATHS.ADMIN.GROUPS,
+                children: [
+                  { index: true, element: wrap(<GroupsPage />)       },
+                  { path: ':id',  element: wrap(<GroupDetailPage />) },
+                ],
+              },
+              {
+                path: PATHS.ADMIN.STAGES,
+                children: [
+                  { index: true, element: wrap(<StagesPage />) },
+                  { path: ':id',  element: wrap(<StageDetailPage />) },
+                ],
+              },
+              { path: PATHS.ADMIN.TIMELINE,    element: wrap(<StageTimelinePage />) },
+              { path: PATHS.ADMIN.HOSPITALS,    element: wrap(<InfrastructurePage />) },
+              { path: PATHS.ADMIN.EMPLOYEES,   element: wrap(<EmployeesPage />)      },
+              { path: PATHS.ADMIN.ASSIGNMENTS, element: wrap(<AssignmentsPage />)    },
             ],
           },
-          {
-            path: PATHS.ADMIN.STAGES,
-            children: [
-              { index: true, element: wrap(<StagesPage />) },
-              { path: ':id',  element: wrap(<StageDetailPage />) },
-            ],
-          },
-          { path: PATHS.ADMIN.TIMELINE,    element: wrap(<StageTimelinePage />) },
-          { path: PATHS.ADMIN.HOSPITALS,    element: wrap(<InfrastructurePage />) },
-          { path: PATHS.ADMIN.EMPLOYEES,   element: wrap(<EmployeesPage />)      },
-          { path: PATHS.ADMIN.ATTENDANCE,  element: wrap(<AttendancePage />)     },
-          { path: PATHS.ADMIN.ASSIGNMENTS, element: wrap(<AssignmentsPage />)    },
         ],
       },
 
@@ -128,7 +141,7 @@ export const router = createBrowserRouter([
       {
         path: PATHS.EMPLOYEE.ROOT,
         element: (
-          <AuthGuard requiredRole={[Roles.Employee, Roles.Professor]}>
+          <AuthGuard requiredRole={[Roles.Employee, Roles.Professor, Roles.Secretaire]}>
             <EmployeeLayout />
           </AuthGuard>
         ),

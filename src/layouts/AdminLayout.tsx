@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   ActionIcon,
   AppShell,
@@ -34,6 +34,7 @@ import {
 } from '@tabler/icons-react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../common/hooks/useAuth';
+import { Roles } from '../common/constants/roles';
 import { ErrorBoundary } from '../common/components/ErrorBoundary';
 import { PATHS } from '../routes/paths';
 import { AcademicYearProvider, useAcademicYear } from '../features/admin/contexts/AcademicYearContext';
@@ -203,7 +204,21 @@ export function AdminLayout() {
 
 function AdminLayoutInner() {
   const [opened, { toggle }] = useDisclosure();
-  const { username, email, logout } = useAuth();
+  const { username, email, logout, hasRole } = useAuth();
+
+  // A secrétaire reaches this shell only for Présences — she is an employee, not administration,
+  // and the API refuses her everywhere else. Show her that one entry rather than a menu of links
+  // that bounce off the route guard.
+  const isAdministrative = hasRole(Roles.Scolarite) || hasRole(Roles.SuperUser);
+  const nav = useMemo<NavEntry[]>(() => {
+    if (isAdministrative) return NAV;
+    return NAV
+      .map((entry) => entry.kind === 'leaf'
+        ? (entry.path === `${ROOT}/attendance` ? entry : null)
+        : { ...entry, items: entry.items.filter((i) => i.path === `${ROOT}/attendance`) })
+      .filter((entry): entry is NavEntry =>
+        entry !== null && (entry.kind === 'leaf' || entry.items.length > 0));
+  }, [isAdministrative]);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -220,7 +235,7 @@ function AdminLayoutInner() {
     .join('');
 
   const currentLeafLabel = (() => {
-    for (const entry of NAV) {
+    for (const entry of nav) {
       if (entry.kind === 'leaf' && isActive(entry.path, entry.exact)) return entry.label;
       if (entry.kind === 'group') {
         const match = entry.items.find((i) => isActive(i.path, i.exact));
@@ -349,7 +364,7 @@ function AdminLayoutInner() {
 
         <AppShell.Section grow style={{ overflowY: 'auto' }}>
           <Stack gap={2}>
-            {NAV.map((entry) =>
+            {nav.map((entry) =>
               entry.kind === 'leaf' ? renderLeaf(entry) : renderGroup(entry)
             )}
           </Stack>
