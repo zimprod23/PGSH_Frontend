@@ -5,6 +5,7 @@ import {
   Card,
   Container,
   Group,
+  Loader,
   Modal,
   SegmentedControl,
   Select,
@@ -14,28 +15,33 @@ import {
   Table,
   Text,
   Textarea,
+  TextInput,
   Title,
   Tooltip,
 } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
+import { DatePickerInput } from '@mantine/dates';
+import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { skipToken } from '@reduxjs/toolkit/query';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import {
   IconArrowLeft,
   IconArrowsTransferUp,
+  IconPlaneDeparture,
   IconTrash,
   IconUsers,
 } from '@tabler/icons-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useGetGroupByIdQuery,
   useGetAcademicGroupsQuery,
   useGetInternshipAssignmentsQuery,
+  useGetServicesQuery,
   useTransferStudentMutation,
+  useDelocalizeStudentMutation,
   useEmptyGroupMutation,
 } from '../api/adminApi';
-import type { GroupStudentResponse, TransferType } from '../types/admin.types';
+import type { DelocalizationOutcome, GroupStudentResponse, TransferType } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { RegistrationBadge } from '../../student/components/RegistrationBadge';
 
@@ -185,6 +191,183 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
   );
 }
 
+// ─── Delocalization modal ───────────────────────────────────────────────────────
+
+function DelocalizeModal({ student, opened, onClose }: {
+  student: GroupStudentResponse | null;
+  opened: boolean;
+  onClose: () => void;
+}) {
+  const notify = useNotify();
+  const [stageId, setStageId]               = useState<string | null>(null);
+  const [service, setService]               = useState<{ value: string; label: string } | null>(null);
+  const [serviceSearch, setServiceSearch]   = useState('');
+  const [debouncedServiceSearch]            = useDebouncedValue(serviceSearch, 300);
+  const [range, setRange]                   = useState<[string | null, string | null]>([null, null]);
+  const [reason, setReason]                 = useState('');
+  const [outcome, setOutcome]               = useState<'none' | DelocalizationOutcome>('none');
+  const [fiche, setFiche]                   = useState('');
+  const [delocalize, { isLoading }]         = useDelocalizeStudentMutation();
+
+  // Délocalisation is a whole-stage move out of faculty, so only stages not yet started qualify.
+  const { data: assignments } = useGetInternshipAssignmentsQuery(
+    student ? { registrationId: student.registrationId, pageSize: 200 } : skipToken
+  );
+  const stageOptions = (assignments?.items ?? [])
+    .filter((a) => a.status === 'Planned')
+    .map((a) => ({ value: String(a.stageId), label: a.stageName }));
+
+  const { data: servicesPage, isFetching: servicesFetching } = useGetServicesQuery(
+    { searchTerm: debouncedServiceSearch || undefined, pageSize: 20 },
+    { skip: debouncedServiceSearch.length < 2 },
+  );
+  const serviceData = useMemo(() => {
+    const opts = (servicesPage?.items ?? [])
+      .map((s) => ({ value: String(s.id), label: `${s.name} — ${s.hospitalName}` }));
+    if (service && !opts.some((o) => o.value === service.value)) opts.unshift(service);
+    return opts;
+  }, [servicesPage, service]);
+
+  const [startDate, endDate] = range;
+  const datesValid = !!startDate && !!endDate && endDate >= startDate;
+  const ficheMissing = outcome !== 'none' && !fiche.trim();
+  const canSubmit =
+    !!stageId && !!service && datesValid && !!reason.trim() && !ficheMissing;
+
+  const reset = () => {
+    setStageId(null);
+    setService(null);
+    setServiceSearch('');
+    setRange([null, null]);
+    setReason('');
+    setOutcome('none');
+    setFiche('');
+  };
+
+  const handleDelocalize = async () => {
+    if (!student || !canSubmit || !service || !startDate || !endDate) return;
+    try {
+      await delocalize({
+        registrationId: student.registrationId,
+        stageId:        Number(stageId),
+        serviceId:      Number(service.value),
+        startDate,
+        endDate,
+        reason:         reason.trim(),
+        outcome:        outcome === 'none' ? undefined : outcome,
+        ficheReference: outcome === 'none' ? undefined : fiche.trim(),
+      }).unwrap();
+      notify.success(`${student.fullName} — stage délocalisé enregistré`);
+      reset();
+      onClose();
+    } catch {
+      notify.error('Impossible d’enregistrer la délocalisation');
+    }
+  };
+
+  return (
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      title={`Délocaliser un stage — ${student?.fullName ?? ''}`}
+      radius="lg"
+      size="sm"
+    >
+      <Stack gap="md">
+        <Text size="xs" c="dimmed">
+          L’étudiant effectue la totalité du stage hors faculté (ville d’origine, étranger…). La faculté
+          n’a aucun contrôle sur le déroulement ; la période est enregistrée comme terminée et la
+          validation est saisie à partir de la fiche papier rapportée par l’étudiant.
+        </Text>
+
+        <Select
+          label="Stage concerné"
+          placeholder={stageOptions.length ? 'Choisir un stage' : 'Aucun stage planifié'}
+          data={stageOptions}
+          value={stageId}
+          onChange={setStageId}
+          disabled={!stageOptions.length}
+          searchable
+          required
+        />
+
+        <Select
+          label="Service externe (hors faculté)"
+          placeholder="Rechercher un service (min. 2 car.)…"
+          data={serviceData}
+          value={service?.value ?? null}
+          searchable
+          searchValue={serviceSearch}
+          onSearchChange={setServiceSearch}
+          onChange={(val, opt) => setService(val ? { value: val, label: opt.label } : null)}
+          rightSection={servicesFetching ? <Loader size={14} /> : null}
+          nothingFoundMessage={serviceSearch.length < 2 ? 'Tapez pour rechercher…' : 'Aucun service'}
+          required
+        />
+        <Text size="xs" c="dimmed">
+          Ajoutez d’abord l’hôpital / service externe dans « Infrastructures » s’il n’existe pas encore.
+        </Text>
+
+        <DatePickerInput
+          type="range"
+          label="Période du stage (début → fin)"
+          placeholder="Sélectionnez les dates"
+          value={range}
+          onChange={setRange}
+          allowSingleDateInRange
+          numberOfColumns={2}
+          popoverProps={{ withinPortal: true }}
+          required
+        />
+
+        <Textarea
+          label="Motif de la délocalisation"
+          placeholder="Raison (ville d’origine, convention, etc.)…"
+          value={reason}
+          onChange={(e) => setReason(e.currentTarget.value)}
+          minRows={2}
+          maxRows={4}
+          autosize
+          required
+        />
+
+        <SegmentedControl
+          fullWidth
+          value={outcome}
+          onChange={(v) => setOutcome(v as 'none' | DelocalizationOutcome)}
+          data={[
+            { value: 'none',         label: 'Validation plus tard' },
+            { value: 'Validated',    label: 'Validé' },
+            { value: 'NotValidated', label: 'Non validé' },
+          ]}
+        />
+        {outcome !== 'none' && (
+          <TextInput
+            label="Référence de la fiche de validation"
+            placeholder="N° / lien / note de la fiche papier"
+            value={fiche}
+            onChange={(e) => setFiche(e.currentTarget.value)}
+            required
+          />
+        )}
+
+        <Group justify="flex-end">
+          <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
+          <Button
+            color="navy"
+            loading={isLoading}
+            disabled={!canSubmit}
+            leftSection={<IconPlaneDeparture size={16} stroke={1.5} />}
+            onClick={handleDelocalize}
+          >
+            Enregistrer
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function GroupDetailPage() {
@@ -194,7 +377,9 @@ export default function GroupDetailPage() {
   const notify   = useNotify();
 
   const [transferTarget, setTransferTarget] = useState<GroupStudentResponse | null>(null);
+  const [delocTarget,    setDelocTarget]    = useState<GroupStudentResponse | null>(null);
   const [modalOpen,   { open: openModal,  close: closeModal  }] = useDisclosure(false);
+  const [delocOpen,   { open: openDeloc,  close: closeDeloc  }] = useDisclosure(false);
   const [emptyOpen,   { open: openEmpty,  close: closeEmpty  }] = useDisclosure(false);
 
   const { data: group, isLoading } = useGetGroupByIdQuery(groupId);
@@ -320,14 +505,24 @@ export default function GroupDetailPage() {
                         <RegistrationBadge status={s.registrationStatus} />
                       </Table.Td>
                       <Table.Td>
-                        <Tooltip label="Transférer" position="left">
-                          <ActionIcon
-                            variant="subtle" color="navy" size="sm" radius="md"
-                            onClick={() => { setTransferTarget(s); openModal(); }}
-                          >
-                            <IconArrowsTransferUp size={14} stroke={1.5} />
-                          </ActionIcon>
-                        </Tooltip>
+                        <Group gap={4} wrap="nowrap" justify="flex-end">
+                          <Tooltip label="Transférer" position="left">
+                            <ActionIcon
+                              variant="subtle" color="navy" size="sm" radius="md"
+                              onClick={() => { setTransferTarget(s); openModal(); }}
+                            >
+                              <IconArrowsTransferUp size={14} stroke={1.5} />
+                            </ActionIcon>
+                          </Tooltip>
+                          <Tooltip label="Délocaliser un stage (hors faculté)" position="left">
+                            <ActionIcon
+                              variant="subtle" color="teal" size="sm" radius="md"
+                              onClick={() => { setDelocTarget(s); openDeloc(); }}
+                            >
+                              <IconPlaneDeparture size={14} stroke={1.5} />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Group>
                       </Table.Td>
                     </Table.Tr>
                   ))
@@ -384,6 +579,12 @@ export default function GroupDetailPage() {
         currentGroupId={groupId}
         opened={modalOpen}
         onClose={() => { closeModal(); setTransferTarget(null); }}
+      />
+
+      <DelocalizeModal
+        student={delocTarget}
+        opened={delocOpen}
+        onClose={() => { closeDeloc(); setDelocTarget(null); }}
       />
 
       <ConfirmModal

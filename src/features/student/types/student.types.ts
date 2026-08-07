@@ -210,6 +210,8 @@ export interface GetStudentsQuery {
   appogee?: string;
   cin?: string;
   program?: AcademicProgram;
+  // When set, the level/group/status columns reflect this year's registration.
+  academicYearId?: number;
   pageNumber?: number;
   pageSize?: number;
 }

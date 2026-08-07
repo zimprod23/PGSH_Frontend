@@ -66,64 +66,6 @@ export interface MyServicePeriodResponse {
   pauseReason: string | null;
 }
 
-export interface PeriodObjective {
-  id: number;
-  label: string;
-  description: string | null;
-  weight: number;
-  isMandatory: boolean;
-}
-
-export type EvaluationMode = 'Numeric' | 'ValidatePeriod' | 'ValidateObjectives';
-export type EvaluationOutcome = 'Validated' | 'NotValidated';
-
-export interface ObjectiveScoreDto {
-  stageObjectiveId: number;
-  score?: number | null;
-  outcome?: EvaluationOutcome | null;
-  note?: string;
-}
-
-export interface SubmitEvaluationRequest {
-  servicePeriodId: string;
-  serviceId: number;
-  mode: EvaluationMode;
-  totalScore?: number | null;
-  outcome?: EvaluationOutcome | null;
-  supervisorComment?: string;
-  objectiveScores: ObjectiveScoreDto[];
-}
-
-export interface UpdateEvaluationRequest {
-  evaluationId: string;
-  servicePeriodId: string;
-  serviceId: number;
-  mode: EvaluationMode;
-  totalScore?: number | null;
-  outcome?: EvaluationOutcome | null;
-  supervisorComment?: string;
-  objectiveScores: ObjectiveScoreDto[];
-}
-
-export interface ServiceEvaluationDetail {
-  id: string;
-  servicePeriodId: string;
-  mode: EvaluationMode;
-  totalScore: number | null;
-  outcome: EvaluationOutcome | null;
-  supervisorComment: string | null;
-  objectiveScores: {
-    id: string;
-    stageObjectiveId: number;
-    objectiveLabel: string;
-    weight: number;
-    isMandatory: boolean;
-    score: number | null;
-    outcome: EvaluationOutcome | null;
-    note: string | null;
-  }[];
-}
-
 export const GRADE_LABELS: Record<EmployeeGrade, string> = {
   MC:            'Maître de Conférences',
   PES:           'Professeur Enseignement Supérieur',

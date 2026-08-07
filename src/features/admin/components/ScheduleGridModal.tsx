@@ -645,10 +645,11 @@ interface Props {
   opened: boolean;
   onClose: () => void;
   stageId: number;
+  academicYearId?: number;
   allowedServiceIds?: number[];
 }
 
-export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds = [] }: Props) {
+export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, allowedServiceIds = [] }: Props) {
   const notify = useNotify();
   const [addSlotOpened, setAddSlotOpened]   = useState(false);
   const [activePartition, setActivePartition] = useState<string | null>(null);
@@ -656,7 +657,10 @@ export function ScheduleGridModal({ opened, onClose, stageId, allowedServiceIds 
   const [autoArrangeOpen, { open: openAutoArrange, close: closeAutoArrange }] = useDisclosure(false);
   const [editing, setEditing] = useState<{ cohortId: number; slotId: number } | null>(null);
   const [clearingKey, setClearingKey] = useState<string | null>(null);
-  const { data: schedule, isLoading } = useGetStageScheduleQuery(stageId, { skip: !opened });
+  const { data: schedule, isLoading } = useGetStageScheduleQuery(
+    { stageId, academicYearId },
+    { skip: !opened },
+  );
   const [autoArrange, { isLoading: arranging }] = useAutoArrangeStageScheduleMutation();
   const [clearAssignment] = useClearCohortSlotAssignmentMutation();
 

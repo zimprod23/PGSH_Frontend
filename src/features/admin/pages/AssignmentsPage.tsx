@@ -21,21 +21,24 @@ import {
   Table,
   Text,
   Textarea,
+  TextInput,
   ThemeIcon,
   Title,
   Tooltip,
 } from '@mantine/core';
-import { useDisclosure, useMediaQuery } from '@mantine/hooks';
+import { useDisclosure, useMediaQuery, useDebouncedValue } from '@mantine/hooks';
 import {
   IconArrowRight,
   IconBuildingHospital,
   IconCircleCheck,
   IconCircleX,
   IconClipboardCheck,
+  IconEye,
   IconLayoutSidebar,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
+  IconSearch,
   IconUsersGroup,
 } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
@@ -65,6 +68,7 @@ import type {
 import { useNotify } from '../../../common/hooks/useNotify';
 import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
+import { StudentRecordModal } from '../components/StudentRecordModal';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -322,11 +326,14 @@ export default function AssignmentsPage() {
   const [selectedPeriods, setSelectedPeriods] = useState<number[]>([]);
   const [focusedId,     setFocusedId]     = useState<number | null>(null);
   const [statusFilter,  setStatusFilter]  = useState<InternshipStatus | null>(null);
+  const [search,        setSearch]        = useState('');
+  const [debouncedSearch] = useDebouncedValue(search, 350);
   const [page,          setPage]          = useState(1);
   const [groupingMode,  setGroupingMode]  = useState<'status' | 'rotation'>('status');
   const [drawerOpen,    { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
 
   const [target,       setTarget]       = useState<InternshipAssignmentSummaryResponse | null>(null);
+  const [recordId,     setRecordId]     = useState<string | null>(null);
   const [validateOpen, { open: openValidate, close: closeValidate }] = useDisclosure(false);
   const [rejectOpen,   { open: openReject,   close: closeReject   }] = useDisclosure(false);
 
@@ -341,7 +348,10 @@ export default function AssignmentsPage() {
   );
 
   // Stage periods (P1, P2…) — used to scope bulk start/close to a chosen window.
-  const { data: schedule } = useGetStageScheduleQuery(Number(stageId), { skip: !stageId });
+  const { data: schedule } = useGetStageScheduleQuery(
+    { stageId: Number(stageId), academicYearId: currentYearId ?? undefined },
+    { skip: !stageId },
+  );
   const scheduleSlots = schedule?.slots ?? [];
   const slots = [...scheduleSlots].sort((a, b) => a.periodNumber - b.periodNumber);
   const allPeriodNumbers = slots.map((s) => s.periodNumber);
@@ -386,6 +396,9 @@ export default function AssignmentsPage() {
     setPage(1);
   }, [currentYearId, stageId]);
 
+  // A new search term restarts pagination so results aren't hidden past the current page.
+  useEffect(() => { setPage(1); }, [debouncedSearch]);
+
   const planGroups = visibleCohorts.reduce<Record<string, CohortResponse[]>>((acc, c) => {
     const key = c.isSchedulePublished ? 'Publié' : c.slotAssignmentCount > 0 ? 'Configuré' : 'Sans planning';
     (acc[key] ??= []).push(c);
@@ -418,7 +431,13 @@ export default function AssignmentsPage() {
   const queryIds = selectedIds.length > 0 ? selectedIds : focusedId ? [focusedId] : [];
 
   const { data: result, isLoading: assignmentsLoading } = useGetInternshipAssignmentsQuery(
-    { cohortIds: queryIds.length > 0 ? queryIds : undefined, status: statusFilter ?? undefined, pageNumber: page, pageSize: PAGE_SIZE },
+    {
+      cohortIds: queryIds.length > 0 ? queryIds : undefined,
+      status: statusFilter ?? undefined,
+      search: debouncedSearch.trim() || undefined,
+      pageNumber: page,
+      pageSize: PAGE_SIZE,
+    },
     { skip: queryIds.length === 0 }
   );
 
@@ -645,8 +664,8 @@ export default function AssignmentsPage() {
             {/* ── Main area ─────────────────────────────────────────── */}
             <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
 
-              {/* Period filter bar — always visible (scopes the cohort list AND the bulk actions) */}
-              {slots.length > 0 && (
+              {/* Period filter bar — only when the selected year actually has cohorts to scope. */}
+              {slots.length > 0 && yearCohorts.length > 0 && (
                 <Box
                   px={{ base: 'md', sm: 'xl' }} py="sm"
                   style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}
@@ -824,13 +843,22 @@ export default function AssignmentsPage() {
                               </Text>
                             )}
                           </Text>
-                          <Select
-                            placeholder="Tous les statuts"
-                            data={statusOptions}
-                            value={statusFilter}
-                            onChange={(v) => { setStatusFilter(v as InternshipStatus | null); setPage(1); }}
-                            clearable size="xs" w={160}
-                          />
+                          <Group gap="xs" wrap="nowrap">
+                            <TextInput
+                              placeholder="Rechercher (nom, apogée, CNE)"
+                              leftSection={<IconSearch size={14} stroke={1.5} />}
+                              value={search}
+                              onChange={(e) => setSearch(e.currentTarget.value)}
+                              size="xs" w={220}
+                            />
+                            <Select
+                              placeholder="Tous les statuts"
+                              data={statusOptions}
+                              value={statusFilter}
+                              onChange={(v) => { setStatusFilter(v as InternshipStatus | null); setPage(1); }}
+                              clearable size="xs" w={160}
+                            />
+                          </Group>
                         </Group>
 
                         <ScrollArea type="always">
@@ -869,7 +897,14 @@ export default function AssignmentsPage() {
                                 assignments.map((a) => (
                                   <Table.Tr key={a.id}>
                                     <Table.Td>
-                                      <Text size="sm" fw={500}>{a.studentFullName}</Text>
+                                      <Text
+                                        size="sm" fw={500} c="navy.7"
+                                        style={{ cursor: 'pointer' }}
+                                        td="underline"
+                                        onClick={() => setRecordId(a.id)}
+                                      >
+                                        {a.studentFullName}
+                                      </Text>
                                     </Table.Td>
                                     {showCohortColumn && (
                                       <Table.Td>
@@ -895,6 +930,12 @@ export default function AssignmentsPage() {
                                     </Table.Td>
                                     <Table.Td>
                                       <Group gap={4} wrap="nowrap" justify="flex-end">
+                                        <Tooltip label="Voir le dossier" position="top">
+                                          <ActionIcon variant="subtle" color="gray" size="sm"
+                                            onClick={() => setRecordId(a.id)}>
+                                            <IconEye size={14} stroke={1.5} />
+                                          </ActionIcon>
+                                        </Tooltip>
                                         {a.status === 'Planned' && (
                                           <Tooltip label="Démarrer" position="top">
                                             <ActionIcon variant="subtle" color="blue" size="sm"
@@ -941,6 +982,12 @@ export default function AssignmentsPage() {
           </Group>
         )}
       </Stack>
+
+      <StudentRecordModal
+        assignmentId={recordId}
+        opened={recordId !== null}
+        onClose={() => setRecordId(null)}
+      />
 
       <ConfirmModal opened={validateOpen} onClose={closeValidate}
         title="Valider le stage"

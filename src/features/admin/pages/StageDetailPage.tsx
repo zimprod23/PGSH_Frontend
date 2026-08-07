@@ -89,35 +89,34 @@ export default function StageDetailPage() {
   const [publishingAll,       setPublishingAll]       = useState(false);
   const [unpublishingAll,     setUnpublishingAll]     = useState(false);
 
+  // The academic year comes from the single global navbar selector — no page-local year dropdown.
   const { currentYearId } = useAcademicYear();
 
-  // Academic-year filter for the cohort list — initialised from the global context
-  const [filterYearId, setFilterYearId] = useState<number | null>(null);
   const [activePartition, setActivePartition] = useState<string | null>(null);
 
-  // Sync with global context on first load and when user switches year in the header
-  useEffect(() => {
-    setFilterYearId(currentYearId);
-  }, [currentYearId]);
+  // Cohorts of the selected academic year — the effective scope for counts, action buttons,
+  // empty-states and every bulk operation on this page. `getCohortsByStage` returns all years,
+  // so anything not scoped here would leak other years into the current view.
+  const yearCohorts = useMemo(
+    () => (currentYearId ? cohorts.filter((c) => c.academicYearId === currentYearId) : cohorts),
+    [cohorts, currentYearId],
+  );
 
-  const uniqueYears = useMemo(() => {
-    const seen = new Map<number, string>();
-    for (const c of cohorts) seen.set(c.academicYearId, c.academicYearLabel);
-    return [...seen.entries()].map(([value, label]) => ({ value, label }));
-  }, [cohorts]);
-
+  // Partitions (rotation groups) are drawn only from the selected year's cohorts.
   const partitions = useMemo(() => {
-    const labels = cohorts
-      .map((c) => c.rotationGroup)
-      .filter((g): g is string => g !== null);
+    const labels = yearCohorts.map((c) => c.rotationGroup).filter((g): g is string => g !== null);
     return [...new Set(labels)].sort();
-  }, [cohorts]);
+  }, [yearCohorts]);
 
-  const filteredCohorts = useMemo(() => {
-    let result = filterYearId ? cohorts.filter((c) => c.academicYearId === filterYearId) : cohorts;
-    if (activePartition) result = result.filter((c) => c.rotationGroup === activePartition);
-    return result;
-  }, [cohorts, filterYearId, activePartition]);
+  const filteredCohorts = useMemo(
+    () => (activePartition ? yearCohorts.filter((c) => c.rotationGroup === activePartition) : yearCohorts),
+    [yearCohorts, activePartition],
+  );
+
+  // A partition selected in a previous year may not exist in the new one — drop it.
+  useEffect(() => {
+    if (activePartition && !partitions.includes(activePartition)) setActivePartition(null);
+  }, [partitions, activePartition]);
 
   const extractErrorCode = (err: unknown): string | null => {
     const data = (err as { data?: { extensions?: { errors?: Array<{ code: string }> } } })?.data;
@@ -204,7 +203,7 @@ export default function StageDetailPage() {
 
   const handleAssignAll = async () => {
     try {
-      const res = await assignAll({ stageId }).unwrap();
+      const res = await assignAll({ stageId, academicYearId: currentYearId ?? undefined }).unwrap();
       if (res.successCount === 0) notify.info('Tous les étudiants sont déjà affectés.');
       else notify.success(`${res.successCount} étudiant(s) affecté(s) à toutes les cohortes`);
     } catch { notify.error('Erreur lors de l\'affectation globale'); }
@@ -258,7 +257,7 @@ export default function StageDetailPage() {
   };
 
   const handlePublishAll = async () => {
-    const targets = cohorts.filter((c) => c.slotAssignmentCount > 0 && !c.isSchedulePublished);
+    const targets = yearCohorts.filter((c) => c.slotAssignmentCount > 0 && !c.isSchedulePublished);
     if (targets.length === 0) { notify.info('Aucune cohorte avec un plan configuré non publié'); return; }
     setPublishingAll(true);
     let success = 0, failed = 0;
@@ -272,7 +271,7 @@ export default function StageDetailPage() {
   };
 
   const handleUnpublishAllConfirm = async () => {
-    const targets = cohorts.filter((c) => c.isSchedulePublished);
+    const targets = yearCohorts.filter((c) => c.isSchedulePublished);
     closeUnpublishAll();
     setUnpublishingAll(true);
     let removed = 0, failed = 0;
@@ -299,15 +298,15 @@ export default function StageDetailPage() {
   const handleResetAllCohortsConfirm = async () => {
     closeResetCohorts();
     try {
-      const res = await deleteAllCohorts(stageId).unwrap();
+      const res = await deleteAllCohorts({ stageId, academicYearId: currentYearId ?? undefined }).unwrap();
       notify.success(`${res.deleted} cohorte${res.deleted !== 1 ? 's' : ''} supprimée${res.deleted !== 1 ? 's' : ''}`);
     } catch {
       notify.error('Impossible de réinitialiser les cohortes — des affectations sont déjà en cours');
     }
   };
 
-  const hasUnpublishedPlans = cohorts.some((c) => c.slotAssignmentCount > 0 && !c.isSchedulePublished);
-  const hasPublishedRotations = cohorts.some((c) => c.isSchedulePublished);
+  const hasUnpublishedPlans = yearCohorts.some((c) => c.slotAssignmentCount > 0 && !c.isSchedulePublished);
+  const hasPublishedRotations = yearCohorts.some((c) => c.isSchedulePublished);
 
   return (
     <Container fluid>
@@ -502,11 +501,11 @@ export default function StageDetailPage() {
                     Cohortes
                   </Text>
                   {!cohortsLoading && (
-                    <Badge variant="light" color="navy" radius="xl" size="sm">{cohorts.length}</Badge>
+                    <Badge variant="light" color="navy" radius="xl" size="sm">{yearCohorts.length}</Badge>
                   )}
                 </Group>
                 <Group gap="xs" wrap="wrap">
-                  {cohorts.length > 0 && (
+                  {yearCohorts.length > 0 && (
                     <>
                       <Tooltip label="Affecter tous les étudiants à toutes les cohortes" position="top">
                         <Button
@@ -560,7 +559,7 @@ export default function StageDetailPage() {
                   >
                     Nouvelle cohorte
                   </Button>
-                  {cohorts.length > 0 && (
+                  {yearCohorts.length > 0 && (
                     <Tooltip label="Supprimer toutes les cohortes de ce stage (bloqué si des affectations ont déjà démarré)" position="top">
                       <Button
                         size="xs" color="red" radius="md" variant="subtle"
@@ -574,19 +573,6 @@ export default function StageDetailPage() {
                   )}
                 </Group>
               </Group>
-
-              {/* Year filter */}
-              {uniqueYears.length > 0 && (
-                <Select
-                  placeholder="Toutes les années"
-                  data={uniqueYears.map((y) => ({ value: String(y.value), label: y.label }))}
-                  value={filterYearId ? String(filterYearId) : null}
-                  onChange={(v) => setFilterYearId(v ? Number(v) : null)}
-                  clearable
-                  radius="md"
-                  size="xs"
-                />
-              )}
 
               {/* Partition filter */}
               {partitions.length > 0 && (
@@ -717,6 +703,7 @@ export default function StageDetailPage() {
         opened={rotationOpen}
         onClose={closeRotation}
         stageId={stageId}
+        academicYearId={currentYearId ?? undefined}
         allowedServiceIds={stage?.allowedServices.map((s) => s.id) ?? []}
       />
 
@@ -829,7 +816,7 @@ export default function StageDetailPage() {
         opened={unpublishAllOpen}
         onClose={closeUnpublishAll}
         title="Dépublier tous les plannings"
-        message={`Dépublier tous les plannings publiés (${cohorts.filter((c) => c.isSchedulePublished).length} cohorte(s)) ?`}
+        message={`Dépublier tous les plannings publiés (${yearCohorts.filter((c) => c.isSchedulePublished).length} cohorte(s)) ?`}
         confirmLabel="Dépublier tout"
         onConfirm={handleUnpublishAllConfirm}
         loading={unpublishingAll}
@@ -839,9 +826,9 @@ export default function StageDetailPage() {
         onClose={closeResetCohorts}
         title="Réinitialiser les cohortes"
         message={
-          cohorts.some((c) => c.isSchedulePublished)
-            ? `Supprimer toutes les cohortes (${cohorts.length}) de ce stage, y compris les plannings publiés et les périodes de service ? Cette action est irréversible.`
-            : `Supprimer toutes les cohortes (${cohorts.length}) de ce stage ? Cette action est irréversible.`
+          yearCohorts.some((c) => c.isSchedulePublished)
+            ? `Supprimer toutes les cohortes (${yearCohorts.length}) de ce stage, y compris les plannings publiés et les périodes de service ? Cette action est irréversible.`
+            : `Supprimer toutes les cohortes (${yearCohorts.length}) de ce stage ? Cette action est irréversible.`
         }
         confirmLabel="Réinitialiser"
         onConfirm={handleResetAllCohortsConfirm}

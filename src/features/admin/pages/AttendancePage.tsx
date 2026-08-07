@@ -22,6 +22,7 @@ import {
   useRecordAttendanceMutation,
 } from '../api/adminApi';
 import type { AttendanceStatus, ServicePeriodResponse } from '../types/admin.types';
+import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { useNotify } from '../../../common/hooks/useNotify';
 
 const STATUS_OPTIONS: { value: AttendanceStatus; label: string; color: string }[] = [
@@ -38,6 +39,10 @@ function todayISO() {
 export default function AttendancePage() {
   const notify = useNotify();
 
+  // Presence is always recorded for the globally-selected academic year — the cohort picker and
+  // the loaded periods are both scoped to it (getCohortsByStage returns every year).
+  const { currentYearId } = useAcademicYear();
+
   const [stageId,  setStageId]  = useState<string | null>(null);
   const [cohortId, setCohortId] = useState<string | null>(null);
   const [date,     setDate]     = useState(todayISO());
@@ -46,15 +51,31 @@ export default function AttendancePage() {
   const [statuses, setStatuses] = useState<Record<string, AttendanceStatus>>({});
   const [saving,   setSaving]   = useState(false);
 
+  // Switching the year invalidates the current cohort selection (reset during render — the
+  // React-endorsed alternative to a setState-in-effect).
+  const [prevYearId, setPrevYearId] = useState(currentYearId);
+  if (prevYearId !== currentYearId) {
+    setPrevYearId(currentYearId);
+    setCohortId(null);
+    setLoaded(false);
+  }
+
   const { data: stagesPage } = useGetStagesQuery({ pageSize: 100 });
   const stages = stagesPage?.items ?? [];
 
-  const { data: cohorts = [] } = useGetCohortsByStageQuery(
+  const { data: allCohorts = [] } = useGetCohortsByStageQuery(
     Number(stageId), { skip: !stageId }
   );
+  const cohorts = currentYearId
+    ? allCohorts.filter((c) => c.academicYearId === currentYearId)
+    : allCohorts;
 
   const { data: periodsPage, isLoading: loadingPeriods } = useGetServicePeriodsQuery(
-    { cohortId: cohortId ? Number(cohortId) : undefined, isComplete: false },
+    {
+      cohortId: cohortId ? Number(cohortId) : undefined,
+      isComplete: false,
+      academicYearId: currentYearId ?? undefined,
+    },
     { skip: !loaded || !cohortId }
   );
 

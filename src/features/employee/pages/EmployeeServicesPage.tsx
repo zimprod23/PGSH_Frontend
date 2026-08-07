@@ -8,8 +8,6 @@ import {
   Collapse,
   Container,
   Group,
-  Modal,
-  NumberInput,
   Paper,
   ScrollArea,
   SegmentedControl,
@@ -17,7 +15,6 @@ import {
   Stack,
   Table,
   Text,
-  Textarea,
   TextInput,
   ThemeIcon,
   Tooltip,
@@ -31,391 +28,20 @@ import {
   IconCalendarEvent,
   IconChevronRight,
   IconClipboardList,
-  IconCheck,
   IconPencil,
   IconPlayerPause,
   IconSearch,
   IconStethoscope,
   IconUsers,
 } from '@tabler/icons-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   useGetCurrentEmployeeQuery,
-  useGetEvaluationByPeriodQuery,
-  useGetPeriodObjectivesQuery,
   useGetServicePeriodsByServiceQuery,
-  useSubmitEvaluationMutation,
-  useUpdateEvaluationMutation,
 } from '../api/employeeApi';
-import type {
-  EvaluationMode,
-  EvaluationOutcome,
-  MyServicePeriodResponse,
-  ObjectiveScoreDto,
-} from '../types/employee.types';
-import { useNotify } from '../../../common/hooks/useNotify';
-
-// ─── Evaluation modal ─────────────────────────────────────────────────────────
-
-function EvaluationModal({
-  period,
-  opened,
-  onClose,
-}: {
-  period: MyServicePeriodResponse | null;
-  opened: boolean;
-  onClose: () => void;
-}) {
-  const notify = useNotify();
-  const isEditMode = period?.hasEvaluation ?? false;
-
-  const { data: existing, isLoading: loadingExisting } = useGetEvaluationByPeriodQuery(
-    period?.id ?? '',
-    { skip: !isEditMode || !opened || !period?.id },
-  );
-
-  const { data: objectives = [], isLoading: loadingObjectives } = useGetPeriodObjectivesQuery(
-    period?.id ?? '',
-    { skip: !opened || !period?.id },
-  );
-
-  const hasObjectives = objectives.length > 0;
-
-  // Evaluation mode (numeric grade · validate whole period · validate each objective).
-  // Validate-by-objective needs objectives; fall back to numeric when the stage has none.
-  const [selectedMode, setMode] = useState<EvaluationMode>('Numeric');
-  const mode: EvaluationMode =
-    !hasObjectives && selectedMode === 'ValidateObjectives' ? 'Numeric' : selectedMode;
-  // Per-objective grade (0–20) and optional note, keyed by objective id.
-  const [scores, setScores]   = useState<Record<number, number | string>>({});
-  // Per-objective pass/fail verdict (ValidateObjectives mode), keyed by objective id.
-  const [outcomes, setOutcomes] = useState<Record<number, EvaluationOutcome>>({});
-  const [periodOutcome, setPeriodOutcome] = useState<EvaluationOutcome>('Validated');
-  const [notes,  setNotes]    = useState<Record<number, string>>({});
-  const [manualScore, setManualScore] = useState<number>(10);
-  const [comment, setComment] = useState('');
-
-  useEffect(() => {
-    if (!opened) return;
-    if (isEditMode && existing) {
-      const s: Record<number, number> = {};
-      const o: Record<number, EvaluationOutcome> = {};
-      const n: Record<number, string> = {};
-      existing.objectiveScores.forEach((os) => {
-        if (os.score != null) s[os.stageObjectiveId] = os.score;
-        if (os.outcome) o[os.stageObjectiveId] = os.outcome;
-        n[os.stageObjectiveId] = os.note ?? '';
-      });
-      setMode(existing.mode);
-      setScores(s);
-      setOutcomes(o);
-      setPeriodOutcome(existing.outcome ?? 'Validated');
-      setManualScore(existing.totalScore != null ? Number(existing.totalScore) : 10);
-      setNotes(n);
-      setComment(existing.supervisorComment ?? '');
-    } else if (!isEditMode) {
-      setMode('Numeric');
-      setScores({});
-      setOutcomes({});
-      setPeriodOutcome('Validated');
-      setManualScore(10);
-      setNotes({});
-      setComment('');
-    }
-  }, [existing, isEditMode, opened]);
-
-  // Final score = weight-weighted average of the per-objective grades (mirrors the
-  // backend RecomputeFinalScore). Falls back to a manual score when the stage defines
-  // no objectives.
-  const computedTotal = useMemo(() => {
-    const totalWeight = objectives.reduce((sum, o) => sum + o.weight, 0);
-    if (totalWeight === 0) return 0;
-    const weightedSum = objectives.reduce((sum, o) => sum + (Number(scores[o.id]) || 0) * o.weight, 0);
-    return Math.round((weightedSum / totalWeight) * 100) / 100;
-  }, [objectives, scores]);
-
-  const effectiveTotal = hasObjectives ? computedTotal : manualScore;
-
-  // For ValidateObjectives, the period is validated when every mandatory objective passes
-  // (or every objective, when none is mandatory) — mirrors the backend DeriveObjectiveOutcome.
-  const derivedObjectiveOutcome: EvaluationOutcome = useMemo(() => {
-    const gates = objectives.some((o) => o.isMandatory)
-      ? objectives.filter((o) => o.isMandatory)
-      : objectives;
-    return gates.every((o) => outcomes[o.id] === 'Validated') ? 'Validated' : 'NotValidated';
-  }, [objectives, outcomes]);
-
-  const [submit, { isLoading: submitting }] = useSubmitEvaluationMutation();
-  const [update, { isLoading: updating   }] = useUpdateEvaluationMutation();
-
-  const buildPayload = () => {
-    if (mode === 'ValidatePeriod') {
-      return { totalScore: null, outcome: periodOutcome, objectiveScores: [] as ObjectiveScoreDto[] };
-    }
-    if (mode === 'ValidateObjectives') {
-      return {
-        totalScore: null,
-        outcome: null,
-        objectiveScores: objectives.map((o) => ({
-          stageObjectiveId: o.id,
-          outcome:          outcomes[o.id] ?? 'NotValidated',
-          note:             (notes[o.id] ?? '').trim() || undefined,
-        })) as ObjectiveScoreDto[],
-      };
-    }
-    return {
-      totalScore: effectiveTotal,
-      outcome: null,
-      objectiveScores: (hasObjectives
-        ? objectives.map((o) => ({
-            stageObjectiveId: o.id,
-            score:            Number(scores[o.id]) || 0,
-            note:             (notes[o.id] ?? '').trim() || undefined,
-          }))
-        : []) as ObjectiveScoreDto[],
-    };
-  };
-
-  const handleSubmit = async () => {
-    if (!period) return;
-    const payload = buildPayload();
-    try {
-      if (isEditMode && existing) {
-        await update({
-          evaluationId:      existing.id,
-          servicePeriodId:   period.id,
-          serviceId:         period.serviceId,
-          mode,
-          supervisorComment: comment.trim() || undefined,
-          ...payload,
-        }).unwrap();
-        notify.success('Évaluation mise à jour');
-      } else {
-        await submit({
-          servicePeriodId:   period.id,
-          serviceId:         period.serviceId,
-          mode,
-          supervisorComment: comment.trim() || undefined,
-          ...payload,
-        }).unwrap();
-        notify.success('Évaluation soumise');
-      }
-      onClose();
-    } catch (err: unknown) {
-      const detail = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(detail ?? 'Erreur lors de la soumission');
-    }
-  };
-
-  const loading = loadingObjectives || (isEditMode && loadingExisting);
-  const isBusy = submitting || updating;
-
-  const outcomeControl = (value: EvaluationOutcome, onChange: (v: EvaluationOutcome) => void, size: 'xs' | 'sm' = 'sm') => (
-    <SegmentedControl
-      size={size}
-      radius="md"
-      value={value}
-      onChange={(v) => onChange(v as EvaluationOutcome)}
-      color={value === 'Validated' ? 'teal' : 'red'}
-      data={[
-        { value: 'Validated',    label: 'Validé' },
-        { value: 'NotValidated', label: 'Non validé' },
-      ]}
-    />
-  );
-
-  return (
-    <Modal
-      opened={opened}
-      onClose={onClose}
-      title={isEditMode ? 'Modifier l\'évaluation' : 'Nouvelle évaluation'}
-      size="lg"
-    >
-      <Stack gap="md">
-        <Group gap="xs">
-          <Text size="sm" c="dimmed">
-            {period?.studentFullName} — {period?.startDate} → {period?.endDate}
-          </Text>
-          {period?.stageName && (
-            <Badge size="xs" variant="light" color="navy"
-              leftSection={<IconStethoscope size={11} stroke={1.5} />}>
-              {period.stageName}
-            </Badge>
-          )}
-          {period?.studentCne && (
-            <Badge size="xs" variant="outline" color="gray" ff="monospace">CNE {period.studentCne}</Badge>
-          )}
-        </Group>
-
-        {loading ? (
-          <Stack gap="xs">{[1, 2, 3].map((i) => <Skeleton key={i} height={48} radius="md" />)}</Stack>
-        ) : (
-          <>
-            <SegmentedControl
-              fullWidth
-              radius="md"
-              color="navy"
-              size="sm"
-              value={mode}
-              onChange={(v) => setMode(v as EvaluationMode)}
-              data={[
-                { value: 'Numeric',            label: 'Note (0–20)' },
-                { value: 'ValidatePeriod',     label: 'Valider le stage' },
-                { value: 'ValidateObjectives', label: 'Valider par objectif', disabled: !hasObjectives },
-              ]}
-            />
-
-            {mode === 'Numeric' && (hasObjectives ? (
-              <>
-                <Group justify="space-between" align="center">
-                  <Text size="sm" fw={600}>Objectifs évalués</Text>
-                  <Badge size="lg" color={effectiveTotal >= 10 ? 'teal' : 'red'} variant="light">
-                    Note finale : {effectiveTotal.toFixed(2)} / 20
-                  </Badge>
-                </Group>
-                <Text size="xs" c="dimmed">
-                  La note finale est la moyenne pondérée des objectifs (par leur coefficient).
-                </Text>
-                <ScrollArea.Autosize mah={360}>
-                  <Stack gap="sm">
-                    {objectives.map((o) => (
-                      <Paper key={o.id} withBorder radius="md" p="sm">
-                        <Stack gap={6}>
-                          <Group justify="space-between" gap="xs" wrap="nowrap">
-                            <Group gap={6} wrap="nowrap">
-                              <Text size="sm" fw={500} lineClamp={2}>{o.label}</Text>
-                              {o.isMandatory && <Badge size="xs" color="orange" variant="light">Obligatoire</Badge>}
-                            </Group>
-                            <Badge size="xs" color="gray" variant="light" style={{ flexShrink: 0 }}>
-                              Coef. {o.weight}
-                            </Badge>
-                          </Group>
-                          {o.description && <Text size="xs" c="dimmed">{o.description}</Text>}
-                          <Group gap="sm" align="flex-end" wrap="nowrap">
-                            <NumberInput
-                              label="Note (0 – 20)"
-                              w={130}
-                              value={scores[o.id] ?? ''}
-                              onChange={(v) => setScores((prev) => ({ ...prev, [o.id]: v }))}
-                              min={0}
-                              max={20}
-                              step={0.5}
-                              decimalScale={2}
-                            />
-                            <TextInput
-                              label="Remarque (optionnel)"
-                              style={{ flex: 1 }}
-                              value={notes[o.id] ?? ''}
-                              onChange={(e) => { const v = e.currentTarget.value; setNotes((prev) => ({ ...prev, [o.id]: v })); }}
-                            />
-                          </Group>
-                        </Stack>
-                      </Paper>
-                    ))}
-                  </Stack>
-                </ScrollArea.Autosize>
-              </>
-            ) : (
-              <>
-                <Text size="xs" c="dimmed">
-                  Ce stage n'a pas d'objectifs définis — saisissez directement la note finale.
-                </Text>
-                <NumberInput
-                  label="Note finale (0 – 20)"
-                  value={manualScore}
-                  onChange={(v) => setManualScore(Number(v) || 0)}
-                  min={0}
-                  max={20}
-                  step={0.5}
-                  decimalScale={2}
-                  required
-                />
-              </>
-            ))}
-
-            {mode === 'ValidatePeriod' && (
-              <Paper withBorder radius="md" p="md">
-                <Stack gap="sm">
-                  <Text size="sm" fw={600}>Validation du stage</Text>
-                  <Text size="xs" c="dimmed">
-                    Aucune note chiffrée — indiquez simplement si l'étudiant a validé ce stage.
-                  </Text>
-                  <Group justify="center">
-                    {outcomeControl(periodOutcome, setPeriodOutcome)}
-                  </Group>
-                </Stack>
-              </Paper>
-            )}
-
-            {mode === 'ValidateObjectives' && (
-              <>
-                <Group justify="space-between" align="center">
-                  <Text size="sm" fw={600}>Validation par objectif</Text>
-                  <Badge size="lg" variant="light" color={derivedObjectiveOutcome === 'Validated' ? 'teal' : 'red'}>
-                    {derivedObjectiveOutcome === 'Validated' ? 'Stage validé' : 'Stage non validé'}
-                  </Badge>
-                </Group>
-                <Text size="xs" c="dimmed">
-                  Le stage est validé lorsque tous les objectifs obligatoires sont validés.
-                </Text>
-                <ScrollArea.Autosize mah={360}>
-                  <Stack gap="sm">
-                    {objectives.map((o) => (
-                      <Paper key={o.id} withBorder radius="md" p="sm">
-                        <Stack gap={6}>
-                          <Group justify="space-between" gap="xs" wrap="nowrap">
-                            <Group gap={6} wrap="nowrap">
-                              <Text size="sm" fw={500} lineClamp={2}>{o.label}</Text>
-                              {o.isMandatory && <Badge size="xs" color="orange" variant="light">Obligatoire</Badge>}
-                            </Group>
-                            {outcomeControl(
-                              outcomes[o.id] ?? 'NotValidated',
-                              (v) => setOutcomes((prev) => ({ ...prev, [o.id]: v })),
-                              'xs',
-                            )}
-                          </Group>
-                          {o.description && <Text size="xs" c="dimmed">{o.description}</Text>}
-                          <TextInput
-                            label="Remarque (optionnel)"
-                            value={notes[o.id] ?? ''}
-                            onChange={(e) => { const v = e.currentTarget.value; setNotes((prev) => ({ ...prev, [o.id]: v })); }}
-                          />
-                        </Stack>
-                      </Paper>
-                    ))}
-                  </Stack>
-                </ScrollArea.Autosize>
-              </>
-            )}
-
-            <Textarea
-              label="Commentaire général"
-              placeholder="Observations, points forts, axes d'amélioration…"
-              value={comment}
-              onChange={(e) => setComment(e.currentTarget.value)}
-              minRows={2}
-              maxRows={5}
-              autosize
-            />
-          </>
-        )}
-
-        <Group justify="flex-end" pt="sm" style={{ borderTop: '1px solid #E2E8F0' }}>
-          <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
-          <Button
-            color="navy"
-            loading={isBusy}
-            disabled={loading}
-            leftSection={<IconCheck size={16} stroke={1.5} />}
-            onClick={handleSubmit}
-          >
-            {isEditMode ? 'Enregistrer' : 'Soumettre'}
-          </Button>
-        </Group>
-      </Stack>
-    </Modal>
-  );
-}
+import type { MyServicePeriodResponse } from '../types/employee.types';
+import { EvaluationModal } from '../../evaluations/components/EvaluationModal';
+import type { EvaluationTarget } from '../../evaluations/types/evaluation.types';
 
 // ─── Granularity helpers ──────────────────────────────────────────────────────
 
@@ -511,7 +137,7 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
   serviceName: string;
   hospitalName: string;
 }) {
-  const [evalPeriod, setEvalPeriod] = useState<MyServicePeriodResponse | null>(null);
+  const [evalTarget, setEvalTarget] = useState<EvaluationTarget | null>(null);
   const [modalOpen, { open: openModal, close: closeModal }] = useDisclosure(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | PeriodStatus>('all');
@@ -528,7 +154,17 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
   const periods = useMemo(() => page?.items ?? [], [page]);
 
   const openFor = (period: MyServicePeriodResponse) => {
-    setEvalPeriod(period);
+    setEvalTarget({
+      periodId:        period.id,
+      studentFullName: period.studentFullName,
+      studentCne:      period.studentCne,
+      stageName:       period.stageName,
+      startDate:       period.startDate,
+      endDate:         period.endDate,
+      hasEvaluation:   period.hasEvaluation,
+      serviceId:       period.serviceId,
+      assignmentId:    period.internshipAssignmentId,
+    });
     openModal();
   };
 
@@ -931,7 +567,7 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
         </Stack>
       </Card>
 
-      <EvaluationModal period={evalPeriod} opened={modalOpen} onClose={closeModal} />
+      <EvaluationModal target={evalTarget} opened={modalOpen} onClose={closeModal} />
     </>
   );
 }

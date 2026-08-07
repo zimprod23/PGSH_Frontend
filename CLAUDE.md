@@ -182,6 +182,11 @@ Rules:
 - Prefer **`disabled` + reason** over letting the click through and showing an error toast.
 - The server still validates — client guards are UX/perf, never security.
 
+**A search must also show ALL its matches.** `GroupsPage.tsx` fetched candidates then silently kept `items[0]`,
+so searching a common surname displayed an arbitrary student's group. If a term can match more than one row,
+render every match and let the user pick — never resolve ambiguity behind their back. And always destructure
+`isFetching` from the query: a search with no visible loading state reads as broken, not slow.
+
 Known offenders to fix when touched (this list is tracked in root `HANDOFF.md` → "Optimization sweep"):
 - **Planning grid / `ScheduleGridModal`**: "Répartition automatique" is clickable even when **no period /
   slot exists** for the stage — it should be disabled with "ajoutez d'abord des périodes". (Same class of

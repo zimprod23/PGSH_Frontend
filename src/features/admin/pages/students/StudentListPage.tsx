@@ -22,6 +22,7 @@ import { IconSearch, IconUsers } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGetStudentsQuery } from '../../api/adminApi';
+import { useAcademicYear } from '../../contexts/AcademicYearContext';
 import type { AcademicProgram, RegistrationStatus } from '../../../../common/types';
 import { PATHS } from '../../../../routes/paths';
 
@@ -81,11 +82,16 @@ export default function StudentListPage() {
 
   const [debouncedSearch] = useDebouncedValue(search, 350);
 
-  useEffect(() => { setPage(1); }, [debouncedSearch, program]);
+  // The navbar's globally-selected year drives the Niveau/Groupe/Statut columns: they reflect
+  // that year's registration (blank when the student wasn't registered then).
+  const { currentYearId } = useAcademicYear();
+
+  useEffect(() => { setPage(1); }, [debouncedSearch, program, currentYearId]);
 
   const { data, isLoading, isFetching } = useGetStudentsQuery({
     searchTerm: debouncedSearch.trim() || undefined,
     program: (program || undefined) as AcademicProgram | undefined,
+    academicYearId: currentYearId ?? undefined,
     pageNumber: page,
     pageSize,
   });

@@ -124,6 +124,21 @@ All pages rebuilt with real API data and design system applied.
 
 Separate layouts and pages per admin role. All behind `AuthGuard`.
 
+> **▶ NEXT UP (agreed 2026-08-07) — admin evaluation entry.** `adminApi.ts` exposes **no** evaluation
+> endpoints, so an administrator cannot enter or amend a `ServiceEvaluation` anywhere in the UI. The
+> **backend already permits it** — `ExecutionAuthorizer` bypasses chef-scoping for `Roles.Administrative`, and
+> both `POST /service-evaluations` and `PUT /service-evaluations/{id}` honour that (covered by
+> `EvaluationHandlerTests.An_administrative_user_may_evaluate_any_service`). This is a pure frontend gap.
+> Reuse the chef's `EvaluationModal` from `features/employee/pages/EmployeeServicesPage.tsx` — it already
+> handles all three modes (Note 0–20 / Valider le stage / Valider par objectif).
+>
+> Follow-up in the same stream: **bulk evaluation import from Excel/CSV** (design agreed — see root
+> `HANDOFF.md` → "Evaluation import"). Needs an upload screen with a **mandatory preview step** listing every
+> row's outcome before anything is applied, plus a "download template" action.
+>
+> ⚠ Note on wording: admin **"Valider"** means *ratify the professor's evaluation*, not *pass the student*.
+> A ratified stage the chef failed stays `NonValidé`. Label and copy accordingly.
+
 ---
 
 ### 3a — Shared infrastructure ✅

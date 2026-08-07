@@ -8,6 +8,7 @@ import {
   Container,
   Divider,
   Group,
+  Loader,
   Modal,
   NumberInput,
   ScrollArea,
@@ -38,10 +39,10 @@ import {
   IconWand,
   IconArrowRight,
 } from '@tabler/icons-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { useNavigate } from 'react-router-dom';
 import {
-  useGetAcademicYearsQuery,
   useGetLevelsQuery,
   useGetStudentsQuery,
   useAutoArrangeGroupsMutation,
@@ -74,17 +75,12 @@ const EMPTY: FormState = { academicYearId: null, levelId: null, groupSize: 20 };
 
 function AutoArrangeTab() {
   const notify = useNotify();
-  const { data: years = [] } = useGetAcademicYearsQuery();
+  const { currentYearId } = useAcademicYear();
   const { data: levels = [] } = useGetLevelsQuery(undefined);
   const [arrange, { isLoading }] = useAutoArrangeGroupsMutation();
 
   const [form, setForm] = useState<FormState>(EMPTY);
   const [result, setResult] = useState<BulkResponse<string, number> | null>(null);
-
-  const yearOptions = years.map((y) => ({
-    value: String(y.id),
-    label: y.isCurrent ? `${y.label} (actuelle)` : y.label,
-  }));
 
   const levelOptions = Object.entries(
     levels.reduce<Record<string, { value: string; label: string }[]>>((acc, l) => {
@@ -94,14 +90,14 @@ function AutoArrangeTab() {
     }, {})
   ).map(([group, items]) => ({ group, items }));
 
-  const canSubmit = form.academicYearId && form.levelId && form.groupSize >= 2;
+  const canSubmit = currentYearId && form.levelId && form.groupSize >= 2;
 
   const handleArrange = async () => {
     if (!canSubmit) return;
     setResult(null);
     try {
       const res = await arrange({
-        academicYearId: Number(form.academicYearId),
+        academicYearId: currentYearId!,
         levelId: Number(form.levelId),
         groupSize: form.groupSize,
       }).unwrap();
@@ -133,9 +129,6 @@ function AutoArrangeTab() {
 
           <Divider />
 
-          <Select label="Année académique" placeholder="Sélectionner une année"
-            data={yearOptions} value={form.academicYearId}
-            onChange={(v) => setForm((p) => ({ ...p, academicYearId: v }))} required />
           <Select label="Niveau" placeholder="Sélectionner un niveau"
             data={levelOptions} value={form.levelId}
             onChange={(v) => setForm((p) => ({ ...p, levelId: v }))} searchable required />
@@ -203,7 +196,7 @@ function AutoArrangeTab() {
 
 // ─── Macro plan tab ──────────────────────────────────────────────────────────
 
-function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | null; onYearChange: (v: string | null) => void }) {
+function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
   const notify = useNotify();
 
   const [selectedLevel,   setSelectedLevel]   = useState<string | null>(null);
@@ -215,7 +208,9 @@ function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | n
   const [publish,         setPublish]          = useState(false);
   const [result,          setResult]          = useState<MacroPlanResult | null>(null);
 
-  const { data: years  = [] } = useGetAcademicYearsQuery();
+  // The year is driven by the navbar; reset the in-progress plan whenever it changes.
+  useEffect(() => { setSelection(new Map()); setResult(null); setSelectedLevel(null); }, [selectedYear]);
+
   const { data: levels = [] } = useGetLevelsQuery(undefined);
 
   // Partitions are per (year, level): scope the groups to the selected level so each
@@ -325,7 +320,6 @@ function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | n
     }
   };
 
-  const yearOptions  = years.map((y) => ({ value: String(y.id), label: y.isCurrent ? `${y.label} (actuelle)` : y.label }));
   const levelOptions = Object.entries(
     levels.reduce<Record<string, { value: string; label: string }[]>>((acc, l) => {
       const item = { value: String(l.id), label: l.label ?? `Année ${l.year}` };
@@ -338,12 +332,8 @@ function MacroPlanTab({ selectedYear, onYearChange }: { selectedYear: string | n
 
   return (
     <Stack gap="lg">
-      {/* ── Filters ── */}
+      {/* ── Filters (year comes from the navbar) ── */}
       <Group align="flex-end" gap="md">
-        <Select label="Année académique" placeholder="Sélectionner" data={yearOptions}
-          value={selectedYear}
-          onChange={(v) => { onYearChange(v); setSelection(new Map()); setResult(null); }}
-          w={240} />
         <Select label="Niveau" placeholder="Sélectionner" data={levelOptions}
           description="Les partitions sont propres à chaque niveau"
           value={selectedLevel}
@@ -601,14 +591,7 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
   const [rotationGroup, setRotationGroup] = useState('');
   const [levelId, setLevelId]           = useState<string | null>(null);
   const [createGroup, { isLoading }]    = useCreateGroupMutation();
-  const { data: years = [] }            = useGetAcademicYearsQuery();
   const { data: levels = [] }           = useGetLevelsQuery(undefined);
-  const [yearId, setYearId]             = useState<string | null>(selectedYear);
-
-  const yearOptions = years.map((y) => ({
-    value: String(y.id),
-    label: y.isCurrent ? `${y.label} (actuelle)` : y.label,
-  }));
 
   const levelOptions = Object.entries(
     levels.reduce<Record<string, { value: string; label: string }[]>>((acc, l) => {
@@ -619,11 +602,11 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
   ).map(([group, items]) => ({ group, items }));
 
   const handleCreate = async () => {
-    if (!yearId || !label.trim()) return;
+    if (!selectedYear || !label.trim()) return;
     try {
       await createGroup({
         label: label.trim(),
-        academicYearId: Number(yearId),
+        academicYearId: Number(selectedYear),
         levelId: levelId ? Number(levelId) : null,
         rotationGroup: rotationGroup.trim() || null,
       }).unwrap();
@@ -640,14 +623,6 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
   return (
     <Modal opened={opened} onClose={onClose} title="Créer un groupe" radius="lg" size="sm">
       <Stack gap="md">
-        <Select
-          label="Année académique"
-          placeholder="Sélectionner"
-          data={yearOptions}
-          value={yearId}
-          onChange={setYearId}
-          required
-        />
         <Select
           label="Niveau"
           description="Associe ce groupe à un niveau pour le retrouver dans les filtres"
@@ -675,7 +650,7 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
         />
         <Group justify="flex-end">
           <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
-          <Button color="navy" loading={isLoading} disabled={!yearId || !label.trim()} onClick={handleCreate}>
+          <Button color="navy" loading={isLoading} disabled={!selectedYear || !label.trim()} onClick={handleCreate}>
             Créer
           </Button>
         </Group>
@@ -686,14 +661,14 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
 
 // ─── Groups list tab ──────────────────────────────────────────────────────────
 
-function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChange }: {
+function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
   selectedYear: string | null;
   selectedLevel: string | null;
-  onYearChange: (v: string | null) => void;
   onLevelChange: (v: string | null) => void;
 }) {
   const notify   = useNotify();
   const navigate = useNavigate();
+  const { currentYear } = useAcademicYear();
 
   const [editTarget, setEditTarget]       = useState<AcademicGroupResponse | null>(null);
   const [editOpen, { open: openEdit, close: closeEdit }] = useDisclosure(false);
@@ -705,11 +680,12 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
   const [emptyOpen, { open: openEmpty, close: closeEmpty }] = useDisclosure(false);
   const [emptyAllOpen, { open: openEmptyAll, close: closeEmptyAll }] = useDisclosure(false);
 
-  // Student search state
+  // Student search state. The picked student is tracked explicitly: a name like "Alaoui" matches
+  // several students, and silently resolving to the first hit showed an arbitrary one's groups.
   const [studentSearch, setStudentSearch] = useState('');
   const [debouncedStudentSearch] = useDebouncedValue(studentSearch, 350);
+  const [pickedStudentId, setPickedStudentId] = useState<string | null>(null);
 
-  const { data: years = [] }  = useGetAcademicYearsQuery();
   const { data: levels = [] } = useGetLevelsQuery(undefined);
 
   const { data: groups = [], isLoading: loadingGroups } = useGetAcademicGroupsQuery(
@@ -720,25 +696,28 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
     { skip: !selectedYear }
   );
 
-  const { data: studentSearch2 } = useGetStudentsQuery(
-    { searchTerm: debouncedStudentSearch, pageSize: 5 },
+  const { data: studentMatches, isFetching: searchingStudents } = useGetStudentsQuery(
+    { searchTerm: debouncedStudentSearch, pageSize: 10 },
     { skip: debouncedStudentSearch.length < 2 }
   );
 
-  const { data: studentGroups = [] } = useGetAcademicGroupsQuery(
-    { academicYearId: selectedYear ? Number(selectedYear) : undefined, studentId: studentSearch2?.items[0]?.id },
-    { skip: !studentSearch2?.items[0]?.id || !selectedYear }
+  const matches = studentMatches?.items ?? [];
+
+  // A single hit needs no disambiguation; anything else waits for the user to choose. Reset on every
+  // new term so a stale pick from the previous search can't linger.
+  useEffect(() => {
+    setPickedStudentId(matches.length === 1 ? matches[0].id : null);
+  }, [debouncedStudentSearch, matches.length, matches]);
+
+  const { data: studentGroups = [], isFetching: loadingStudentGroups } = useGetAcademicGroupsQuery(
+    { academicYearId: selectedYear ? Number(selectedYear) : undefined, studentId: pickedStudentId ?? undefined },
+    { skip: !pickedStudentId || !selectedYear }
   );
 
   const [deleteGroup, { isLoading: deleting }] = useDeleteGroupMutation();
   const [deleteAllGroups, { isLoading: deletingAllGroups }] = useDeleteAllYearGroupsMutation();
   const [emptyGroup, { isLoading: emptying }] = useEmptyGroupMutation();
   const [emptyAllGroups, { isLoading: emptyingAll }] = useEmptyAllYearGroupsMutation();
-
-  const yearOptions = years.map((y) => ({
-    value: String(y.id),
-    label: y.isCurrent ? `${y.label} (actuelle)` : y.label,
-  }));
 
   const levelOptions = Object.entries(
     levels.reduce<Record<string, { value: string; label: string }[]>>((acc, l) => {
@@ -794,22 +773,14 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
     closeEmptyAll();
   };
 
-  const yearLabel = years.find((y) => String(y.id) === selectedYear)?.label ?? selectedYear ?? '';
-  const foundStudent = studentSearch2?.items[0];
+  const yearLabel = currentYear?.label ?? selectedYear ?? '';
+  const pickedStudent = matches.find((s) => s.id === pickedStudentId);
+  const searchReady = debouncedStudentSearch.length >= 2 && !searchingStudents;
   const highlightedGroupIds = new Set(studentGroups.map((g) => g.id));
 
   return (
     <Stack gap="md">
       <Group align="flex-end" gap="md" wrap="wrap">
-        <Select
-          label="Année académique"
-          placeholder="Toutes les années"
-          data={yearOptions}
-          value={selectedYear}
-          onChange={(v) => { onYearChange(v); onLevelChange(null); }}
-          w={240}
-          clearable
-        />
         <Select
           label="Niveau"
           placeholder="Tous les niveaux"
@@ -873,16 +844,60 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
               <Text fw={600} size="sm">Trouver le groupe d'un étudiant</Text>
             </Group>
             <TextInput
-              placeholder="Nom ou CNE de l'étudiant (min. 2 car.)…"
+              placeholder="Nom, CNE ou Apogée de l'étudiant (min. 2 car.)…"
               value={studentSearch}
               onChange={(e) => setStudentSearch(e.currentTarget.value)}
               leftSection={<IconSearch size={14} stroke={1.5} />}
+              rightSection={searchingStudents ? <Loader size={14} /> : null}
               w={{ base: '100%', sm: 360 }}
             />
-            {studentSearch.length >= 2 && foundStudent && studentGroups.length > 0 && (
+
+            {studentSearch.length > 0 && studentSearch.length < 2 && (
+              <Text size="xs" c="dimmed">Tapez au moins 2 caractères…</Text>
+            )}
+
+            {searchingStudents && (
+              <Stack gap={6}>
+                {[1, 2].map((i) => <Skeleton key={i} height={30} radius="sm" />)}
+              </Stack>
+            )}
+
+            {searchReady && matches.length === 0 && (
+              <Text size="xs" c="dimmed">Aucun étudiant trouvé.</Text>
+            )}
+
+            {/* Every match is listed — picking one is the user's call, never the first hit's. */}
+            {searchReady && matches.length > 1 && (
+              <Stack gap={4}>
+                <Text size="xs" c="dimmed">
+                  {matches.length} étudiants correspondent — choisissez&nbsp;:
+                </Text>
+                <Group gap={6} wrap="wrap">
+                  {matches.map((s) => (
+                    <Button
+                      key={s.id}
+                      size="xs"
+                      radius="sm"
+                      variant={s.id === pickedStudentId ? 'filled' : 'default'}
+                      color="navy"
+                      onClick={() => setPickedStudentId(s.id)}
+                    >
+                      {s.firstName} {s.lastName}
+                      <Text component="span" size="xs" c="dimmed" ml={6} ff="monospace">
+                        {s.cne}
+                      </Text>
+                    </Button>
+                  ))}
+                </Group>
+              </Stack>
+            )}
+
+            {loadingStudentGroups && <Skeleton height={44} radius="sm" />}
+
+            {pickedStudent && !loadingStudentGroups && studentGroups.length > 0 && (
               <Alert color="teal" variant="light" icon={<IconCircleCheck size={14} />}>
                 <Text size="sm" fw={500}>
-                  {foundStudent.firstName} {foundStudent.lastName} —{' '}
+                  {pickedStudent.firstName} {pickedStudent.lastName} —{' '}
                   {studentGroups.map((g) => (
                     <Button
                       key={g.id}
@@ -895,12 +910,10 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
                 </Text>
               </Alert>
             )}
-            {studentSearch.length >= 2 && studentSearch2 && studentSearch2.items.length === 0 && (
-              <Text size="xs" c="dimmed">Aucun étudiant trouvé.</Text>
-            )}
-            {studentSearch.length >= 2 && foundStudent && studentGroups.length === 0 && (
+
+            {pickedStudent && !loadingStudentGroups && studentGroups.length === 0 && (
               <Text size="xs" c="dimmed">
-                {foundStudent.firstName} {foundStudent.lastName} — aucun groupe pour cette année.
+                {pickedStudent.firstName} {pickedStudent.lastName} — aucun groupe pour cette année.
               </Text>
             )}
           </Stack>
@@ -1043,7 +1056,9 @@ function GroupsListTab({ selectedYear, selectedLevel, onYearChange, onLevelChang
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function GroupsPage() {
-  const [selectedYear,  setSelectedYear]  = useState<string | null>(null);
+  // The academic year comes from the single global navbar selector — no per-tab year dropdown.
+  const { currentYearId } = useAcademicYear();
+  const selectedYear = currentYearId ? String(currentYearId) : null;
   const [selectedLevel, setSelectedLevel] = useState<string | null>(null);
 
   return (
@@ -1073,16 +1088,12 @@ export default function GroupsPage() {
             <GroupsListTab
               selectedYear={selectedYear}
               selectedLevel={selectedLevel}
-              onYearChange={setSelectedYear}
               onLevelChange={setSelectedLevel}
             />
           </Tabs.Panel>
           <Tabs.Panel value="arrange"><AutoArrangeTab /></Tabs.Panel>
           <Tabs.Panel value="macro">
-            <MacroPlanTab
-              selectedYear={selectedYear}
-              onYearChange={setSelectedYear}
-            />
+            <MacroPlanTab selectedYear={selectedYear} />
           </Tabs.Panel>
         </Tabs>
       </Stack>

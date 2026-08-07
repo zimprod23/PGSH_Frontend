@@ -1,4 +1,5 @@
 import type { AcademicProgram, RegistrationStatus } from '../../../common/types';
+import type { ServiceEvaluationDetail } from '../../evaluations/types/evaluation.types';
 
 export interface AcademicYearResponse {
   id: number;
@@ -315,6 +316,22 @@ export interface TransferStudentRequest {
   reschedule?: boolean;
 }
 
+// ─── Delocalization ────────────────────────────────────────────────────────────
+
+export type DelocalizationOutcome = 'Validated' | 'NotValidated';
+
+export interface DelocalizeStudentRequest {
+  registrationId: string;
+  stageId: number;
+  serviceId: number;
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
+  reason: string;
+  // Optional paper-validation verdict + fiche reference, when recorded after the student returns.
+  outcome?: DelocalizationOutcome;
+  ficheReference?: string;
+}
+
 // ─── Service Periods ─────────────────────────────────────────────────────────
 
 export interface ServicePeriodResponse {
@@ -335,6 +352,7 @@ export interface GetServicePeriodsParams {
   serviceId?: number;
   cohortId?: number;
   isComplete?: boolean;
+  academicYearId?: number;
   pageNumber?: number;
   pageSize?: number;
 }
@@ -366,6 +384,7 @@ export interface InternshipAssignmentSummaryResponse {
   finalScore: number | null;
   result: StageAssignmentResult | null;
   isPaused: boolean;
+  allPeriodsEvaluated: boolean;
 }
 
 export interface GetAssignmentsParams {
@@ -373,6 +392,9 @@ export interface GetAssignmentsParams {
   registrationId?: string;
   stageId?: number;
   status?: InternshipStatus;
+  partitionLabels?: string[];
+  periodNumber?: number;
+  search?: string;
   pageNumber?: number;
   pageSize?: number;
 }
@@ -384,6 +406,84 @@ export interface AttendanceRecord {
 }
 
 export type AttendanceStatus = 'Present' | 'Absent' | 'JustifiedAbsent' | 'Late';
+
+// ─── Student stage record (click-through detail on Affectations) ──────────────
+// The evaluation shapes are the same contract the chef writes against, so they are owned by the
+// evaluations feature and re-exported here rather than restated.
+export type {
+  EvaluationMode,
+  EvaluationOutcome,
+  ObjectiveScoreDetail as ObjectiveScoreResponse,
+  ServiceEvaluationDetail as ServiceEvaluationResponse,
+} from '../../evaluations/types/evaluation.types';
+
+export interface StagePeriodRecord {
+  periodId: string;
+  serviceId: number;
+  serviceName: string;
+  hospitalName: string;
+  startDate: string;
+  endDate: string;
+  isStarted: boolean;
+  isComplete: boolean;
+  isInterrupted: boolean;
+  isDelocalized: boolean;
+  mark: number | null;
+  validated: boolean | null;
+  evaluation: ServiceEvaluationDetail | null;
+  presentCount: number;
+  absentCount: number;
+  justifiedAbsentCount: number;
+  lateCount: number;
+  attendance: AttendanceRecord[];
+}
+
+export interface StudentStageRecordResponse {
+  assignmentId: string;
+  registrationId: string;
+  studentFullName: string;
+  studentAppogee: string;
+  studentCne: string;
+  stageId: number;
+  stageName: string;
+  levelLabel: string | null;
+  cohortId: number;
+  cohortLabel: string;
+  groupLabel: string | null;
+  status: InternshipStatus;
+  finalScore: number | null;
+  result: StageAssignmentResult | null;
+  allPeriodsEvaluated: boolean;
+  periods: StagePeriodRecord[];
+}
+
+// ─── Fiche de validation ──────────────────────────────────────────────────────
+export interface FicheObjective {
+  label: string;
+  mark: number;
+}
+
+export interface FichePeriod {
+  serviceName: string;
+  hospitalName: string;
+  startDate: string;
+  endDate: string;
+  mark: number;
+  objectives: FicheObjective[];
+}
+
+export interface FicheDeValidationResponse {
+  studentFullName: string;
+  studentAppogee: string;
+  studentCne: string;
+  stageId: number;
+  stageName: string;
+  levelLabel: string | null;
+  cohortLabel: string;
+  groupLabel: string | null;
+  finalMark: number;
+  periods: FichePeriod[];
+}
 
 export interface RecordAttendanceRequest {
   servicePeriodId: string;

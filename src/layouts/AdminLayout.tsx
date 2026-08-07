@@ -130,19 +130,41 @@ const LANGS = [
 ] as const;
 
 function AcademicYearSelector() {
-  const { years, currentYearId, setCurrentYearId } = useAcademicYear();
+  const { years, currentYear, currentYearId, setCurrentYearId } = useAcademicYear();
   if (years.length === 0) return null;
+
+  const activeYear = years.find((y) => y.isCurrent);
+  const viewingCurrent = currentYear?.isCurrent ?? false;
+
   return (
-    <Select
-      size="xs"
-      w={150}
-      data={years.map((y) => ({ value: String(y.id), label: y.label }))}
-      value={currentYearId ? String(currentYearId) : null}
-      onChange={(v) => setCurrentYearId(v ? Number(v) : null)}
-      radius="md"
-      placeholder="Année…"
-      visibleFrom="sm"
-    />
+    <Group gap={6} wrap="nowrap" visibleFrom="sm">
+      <Select
+        size="xs"
+        w={150}
+        data={years.map((y) => ({
+          value: String(y.id),
+          label: y.isCurrent ? `${y.label} • actuelle` : y.label,
+        }))}
+        value={currentYearId ? String(currentYearId) : null}
+        onChange={(v) => setCurrentYearId(v ? Number(v) : null)}
+        radius="md"
+        placeholder="Année…"
+        allowDeselect={false}
+      />
+      {viewingCurrent ? (
+        <Badge size="xs" color="teal" variant="light" radius="sm">Actuelle</Badge>
+      ) : activeYear ? (
+        <Tooltip label={`Revenir à l'année actuelle (${activeYear.label})`} position="bottom">
+          <Badge
+            size="xs" color="orange" variant="light" radius="sm"
+            style={{ cursor: 'pointer' }}
+            onClick={() => setCurrentYearId(activeYear.id)}
+          >
+            Année passée
+          </Badge>
+        </Tooltip>
+      ) : null}
+    </Group>
   );
 }
 

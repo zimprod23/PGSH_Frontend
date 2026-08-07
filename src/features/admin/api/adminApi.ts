@@ -11,6 +11,7 @@ import type {
   AcademicGroupResponse,
   GroupDetailResponse,
   TransferStudentRequest,
+  DelocalizeStudentRequest,
   AdminLevelResponse,
   CreateAcademicYearRequest,
   CreateLevelRequest,
@@ -38,6 +39,8 @@ import type {
   RecordAttendanceRequest,
   InternshipAssignmentSummaryResponse,
   GetAssignmentsParams,
+  StudentStageRecordResponse,
+  FicheDeValidationResponse,
   EmployeeSummaryResponse,
   EmployeeDetailResponse,
   CreateEmployeeRequest,
@@ -261,11 +264,11 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    assignAllStudentsByStage: builder.mutation<{ successCount: number; totalProcessed: number }, { stageId: number; partitionLabels?: string[] }>({
-      query: ({ stageId, partitionLabels }) => ({
+    assignAllStudentsByStage: builder.mutation<{ successCount: number; totalProcessed: number }, { stageId: number; partitionLabels?: string[]; academicYearId?: number }>({
+      query: ({ stageId, partitionLabels, academicYearId }) => ({
         url: `/stages/${stageId}/assign-students`,
         method: 'POST',
-        body: partitionLabels?.length ? { partitionLabels } : {},
+        body: { partitionLabels: partitionLabels?.length ? partitionLabels : undefined, academicYearId },
       }),
       invalidatesTags: (_r, _e, { stageId }) => [
         { type: 'Assignment' as const, id: 'LIST' },
@@ -320,9 +323,12 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }, { type: 'Stage' as const, id: 'TIMELINE' }],
     }),
 
-    getStageSchedule: builder.query<StageScheduleResponse, number>({
-      query: (stageId) => `/stages/${stageId}/schedule`,
-      providesTags: (_r, _e, stageId) => [
+    getStageSchedule: builder.query<StageScheduleResponse, { stageId: number; academicYearId?: number }>({
+      query: ({ stageId, academicYearId }) => ({
+        url: `/stages/${stageId}/schedule`,
+        params: academicYearId ? { academicYearId } : undefined,
+      }),
+      providesTags: (_r, _e, { stageId }) => [
         { type: 'Stage' as const, id: `schedule-${stageId}` },
         { type: 'Service' as const, id: 'LIST' },
       ],
@@ -482,6 +488,15 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    delocalizeStudent: builder.mutation<void, DelocalizeStudentRequest>({
+      query: (body) => ({ url: '/stages/delocalize', method: 'POST', body }),
+      invalidatesTags: (_r, _e, { registrationId }) => [
+        { type: 'Registration' as const, id: registrationId },
+        { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Assignment' as const, id: 'LIST' },
+      ],
+    }),
+
     autoArrangeGroups: builder.mutation<BulkResponse<string, number>, AutoArrangeRequest>({
       query: (body) => ({ url: '/groups/auto-arrange', method: 'POST', body }),
     }),
@@ -505,9 +520,13 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         })),
     }),
 
-    deleteAllStageCohorts: builder.mutation<{ deleted: number }, number>({
-      query: (stageId) => ({ url: `/stages/${stageId}/cohorts/all`, method: 'DELETE' }),
-      invalidatesTags: (_r, _e, stageId) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
+    deleteAllStageCohorts: builder.mutation<{ deleted: number }, { stageId: number; academicYearId?: number }>({
+      query: ({ stageId, academicYearId }) => ({
+        url: `/stages/${stageId}/cohorts/all`,
+        method: 'DELETE',
+        params: academicYearId ? { academicYearId } : undefined,
+      }),
+      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
     }),
 
     deleteAllYearGroups: builder.mutation<{ deleted: number }, number>({
@@ -540,6 +559,16 @@ export const adminApiSlice = apiSlice.injectEndpoints({
               { type: 'Assignment' as const, id: 'LIST' },
             ]
           : [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    getStudentStageRecord: builder.query<StudentStageRecordResponse, string>({
+      query: (id) => ({ url: `/internship-assignments/${id}/record` }),
+      providesTags: (_r, _e, id) => [{ type: 'Assignment' as const, id: `record-${id}` }],
+    }),
+
+    getFicheDeValidation: builder.query<FicheDeValidationResponse, string>({
+      query: (id) => ({ url: `/internship-assignments/${id}/fiche` }),
+      providesTags: (_r, _e, id) => [{ type: 'Assignment' as const, id: `fiche-${id}` }],
     }),
 
     startAssignment: builder.mutation<void, string>({
@@ -686,6 +715,7 @@ export const {
   useDeleteGroupMutation,
   useEmptyGroupMutation,
   useTransferStudentMutation,
+  useDelocalizeStudentMutation,
   useAutoArrangeGroupsMutation,
   useAssignRotationGroupsMutation,
   useBulkCreateCohortsFromPartitionsMutation,
@@ -732,6 +762,8 @@ export const {
   useRecordAttendanceMutation,
   useGetAssignmentStatusSummaryQuery,
   useGetInternshipAssignmentsQuery,
+  useGetStudentStageRecordQuery,
+  useLazyGetFicheDeValidationQuery,
   useStartAssignmentMutation,
   useValidateAssignmentMutation,
   useRejectAssignmentMutation,
