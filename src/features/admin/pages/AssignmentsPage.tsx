@@ -34,6 +34,7 @@ import {
   IconCircleX,
   IconClipboardCheck,
   IconEye,
+  IconFileSpreadsheet,
   IconLayoutSidebar,
   IconPlayerPause,
   IconPlayerPlay,
@@ -69,6 +70,7 @@ import { useNotify } from '../../../common/hooks/useNotify';
 import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import { StudentRecordModal } from '../components/StudentRecordModal';
+import { EvaluationImportModal } from '../../evaluations/components/EvaluationImportModal';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -336,6 +338,7 @@ export default function AssignmentsPage() {
   const [recordId,     setRecordId]     = useState<string | null>(null);
   const [validateOpen, { open: openValidate, close: closeValidate }] = useDisclosure(false);
   const [rejectOpen,   { open: openReject,   close: closeReject   }] = useDisclosure(false);
+  const [importOpen,   { open: openImport,   close: closeImport   }] = useDisclosure(false);
 
   // ── Data ───────────────────────────────────────────────────────────────────
   const { currentYearId } = useAcademicYear();
@@ -601,6 +604,15 @@ export default function AssignmentsPage() {
               </Text>
             </Stack>
             <Group gap="sm" align="flex-end" wrap="nowrap">
+              {stageId && (
+                <Button
+                  size={isMobile ? 'sm' : 'md'} variant="light" color="navy" radius="md"
+                  leftSection={<IconFileSpreadsheet size={16} stroke={1.5} />}
+                  onClick={openImport}
+                >
+                  Importer les notes
+                </Button>
+              )}
               {isMobile && stageId && (
                 <Button
                   size="sm" variant="light" color="navy" radius="md"
@@ -988,6 +1000,16 @@ export default function AssignmentsPage() {
         opened={recordId !== null}
         onClose={() => setRecordId(null)}
       />
+
+      {stageId && (
+        <EvaluationImportModal
+          stageId={Number(stageId)}
+          stageName={stages.find((s) => String(s.id) === stageId)?.name}
+          periodNumbers={allPeriodNumbers}
+          opened={importOpen}
+          onClose={closeImport}
+        />
+      )}
 
       <ConfirmModal opened={validateOpen} onClose={closeValidate}
         title="Valider le stage"

@@ -5,6 +5,11 @@ import type {
   SubmitEvaluationRequest,
   UpdateEvaluationRequest,
 } from '../types/evaluation.types';
+import type {
+  EvaluationImportReport,
+  EvaluationImportRequest,
+  EvaluationImportTemplateRequest,
+} from '../types/import.types';
 
 /**
  * The evaluation endpoints, shared by the chef worklist and the admin stage record. Both call the
@@ -45,8 +50,49 @@ export const evaluationsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (_r, _e, arg) => evaluationTags(arg),
     }),
+
+    // ─── Bulk import ────────────────────────────────────────────────────────
+    // The preview is a dry run: it must never invalidate anything, because nothing changed.
+    previewEvaluationImport: builder.mutation<EvaluationImportReport, EvaluationImportRequest>({
+      query: (arg) => ({
+        url: `/stages/${arg.stageId}/evaluations/import/preview`,
+        method: 'POST',
+        params: importParams(arg),
+        body: fileBody(arg.file),
+      }),
+    }),
+
+    applyEvaluationImport: builder.mutation<EvaluationImportReport, EvaluationImportRequest>({
+      query: (arg) => ({
+        url: `/stages/${arg.stageId}/evaluations/import`,
+        method: 'POST',
+        params: importParams(arg),
+        body: fileBody(arg.file),
+      }),
+      // An import rewrites marks across a whole stage — every assignment view is stale.
+      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
+    getEvaluationImportTemplate: builder.query<Blob, EvaluationImportTemplateRequest>({
+      query: (arg) => ({
+        url: `/stages/${arg.stageId}/evaluations/import/template`,
+        params: importParams(arg),
+        responseHandler: (response) => response.blob(),
+        cache: 'no-cache',
+      }),
+    }),
   }),
 });
+
+function importParams({ scope, mode, periodNumber }: EvaluationImportTemplateRequest) {
+  return { scope, mode, periodNumber };
+}
+
+function fileBody(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return form;
+}
 
 /** The marks themselves. `serviceId` / `assignmentId` are cache keys, not part of the contract. */
 function evaluationBody({
@@ -87,4 +133,7 @@ export const {
   useGetEvaluationByPeriodQuery,
   useSubmitEvaluationMutation,
   useUpdateEvaluationMutation,
+  usePreviewEvaluationImportMutation,
+  useApplyEvaluationImportMutation,
+  useLazyGetEvaluationImportTemplateQuery,
 } = evaluationsApiSlice;
