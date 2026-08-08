@@ -1,4 +1,4 @@
-import type { AcademicProgram, RegistrationStatus } from '../../../common/types';
+import type { AcademicProgram, PaginatedResponse, RegistrationStatus } from '../../../common/types';
 import type { ServiceEvaluationDetail } from '../../evaluations/types/evaluation.types';
 
 export interface AcademicYearResponse {
@@ -161,6 +161,193 @@ export interface GetStagesParams {
   pageSize?: number;
 }
 
+// ─── CNPN / Curriculum ───────────────────────────────────────────────────────
+// The set of stages one CNPN text requires of one level. Keyed on the text, not the academic year:
+// arrêté 1650.25 put two texts in force at once, so a year no longer identifies a requirement set.
+// A set is still preferred to a validity window on a stage: nothing can predict when a stage ends.
+
+/**
+ * One issue of the CNPN. Every curriculum screen picks one of these where it used to pick an academic
+ * year — a requirement set belongs to a ministerial text, and from 2026-2027 two texts govern the
+ * same year (six-year students arriving on schedule, seven-year students repeating).
+ */
+export interface CnpnVersionResponse {
+  id: number;
+  /** The arrêté number, as cited — e.g. "1650.25". */
+  code: string;
+  label: string;
+  academicProgram: string;
+  /** 6 under arrêté 1650.25, 7 under 2174.18. */
+  totalYears: number;
+  reference: string | null;
+  appliesToEntrantsFromAcademicYearId: number | null;
+  appliesToEntrantsFromLabel: string | null;
+  /** False for a text kept only for citation, which governs no intake. */
+  governsAnIntake: boolean;
+  levelsRecorded: number;
+  studentCount: number;
+}
+
+/**
+ * Recording a ministerial text. `appliesToEntrantsFromAcademicYearId` is the one place the two
+ * scoping axes meet: it is an *academic year* (when) used to decide a *CNPN* (which rules) — every
+ * registration from that year on is attached to this text automatically. Null records a text kept
+ * for citation that governs nobody.
+ */
+export interface CreateCnpnVersionRequest {
+  code: string;
+  label: string;
+  academicProgram: AcademicProgram;
+  totalYears: number;
+  reference?: string;
+  appliesToEntrantsFromAcademicYearId?: number | null;
+}
+
+/** The programme is absent on purpose: curricula and student stamps hang off the row. */
+export interface UpdateCnpnVersionRequest {
+  code: string;
+  label: string;
+  totalYears: number;
+  reference?: string;
+  appliesToEntrantsFromAcademicYearId?: number | null;
+}
+
+export interface CnpnCloneResult {
+  levelsCloned: number;
+  stagesCopied: number;
+  /** Levels the target already had; left exactly as they were. */
+  levelsSkipped: number;
+  /** Levels of the source that fall outside the target's span — a 7ᵉ année onto six years. */
+  levelsOutsideProgramme: number;
+}
+
+/**
+ * Who a CNPN binds, written as a rule. It selects students who *already exist*; future intakes are
+ * covered by the version's own `appliesToEntrantsFromAcademicYearId`, so a text needs both halves.
+ */
+export interface CnpnTargetCriteria {
+  program: AcademicProgram;
+  /** "…et en dessous": every level of the programme at or below this study year. */
+  maxLevelYear: number;
+  /** Which year's registrations to read. Omitted → the current year. */
+  asOfAcademicYearId?: number;
+  /**
+   * Include students the rule catches but whose first registration predates the text. Defaults to
+   * excluding them — the arrêté usually says so — but it is the faculty's call, not the system's.
+   */
+  includeEntryContradictions: boolean;
+}
+
+export type CnpnTargetRowStatus =
+  | 'WillAssign'
+  | 'AlreadyOnThisText'
+  | 'EntryPredatesText'
+  | 'ConfirmedOnAnotherText';
+
+export interface CnpnTargetRow {
+  studentId: string;
+  fullName: string;
+  cne: string;
+  levelLabel: string | null;
+  currentCnpnCode: string | null;
+  entryYearLabel: string | null;
+  status: CnpnTargetRowStatus;
+  message: string;
+}
+
+/** The dry run, and — after an apply — the record of what was written. Same shape both times. */
+export interface CnpnTargetPreview {
+  cnpnVersionId: number;
+  cnpnVersionCode: string;
+  cnpnVersionLabel: string;
+  asOfYearLabel: string;
+  totalMatched: number;
+  willAssign: number;
+  alreadyOnThisText: number;
+  entryPredatesText: number;
+  confirmedOnAnotherText: number;
+  canApply: boolean;
+  /** Only the rows needing a decision, capped. The counts above are always the whole truth. */
+  needsAttention: CnpnTargetRow[];
+  needsAttentionTotal: number;
+}
+
+export interface CurriculumResponse {
+  id: number;
+  levelId: number;
+  levelLabel: string | null;
+  cnpnVersionId: number;
+  cnpnVersionCode: string;
+  cnpnVersionLabel: string;
+  totalYears: number;
+  reference: string | null;
+  stages: CurriculumStageResponse[];
+}
+
+export interface CurriculumStageResponse {
+  stageId: number;
+  stageName: string;
+  /** The weight this text gives it — a CNPN can keep a stage and reweight it. */
+  coefficient: number;
+  durationInDays: number;
+}
+
+export type CurriculumChange = 'Unchanged' | 'Added' | 'Removed' | 'Reweighted';
+
+export interface CurriculumComparisonResponse {
+  levelId: number;
+  levelLabel: string | null;
+  fromCnpnVersionId: number;
+  fromCnpnVersionLabel: string;
+  toCnpnVersionId: number;
+  toCnpnVersionLabel: string;
+  hasChanges: boolean;
+  entries: CurriculumDiffEntry[];
+}
+
+export interface CurriculumDiffEntry {
+  stageId: number;
+  stageName: string;
+  change: CurriculumChange;
+  fromCoefficient: number | null;
+  toCoefficient: number | null;
+  fromDurationInDays: number | null;
+  toDurationInDays: number | null;
+}
+
+/** One line of a CNPN as submitted: the stage and the weight that text gives it. */
+export interface CurriculumStageInput {
+  stageId: number;
+  coefficient: number;
+  durationInDays: number;
+}
+
+/**
+ * The whole set for one (level, CNPN) at once — never stage by stage. The server reconciles it
+ * against what is stored, so a stage left out is *removed* and announced as such.
+ */
+export interface SaveCurriculumRequest {
+  levelId: number;
+  cnpnVersionId: number;
+  reference?: string;
+  stages: CurriculumStageInput[];
+}
+
+/** Seeds one text's requirements from another's. Refused when the target already has them. */
+export interface CopyCurriculumRequest {
+  levelId: number;
+  cnpnVersionId: number;
+  fromCnpnVersionId: number;
+}
+
+export interface CurriculumSeedReport {
+  dryRun: boolean;
+  curriculaCreated: number;
+  stageEntriesCreated: number;
+  curriculaSkippedBecauseTheyExist: number;
+  details: string[];
+}
+
 // ─── Cohorts ─────────────────────────────────────────────────────────────────
 
 export interface CohortResponse {
@@ -173,8 +360,10 @@ export interface CohortResponse {
   studentAssignmentCount: number;
   slotAssignmentCount: number;
   isSchedulePublished: boolean;
-  academicYearId: number;
-  academicYearLabel: string;
+  cnpnVersionId: number;
+  cnpnVersionCode: string;
+  cnpnVersionLabel: string;
+  totalYears: number;
   rotationGroup: string | null;
 }
 
@@ -240,6 +429,8 @@ export interface StageScheduleResponse {
 }
 
 export interface CreateStageSlotRequest {
+  /** Periods are per (stage, year) — the same P1 exists once per promotion, with its own dates. */
+  cnpnVersionId: number;
   periodNumber: number;
   label?: string;
   startDate: string;    // YYYY-MM-DD
@@ -266,11 +457,15 @@ export interface AcademicGroupResponse {
   id: number;
   label: string;
   groupNumber: number;
-  academicYearId: number;
-  academicYearLabel: string;
+  cnpnVersionId: number;
+  cnpnVersionCode: string;
+  cnpnVersionLabel: string;
+  totalYears: number;
   rotationGroup: string | null;
   levelId: number | null;
   levelLabel: string | null;
+  /** Roster size, so the list shows it without fetching a single student. */
+  studentCount: number;
 }
 
 export interface GroupDetailResponse {
@@ -279,9 +474,17 @@ export interface GroupDetailResponse {
   groupNumber: number;
   geographicZone: string | null;
   rotationGroup: string | null;
-  academicYearId: number;
-  academicYearLabel: string;
-  students: GroupStudentResponse[];
+  cnpnVersionId: number;
+  cnpnVersionCode: string;
+  cnpnVersionLabel: string;
+  totalYears: number;
+  /** Whole roster, independent of the page being viewed. */
+  studentCount: number;
+  /**
+   * A page of the roster. Paginated because "Non réparti" holds 4,725 students for 2025-2026 —
+   * returning them all is what crashed the browser.
+   */
+  students: PaginatedResponse<GroupStudentResponse>;
   incomingLoans: IncomingLoanResponse[];
 }
 
@@ -499,7 +702,7 @@ export interface PartitionStagePair {
 }
 
 export interface BulkCreateCohortsFromPartitionsRequest {
-  academicYearId: number;
+  cnpnVersionId: number;
   mappings: PartitionStagePair[];
 }
 
@@ -515,7 +718,7 @@ export interface PartitionStagePlan {
 }
 
 export interface GenerateMacroPlanRequest {
-  academicYearId: number;
+  cnpnVersionId: number;
   plans: PartitionStagePlan[];
   assignStudents: boolean;
   autoArrange: boolean;
@@ -531,6 +734,12 @@ export interface MacroPlanResult {
   saturatedServices: number;
   cohortsPublished: number;
   periodsPublished: number;
+  /**
+   * Group × stage pairs the plan refused because the group's CNPN does not require that stage of
+   * its level — usually a mis-ticked row in the matrix. Shown because a plan that quietly leaves
+   * out a partition looks like it worked.
+   */
+  cohortsNotRequiredByCnpn: number;
 }
 
 // ─── Stage timeline (calendar) ─────────────────────────────────────────────────
@@ -580,8 +789,10 @@ export interface TimelineLevel {
 }
 
 export interface YearTimelineResponse {
-  academicYearId: number;
-  academicYearLabel: string;
+  cnpnVersionId: number;
+  cnpnVersionCode: string;
+  cnpnVersionLabel: string;
+  totalYears: number;
   start: string | null;
   end: string | null;
   levels: TimelineLevel[];
@@ -591,13 +802,13 @@ export interface YearTimelineResponse {
 
 export interface AutoArrangeRequest {
   levelId: number;
-  academicYearId: number;
+  cnpnVersionId: number;
   groupSize: number;
 }
 
 export interface CreateRegistrationRequest {
   studentId: string;
-  academicYearId: number;
+  cnpnVersionId: number;
   levelId: number;
   status?: RegistrationStatus;
 }

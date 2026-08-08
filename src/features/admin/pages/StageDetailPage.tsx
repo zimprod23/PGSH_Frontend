@@ -42,7 +42,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useGetStageByIdQuery,
-  useGetCohortsByStageQuery,
+  useGetCohortOptionsByStageQuery,
   useCreateCohortMutation,
   useDeleteCohortMutation,
   useAssignStudentsToCohortMutation,
@@ -51,7 +51,7 @@ import {
   usePublishScheduleMutation,
   useUnpublishScheduleMutation,
   useGetAcademicYearsQuery,
-  useGetAcademicGroupsQuery,
+  useGetAcademicGroupOptionsQuery,
   useGetServicesQuery,
   useAddAllowedServiceMutation,
   useRemoveAllowedServiceMutation,
@@ -70,8 +70,17 @@ export default function StageDetailPage() {
   const navigate = useNavigate();
   const notify = useNotify();
 
+  // The academic year comes from the single global navbar selector — no page-local year dropdown.
+  const { currentYearId } = useAcademicYear();
+
   const { data: stage, isLoading: stageLoading } = useGetStageByIdQuery(stageId);
-  const { data: cohorts = [], isLoading: cohortsLoading } = useGetCohortsByStageQuery(stageId);
+
+  // Scoped to the selected year on the server. Unscoped this returned a cohort for every (group,
+  // year) the stage ever ran — 681 rows for "Chirurgie" — which is what made opening this page,
+  // and the cohort/period screen behind it, grind to a halt.
+  const { data: cohorts = [], isLoading: cohortsLoading } = useGetCohortOptionsByStageQuery(
+    { stageId, academicYearId: currentYearId ?? undefined },
+  );
 
   const [createCohort]  = useCreateCohortMutation();
   const [deleteCohort]  = useDeleteCohortMutation();
@@ -89,18 +98,12 @@ export default function StageDetailPage() {
   const [publishingAll,       setPublishingAll]       = useState(false);
   const [unpublishingAll,     setUnpublishingAll]     = useState(false);
 
-  // The academic year comes from the single global navbar selector — no page-local year dropdown.
-  const { currentYearId } = useAcademicYear();
-
   const [activePartition, setActivePartition] = useState<string | null>(null);
 
-  // Cohorts of the selected academic year — the effective scope for counts, action buttons,
-  // empty-states and every bulk operation on this page. `getCohortsByStage` returns all years,
-  // so anything not scoped here would leak other years into the current view.
-  const yearCohorts = useMemo(
-    () => (currentYearId ? cohorts.filter((c) => c.academicYearId === currentYearId) : cohorts),
-    [cohorts, currentYearId],
-  );
+  // Already the selected year's cohorts — the query is scoped server-side. Kept as a named value
+  // because it is the effective scope for counts, action buttons, empty-states and every bulk
+  // operation on this page.
+  const yearCohorts = cohorts;
 
   // Partitions (rotation groups) are drawn only from the selected year's cohorts.
   const partitions = useMemo(() => {
@@ -153,12 +156,16 @@ export default function StageDetailPage() {
     try { await removeAllowedService({ stageId, serviceId }).unwrap(); }
     catch { notify.error('Impossible de retirer ce service'); }
   };
-  const [selectedYear,    setSelectedYear]    = useState<string | null>(null);
+  // The cohort-creation modal keeps its own year — provisioning next year's cohorts while looking at
+  // this one is legitimate — but it opens on the navbar's year and follows it, so the common case
+  // needs no second choice and the two pickers can't silently disagree.
+  const [yearOverride,    setYearOverride]    = useState<string | null>(null);
+  const selectedYear = yearOverride ?? (currentYearId != null ? String(currentYearId) : null);
   const [checkedGroupIds, setCheckedGroupIds] = useState<number[]>([]);
   const [isCreating,      setIsCreating]      = useState(false);
 
   const { data: years = [] } = useGetAcademicYearsQuery();
-  const { data: groups = [], isFetching: loadingGroups } = useGetAcademicGroupsQuery(
+  const { data: groups = [], isFetching: loadingGroups } = useGetAcademicGroupOptionsQuery(
     {
       academicYearId: selectedYear ? Number(selectedYear) : undefined,
       levelId: stage?.levelResponse?.id,
@@ -193,7 +200,7 @@ export default function StageDetailPage() {
     setIsCreating(false);
     if (fail === 0) {
       notify.success(`${success} cohorte${success > 1 ? 's créées' : ' créée'}`);
-      setSelectedYear(null);
+      setYearOverride(null);   // back to following the navbar
       setCheckedGroupIds([]);
       close();
     } else {
@@ -714,7 +721,7 @@ export default function StageDetailPage() {
             placeholder="Choisir une année"
             data={yearOptions}
             value={selectedYear}
-            onChange={(v) => { setSelectedYear(v); setCheckedGroupIds([]); }}
+            onChange={(v) => { setYearOverride(v); setCheckedGroupIds([]); }}
             required
           />
 

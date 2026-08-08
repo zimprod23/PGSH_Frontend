@@ -6,6 +6,15 @@ import { notifStyles } from '../common/hooks/useNotify';
 import keycloak from '../services/keycloak';
 import { PATHS } from '../routes/paths';
 
+/**
+ * RTK Query stamps every thunk with the endpoint kind it came from. Reading it lets the middleware
+ * treat "the thing you asked for is not there" differently from "the change you asked for failed".
+ */
+function isQuery(action: unknown): boolean {
+  const meta = (action as { meta?: { arg?: { type?: string } } })?.meta;
+  return meta?.arg?.type === 'query';
+}
+
 export const errorMiddleware: Middleware = () => (next) => (action) => {
   if (!isRejectedWithValue(action)) return next(action);
 
@@ -78,6 +87,14 @@ export const errorMiddleware: Middleware = () => (next) => (action) => {
       autoClose: 5000,
       styles:   notifStyles('#F59E0B'),
     });
+    return next(action);
+  }
+
+  // A 404 from a *query* is "this does not exist yet", which is a state the screen renders itself —
+  // the CNPN page shows an inline "aucune exigence enregistrée" panel and then used to stack two red
+  // "Erreur 404" toasts on top of it. A 404 from a *mutation* is a real failure and still toasts:
+  // you asked to change something that is not there.
+  if (status === 404 && isQuery(action)) {
     return next(action);
   }
 

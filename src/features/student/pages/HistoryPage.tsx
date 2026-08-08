@@ -10,14 +10,25 @@ import {
   rem,
   Skeleton,
   Stack,
+  Tabs,
   Text,
   ThemeIcon,
   Title,
 } from '@mantine/core';
-import { IconTimeline, IconArrowNarrowRight, IconArrowBackUp } from '@tabler/icons-react';
-import { useGetCurrentStudentQuery, useGetStudentHistoryQuery } from '../api/studentApi';
+import {
+  IconTimeline,
+  IconArrowNarrowRight,
+  IconArrowBackUp,
+  IconSchool,
+} from '@tabler/icons-react';
+import {
+  useGetCurrentStudentQuery,
+  useGetStudentHistoryQuery,
+  useGetStudentParcoursQuery,
+} from '../api/studentApi';
 import type { StudentHistoryResponse } from '../types/student.types';
 import type { HistoryType } from '../../../common/types';
+import { ParcoursRecord, ParcoursSummaryCard } from '../components/ParcoursRecord';
 import { formatDate, getAcademicYear } from '../utils/format';
 import { getHistoryConfig } from '../utils/historyConfig';
 
@@ -304,30 +315,76 @@ export default function HistoryPage() {
     { skip: !student?.id },
   );
 
+  // The two halves answer different questions and neither replaces the other: the record is what the
+  // student served and what it was worth, the timeline is what was decided about them along the way.
+  const { data: parcours, isLoading: parcoursLoading } = useGetStudentParcoursQuery(
+    student?.id ?? '',
+    { skip: !student?.id, refetchOnMountOrArgChange: true },
+  );
+  const years = parcours?.years ?? [];
+
   return (
     <Container fluid>
       <Stack gap="xl">
         <Stack gap={4}>
-          <Title order={2} fw={700}>Historique</Title>
+          <Title order={2} fw={700}>Mon parcours</Title>
           <Text size="sm" c="dimmed">
-            Votre parcours académique et vos événements importants.
+            Votre relevé de stages année par année, et les événements de votre scolarité.
           </Text>
         </Stack>
 
-        {isLoading ? (
-          <HistoryPageSkeleton />
-        ) : (
-          <Grid gutter="lg" align="flex-start">
-            <Grid.Col span={{ base: 12, md: 8 }}>
-              <Card padding="lg" radius="lg" withBorder shadow="sm">
-                <HistoryTimeline events={events} />
-              </Card>
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 4 }}>
-              <StatsCard events={events} />
-            </Grid.Col>
-          </Grid>
-        )}
+        <Tabs defaultValue="record" variant="pills" keepMounted={false}>
+          <Tabs.List mb="lg">
+            <Tabs.Tab value="record" leftSection={<IconSchool size={14} stroke={1.5} />}>
+              <Group gap={6}>
+                <span>Relevé de stages</span>
+                {!parcoursLoading && years.length > 0 && (
+                  <Badge size="xs" variant="light" color="navy" radius="xl">{years.length}</Badge>
+                )}
+              </Group>
+            </Tabs.Tab>
+            <Tabs.Tab value="events" leftSection={<IconTimeline size={14} stroke={1.5} />}>
+              <Group gap={6}>
+                <span>Événements</span>
+                {!isLoading && events.length > 0 && (
+                  <Badge size="xs" variant="light" color="navy" radius="xl">{events.length}</Badge>
+                )}
+              </Group>
+            </Tabs.Tab>
+          </Tabs.List>
+
+          <Tabs.Panel value="record">
+            <Grid gutter="lg" align="flex-start">
+              <Grid.Col span={{ base: 12, md: 8 }}>
+                <ParcoursRecord years={years} loading={parcoursLoading} />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, md: 4 }}>
+                {parcoursLoading ? (
+                  <Skeleton height={220} radius="lg" />
+                ) : years.length > 0 ? (
+                  <ParcoursSummaryCard years={years} />
+                ) : null}
+              </Grid.Col>
+            </Grid>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="events">
+            {isLoading ? (
+              <HistoryPageSkeleton />
+            ) : (
+              <Grid gutter="lg" align="flex-start">
+                <Grid.Col span={{ base: 12, md: 8 }}>
+                  <Card padding="lg" radius="lg" withBorder shadow="sm">
+                    <HistoryTimeline events={events} />
+                  </Card>
+                </Grid.Col>
+                <Grid.Col span={{ base: 12, md: 4 }}>
+                  <StatsCard events={events} />
+                </Grid.Col>
+              </Grid>
+            )}
+          </Tabs.Panel>
+        </Tabs>
       </Stack>
     </Container>
   );

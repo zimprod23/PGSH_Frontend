@@ -7,6 +7,7 @@ import {
   Group,
   Loader,
   Modal,
+  Pagination,
   SegmentedControl,
   Select,
   Skeleton,
@@ -30,11 +31,11 @@ import {
   IconTrash,
   IconUsers,
 } from '@tabler/icons-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useGetGroupByIdQuery,
-  useGetAcademicGroupsQuery,
+  useGetAcademicGroupOptionsQuery,
   useGetInternshipAssignmentsQuery,
   useGetServicesQuery,
   useTransferStudentMutation,
@@ -64,7 +65,7 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
   const [reason, setReason]               = useState('');
   const [transfer, { isLoading }]         = useTransferStudentMutation();
 
-  const { data: groups = [] } = useGetAcademicGroupsQuery(
+  const { data: groups = [] } = useGetAcademicGroupOptionsQuery(
     academicYearId ? { academicYearId } : {}
   );
 
@@ -382,7 +383,21 @@ export default function GroupDetailPage() {
   const [delocOpen,   { open: openDeloc,  close: closeDeloc  }] = useDisclosure(false);
   const [emptyOpen,   { open: openEmpty,  close: closeEmpty  }] = useDisclosure(false);
 
-  const { data: group, isLoading } = useGetGroupByIdQuery(groupId);
+  // The roster is paged: "Non réparti" holds 4,725 students for 2025-2026, and rendering that in one
+  // table is what took the browser down. Search is debounced per the project rule — the input stays
+  // instant while only the settled term reaches the server.
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch] = useDebouncedValue(search, 350);
+  useEffect(() => setPage(1), [debouncedSearch]);
+
+  const { data: group, isLoading, isFetching } = useGetGroupByIdQuery({
+    id: groupId,
+    pageNumber: page,
+    pageSize: 25,
+    searchTerm: debouncedSearch.length >= 2 ? debouncedSearch : undefined,
+  });
+
   const [emptyGroup, { isLoading: emptying }] = useEmptyGroupMutation();
 
   const handleEmpty = async () => {
@@ -414,7 +429,7 @@ export default function GroupDetailPage() {
               </Stack>
             )}
           </Group>
-          {!isLoading && (group?.students.length ?? 0) > 0 && (
+          {!isLoading && (group?.studentCount ?? 0) > 0 && (
             <Tooltip label="Désassigner tous les étudiants du groupe" position="left">
               <Button
                 variant="light"
@@ -433,13 +448,22 @@ export default function GroupDetailPage() {
         {/* Students */}
         <Card padding="lg" radius="lg" withBorder shadow="sm">
           <Stack gap="md">
-            <Group justify="space-between">
-              <Group gap="sm">
+            <Group justify="space-between" wrap="nowrap">
+              <Group gap="sm" wrap="nowrap">
                 <IconUsers size={18} stroke={1.5} color="#0F4C81" />
                 <Text fw={600} size="sm">
-                  {isLoading ? '…' : `${group?.students.length ?? 0} étudiant(s)`}
+                  {isLoading ? '…' : `${group?.studentCount ?? 0} étudiant(s)`}
                 </Text>
+                {/* isFetching, not isLoading: the table must not unmount while a page or search settles. */}
+                {isFetching && !isLoading && <Loader size="xs" />}
               </Group>
+              <TextInput
+                placeholder="Rechercher (nom, CNE, Apogée, e-mail)…"
+                value={search}
+                onChange={(e) => setSearch(e.currentTarget.value)}
+                w={320}
+                size="sm"
+              />
             </Group>
 
             <Table striped highlightOnHover verticalSpacing="sm">
@@ -461,7 +485,7 @@ export default function GroupDetailPage() {
                       ))}
                     </Table.Tr>
                   ))
-                ) : (group?.students ?? []).length === 0 ? (
+                ) : (group?.students.items ?? []).length === 0 ? (
                   <Table.Tr>
                     <Table.Td colSpan={5}>
                       <Text c="dimmed" size="sm" ta="center" py="md">
@@ -470,7 +494,7 @@ export default function GroupDetailPage() {
                     </Table.Td>
                   </Table.Tr>
                 ) : (
-                  (group?.students ?? []).map((s) => (
+                  (group?.students.items ?? []).map((s) => (
                     <Table.Tr key={s.registrationId}>
                       <Table.Td>
                         <Group gap="xs" wrap="nowrap">
@@ -529,6 +553,22 @@ export default function GroupDetailPage() {
                 )}
               </Table.Tbody>
             </Table>
+
+            {(group?.students.totalPages ?? 0) > 1 && (
+              <Group justify="space-between" wrap="nowrap">
+                <Text size="xs" c="dimmed">
+                  {group!.students.totalCount} résultat(s) — page {group!.students.pageNumber} / {group!.students.totalPages}
+                </Text>
+                <Pagination
+                  value={page}
+                  onChange={setPage}
+                  total={group?.students.totalPages ?? 1}
+                  size="sm"
+                  radius="md"
+                  withEdges
+                />
+              </Group>
+            )}
           </Stack>
         </Card>
 

@@ -24,6 +24,7 @@ export const PATHS = {
     GROUP_DETAIL:    'groups/:id',
     TIMELINE:        'timeline',
     LEVELS:          'levels',
+    CURRICULUM:      'curriculum',
     STAGES:          'stages',
     STAGE_DETAIL:    'stages/:id',
     HOSPITALS:       'hospitals',

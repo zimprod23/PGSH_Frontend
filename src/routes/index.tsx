@@ -31,6 +31,7 @@ const StudentListPage         = lazy(() => import('../features/admin/pages/stude
 const AdminStudentDetailPage  = lazy(() => import('../features/admin/pages/students/AdminStudentDetailPage'));
 const AcademicYearsPage       = lazy(() => import('../features/admin/pages/AcademicYearsPage'));
 const LevelsPage              = lazy(() => import('../features/admin/pages/LevelsPage'));
+const CurriculumPage          = lazy(() => import('../features/admin/pages/CurriculumPage'));
 const GroupsPage              = lazy(() => import('../features/admin/pages/GroupsPage'));
 const GroupDetailPage         = lazy(() => import('../features/admin/pages/GroupDetailPage'));
 const StageTimelinePage       = lazy(() => import('../features/admin/pages/StageTimelinePage'));
@@ -114,6 +115,7 @@ export const router = createBrowserRouter([
               { path: PATHS.ADMIN.STUDENT_DETAIL,     element: wrap(<AdminStudentDetailPage />)    },
               { path: PATHS.ADMIN.ACADEMIC_YEARS,     element: wrap(<AcademicYearsPage />)         },
               { path: PATHS.ADMIN.LEVELS,             element: wrap(<LevelsPage />)                },
+              { path: PATHS.ADMIN.CURRICULUM,         element: wrap(<CurriculumPage />)            },
               {
                 path: PATHS.ADMIN.GROUPS,
                 children: [

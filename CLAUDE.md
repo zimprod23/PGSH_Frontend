@@ -193,6 +193,41 @@ Known offenders to fix when touched (this list is tracked in root `HANDOFF.md` �
   bug the Suivi bar already fixed with `selectionHasTargetPeriod`.)
 - Audit every page's primary mutation for an equivalent "can this even succeed right now?" guard.
 
+### 1b. Never render an unbounded list — the data is bigger than the fixtures were
+
+The legacy import replaced seeded fixtures with real history, and every list that had no pagination
+became a crash. Current baseline: **1,003 groups**, **13,604 cohorts**, and a single "Non réparti"
+group holding **4,725 students** for 2025-2026. A promotion of 1,000 students adds ~100 groups a year.
+
+Rules:
+- A screen that **displays** a list paginates for real (`Pagination` + `totalPages`, `isFetching`
+  spinner, `setPage(1)` on a new search term).
+- A screen that uses a list as a **lookup** (dropdown, filter, assignment grid) uses the `*Options`
+  query variants — `getAcademicGroupOptions`, `getCohortOptionsByStage`. They still call the paged
+  endpoint, ask for one large page, and unwrap `.items`; they are not a licence to fetch everything.
+- **To show a count, request `pageSize: 1` and read `totalCount`.** `AdminDashboardPage` used to fetch
+  all 1,003 groups to render one number.
+- **Anything year-scoped passes `academicYearId` to the server.** `AttendancePage` fetched every
+  year's cohorts and filtered client-side; `StageDetailPage` did the same. Both now scope the query.
+
+### 1c. The navbar year is the only year, and it must be in the query key
+
+There is one academic-year selector, in `AdminLayout`, exposed by `useAcademicYear()`. Two rules:
+
+- **Read it from the context — never add a second picker.** `StageTimelinePage` had its own `Select`,
+  so the page could sit on a different year from every other admin screen with nothing saying so. A
+  screen that legitimately needs a *different* year (provisioning next year's cohorts from this
+  year's stage page) defaults to `currentYearId` and follows it until the user overrides — see the
+  `yearOverride` pattern in `StageDetailPage`'s cohort-creation modal.
+- **Pass `academicYearId` into the RTK Query arg, not just into a client-side filter.** This is what
+  makes changing the year revalidate: the arg is the cache key, so the refetch is automatic. A query
+  that omits it shows stale data from the previous year and no amount of `refetchOnMountOrArgChange`
+  will fix it, because as far as RTK Query is concerned the arg never changed.
+- **Mutations need it too.** Every stage-wide action (`start` / `complete` / `pause` / `resume` /
+  `publish` / `auto-arrange` / `assign-all` / the évaluation import) sends it. The server resolves an
+  omitted year to the *current* one, so a page left on 2024-2025 that forgets the field does not
+  widen — it silently acts on the wrong promotion, which is worse.
+
 ### 2. Debounce every search / free-text-filtered query input
 
 Typing into a field that drives a server query must **not** fire a request per keystroke — it causes the

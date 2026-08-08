@@ -20,6 +20,7 @@ import {
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { useGetStudentsQuery, useGetStagesQuery, useGetAcademicGroupsQuery } from '../api/adminApi';
+import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { StatCard } from '../../student/components/StatCard';
 import { PATHS } from '../../../routes/paths';
 
@@ -77,9 +78,22 @@ function QuickAction({
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
 
-  const { data: studentsPage, isLoading: loadingStudents } = useGetStudentsQuery({ pageNumber: 1, pageSize: 1 });
+  // Both counts are of a promotion, not of the whole imported history: 1,003 groups exist across
+  // every year against ~101 in the current one. Passing the navbar's year also means changing it
+  // refetches these — the query key carries it.
+  const { currentYear, currentYearId } = useAcademicYear();
+  const yearArg = currentYearId ?? undefined;
+
+  const { data: studentsPage, isLoading: loadingStudents } = useGetStudentsQuery(
+    { academicYearId: yearArg, pageNumber: 1, pageSize: 1 },
+  );
   const { data: stagesPage,   isLoading: loadingStages   } = useGetStagesQuery({ pageNumber: 1, pageSize: 1 });
-  const { data: groups,       isLoading: loadingGroups   } = useGetAcademicGroupsQuery({});
+  // Only the count is shown, so ask for one row and read totalCount — this used to pull all 1,003
+  // groups across every year just to render a number.
+  const { data: groupsPage,   isLoading: loadingGroups   } = useGetAcademicGroupsQuery(
+    { academicYearId: yearArg, pageNumber: 1, pageSize: 1 },
+  );
+  const groupCount = groupsPage?.totalCount ?? 0;
 
   return (
     <Container fluid>
@@ -90,11 +104,16 @@ export default function AdminDashboardPage() {
         </Stack>
 
         <SimpleGrid cols={{ base: 1, xs: 2, md: 3 }} spacing="md">
+          {/* Both year-scoped tiles name their year. Without it the count silently changed meaning
+              when the year filter landed — 8,077 enrolled this year against 10,204 student records
+              going back to 2015 — and a number whose meaning you have to guess is worse than a
+              wrong one. */}
           <StatCard
             icon={IconUsers}
             iconColor="navy"
             label="Étudiants inscrits"
             value={studentsPage?.totalCount ?? '—'}
+            sub={currentYear?.label}
             loading={loadingStudents}
           />
           <StatCard
@@ -108,8 +127,10 @@ export default function AdminDashboardPage() {
             icon={IconUsersGroup}
             iconColor="success"
             label="Groupes formés"
-            value={loadingGroups ? '…' : String(groups?.length ?? 0)}
-            sub={groups?.length === 0 ? 'Aucun groupe créé' : 'Toutes promotions confondues'}
+            value={loadingGroups ? '…' : String(groupCount)}
+            sub={groupCount === 0
+              ? `Aucun groupe pour ${currentYear?.label ?? 'cette année'}`
+              : currentYear?.label}
             loading={loadingGroups}
           />
         </SimpleGrid>

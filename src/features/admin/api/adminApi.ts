@@ -31,6 +31,17 @@ import type {
   UpdateStageRequest,
   GetStagesParams,
   CohortResponse,
+  CnpnVersionResponse,
+  CnpnTargetCriteria,
+  CreateCnpnVersionRequest,
+  UpdateCnpnVersionRequest,
+  CnpnCloneResult,
+  CnpnTargetPreview,
+  CurriculumResponse,
+  CurriculumComparisonResponse,
+  CurriculumSeedReport,
+  SaveCurriculumRequest,
+  CopyCurriculumRequest,
   CreateCohortRequest,
   CreateRegistrationRequest,
   ServicePeriodResponse,
@@ -236,9 +247,154 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Cohorts ─────────────────────────────────────────────────────────────
-    getCohortsByStage: builder.query<CohortResponse[], number>({
-      query: (stageId) => `/stages/${stageId}/cohorts`,
-      providesTags: (_r, _e, stageId) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
+    // Scoped to an academic year and paged: a cohort exists per (stage, group) and groups are per
+    // year, so "Chirurgie" has 681 of them across the imported history against 80 in the current year.
+    // ─── CNPN / Curriculum ───────────────────────────────────────────────────
+    // The recorded ministerial texts. Unpaginated on purpose: a programme gains one every several
+    // years, so this is bounded by ministerial output rather than by the faculty's size.
+    getCnpnVersions: builder.query<CnpnVersionResponse[], { program?: string } | void>({
+      query: (arg) => ({ url: '/cnpn-versions', params: arg?.program ? { program: arg.program } : undefined }),
+      providesTags: [{ type: 'Level' as const, id: 'CNPN_VERSIONS' }],
+    }),
+
+    createCnpnVersion: builder.mutation<number, CreateCnpnVersionRequest>({
+      query: (body) => ({ url: '/cnpn-versions', method: 'POST', body }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'CNPN_VERSIONS' }],
+    }),
+
+    updateCnpnVersion: builder.mutation<void, { id: number } & UpdateCnpnVersionRequest>({
+      query: ({ id, ...body }) => ({ url: `/cnpn-versions/${id}`, method: 'PUT', body }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'CNPN_VERSIONS' }],
+    }),
+
+    // Returns how many requirement sets the cascade took. Refused while any student is stamped —
+    // the UI disables the control in that case, so this is the second line of defence.
+    deleteCnpnVersion: builder.mutation<{ curriculaRemoved: number }, number>({
+      query: (id) => ({ url: `/cnpn-versions/${id}`, method: 'DELETE' }),
+      invalidatesTags: [
+        { type: 'Level' as const, id: 'CNPN_VERSIONS' },
+        { type: 'Level' as const, id: 'CURRICULUM_DIFF' },
+      ],
+    }),
+
+    // « 1650.25 reprend 2174.18 » — every level at once. Invalidates the diff too: a text that just
+    // gained six requirement sets compares differently against everything.
+    cloneCnpnCurricula: builder.mutation<
+      CnpnCloneResult,
+      { cnpnVersionId: number; fromCnpnVersionId: number }
+    >({
+      query: ({ cnpnVersionId, fromCnpnVersionId }) => ({
+        url: `/cnpn-versions/${cnpnVersionId}/clone-curricula`,
+        method: 'POST',
+        body: { fromCnpnVersionId },
+      }),
+      invalidatesTags: [
+        { type: 'Level' as const, id: 'CNPN_VERSIONS' },
+        { type: 'Level' as const, id: 'CURRICULUM_DIFF' },
+      ],
+    }),
+
+    // Preview and apply take the same body on purpose: what the dry run showed is what the apply
+    // writes. The preview is a POST because it carries a rule, not because it changes anything —
+    // it is a mutation here only so it can be triggered on demand rather than on every keystroke.
+    previewCnpnTarget: builder.mutation<
+      CnpnTargetPreview,
+      { cnpnVersionId: number } & CnpnTargetCriteria
+    >({
+      query: ({ cnpnVersionId, ...body }) => ({
+        url: `/cnpn-versions/${cnpnVersionId}/target/preview`,
+        method: 'POST',
+        body,
+      }),
+    }),
+
+    applyCnpnTarget: builder.mutation<
+      CnpnTargetPreview,
+      { cnpnVersionId: number } & CnpnTargetCriteria
+    >({
+      query: ({ cnpnVersionId, ...body }) => ({
+        url: `/cnpn-versions/${cnpnVersionId}/target`,
+        method: 'POST',
+        body,
+      }),
+      // Stamping students changes the per-text counts and every student read.
+      invalidatesTags: [
+        { type: 'Level' as const, id: 'CNPN_VERSIONS' },
+        { type: 'Student' as const, id: 'LIST' },
+      ],
+    }),
+
+    getCurriculum: builder.query<CurriculumResponse, { levelId: number; cnpnVersionId: number }>({
+      query: ({ levelId, cnpnVersionId }) => `/levels/${levelId}/curriculum/${cnpnVersionId}`,
+      providesTags: (_r, _e, { levelId, cnpnVersionId }) => [
+        { type: 'Level' as const, id: `curriculum-${levelId}-${cnpnVersionId}` },
+      ],
+    }),
+
+    // What changed between two texts — the read behind manual revalidation, where a student is judged
+    // against the CNPN they failed under but can only be re-planned against the one in force.
+    compareCurricula: builder.query<
+      CurriculumComparisonResponse,
+      { levelId: number; fromCnpnVersionId: number; toCnpnVersionId: number }
+    >({
+      query: ({ levelId, ...params }) => ({ url: `/levels/${levelId}/curriculum/compare`, params }),
+      providesTags: [{ type: 'Level' as const, id: 'CURRICULUM_DIFF' }],
+    }),
+
+    // PUT, not POST: the whole set for (level, CNPN) is submitted at once, so re-sending the same
+    // set leaves the same requirements. The diff tag goes with it — every comparison now reads
+    // differently.
+    saveCurriculum: builder.mutation<number, SaveCurriculumRequest>({
+      query: ({ levelId, cnpnVersionId, ...body }) => ({
+        url: `/levels/${levelId}/curriculum/${cnpnVersionId}`,
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: (_r, _e, { levelId, cnpnVersionId }) => [
+        { type: 'Level' as const, id: `curriculum-${levelId}-${cnpnVersionId}` },
+        { type: 'Level' as const, id: 'CURRICULUM_DIFF' },
+        { type: 'Level' as const, id: 'CNPN_VERSIONS' },
+      ],
+    }),
+
+    copyCurriculum: builder.mutation<number, CopyCurriculumRequest>({
+      query: ({ levelId, cnpnVersionId, fromCnpnVersionId }) => ({
+        url: `/levels/${levelId}/curriculum/${cnpnVersionId}/copy`,
+        method: 'POST',
+        body: { fromCnpnVersionId },
+      }),
+      invalidatesTags: (_r, _e, { levelId, cnpnVersionId }) => [
+        { type: 'Level' as const, id: `curriculum-${levelId}-${cnpnVersionId}` },
+        { type: 'Level' as const, id: 'CURRICULUM_DIFF' },
+        { type: 'Level' as const, id: 'CNPN_VERSIONS' },
+      ],
+    }),
+
+    seedCurriculaFromHistory: builder.mutation<CurriculumSeedReport, { dryRun: boolean }>({
+      query: (body) => ({ url: '/curricula/seed-from-history', method: 'POST', body }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'CURRICULUM_DIFF' }],
+    }),
+
+    getCohortsByStage: builder.query<
+      PaginatedResponse<CohortResponse>,
+      { stageId: number; academicYearId?: number; pageNumber?: number; pageSize?: number; searchTerm?: string }
+    >({
+      query: ({ stageId, ...params }) => ({ url: `/stages/${stageId}/cohorts`, params }),
+      providesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
+    }),
+
+    /**
+     * A stage's cohorts as a flat array, for screens that use them as a lookup rather than a list
+     * (filters, dropdowns, assignment grids). Year-scoped and capped at one large page instead of
+     * unbounded — pass academicYearId, or it falls back to every year the stage ever ran.
+     */
+    getCohortOptionsByStage: builder.query<CohortResponse[], { stageId: number; academicYearId?: number }>({
+      query: ({ stageId, academicYearId }) => ({
+        url: `/stages/${stageId}/cohorts`,
+        params: { ...(academicYearId ? { academicYearId } : {}), pageNumber: 1, pageSize: 200 },
+      }),
+      transformResponse: (res: PaginatedResponse<CohortResponse>) => res.items,
+      providesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
     }),
 
     getCohortById: builder.query<CohortDetailResponse, number>({
@@ -301,24 +457,24 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     // Stage-level bulk start/close — one round-trip for the whole selection (replaces the
     // per-cohort loop). cohortIds scopes the selection; periodNumbers narrows to a window.
-    startStagePeriods: builder.mutation<{ started: number }, { stageId: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
+    startStagePeriods: builder.mutation<{ started: number }, { stageId: number; academicYearId?: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
       query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/start`, method: 'POST', body }),
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
     }),
 
-    completeStagePeriods: builder.mutation<{ completed: number }, { stageId: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
+    completeStagePeriods: builder.mutation<{ completed: number }, { stageId: number; academicYearId?: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
       query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/complete`, method: 'POST', body }),
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
     }),
 
     // Suspend / resume an in-flight rotation (e.g. an exam week). Resume shifts the rotation forward
     // by the paused days, so the timeline must refetch too.
-    pauseStagePeriods: builder.mutation<{ paused: number }, { stageId: number; kind?: PauseKind; reason?: string; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
+    pauseStagePeriods: builder.mutation<{ paused: number }, { stageId: number; academicYearId?: number; kind?: PauseKind; reason?: string; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
       query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/pause`, method: 'POST', body }),
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }, { type: 'Stage' as const, id: 'TIMELINE' }],
     }),
 
-    resumeStagePeriods: builder.mutation<{ resumed: number }, { stageId: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
+    resumeStagePeriods: builder.mutation<{ resumed: number }, { stageId: number; academicYearId?: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
       query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/resume`, method: 'POST', body }),
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }, { type: 'Stage' as const, id: 'TIMELINE' }],
     }),
@@ -334,10 +490,12 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    getYearTimeline: builder.query<YearTimelineResponse, { academicYearId: number; levelId?: number }>({
-      query: ({ academicYearId, levelId }) => ({
+    // stageId narrows the tree when drilling into one stage's détail/répartitions — a year holds
+    // 1,684 cohorts, and building all of them to draw a single stage is what made this crawl.
+    getYearTimeline: builder.query<YearTimelineResponse, { academicYearId: number; levelId?: number; stageId?: number }>({
+      query: ({ academicYearId, levelId, stageId }) => ({
         url: `/academic-years/${academicYearId}/timeline`,
-        params: levelId ? { levelId } : undefined,
+        params: { ...(levelId ? { levelId } : {}), ...(stageId ? { stageId } : {}) },
       }),
       providesTags: [{ type: 'Stage' as const, id: 'TIMELINE' }],
     }),
@@ -399,7 +557,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     autoArrangeStageSchedule: builder.mutation<
       { assigned: number; saturatedServices: number; totalStudents: number; totalCapacity: number },
-      { stageId: number; partitionCount?: number; partitionLabels?: string[]; periodNumbers?: number[] }
+      { stageId: number; academicYearId?: number; partitionCount?: number; partitionLabels?: string[]; periodNumbers?: number[] }
     >({
       query: ({ stageId, ...body }) => ({
         url: `/stages/${stageId}/schedule/auto-arrange`,
@@ -414,7 +572,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     publishStageSchedule: builder.mutation<
       { publishedCohorts: number; periodsCreated: number; skippedCohorts: number },
-      { stageId: number; partitionLabels?: string[]; periodNumbers?: number[]; allowOverCapacity?: boolean }
+      { stageId: number; academicYearId?: number; partitionLabels?: string[]; periodNumbers?: number[]; allowOverCapacity?: boolean }
     >({
       query: ({ stageId, ...body }) => ({
         url: `/stages/${stageId}/schedule/publish`,
@@ -443,8 +601,21 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Groups ──────────────────────────────────────────────────────────────
-    getAcademicGroups: builder.query<AcademicGroupResponse[], { academicYearId?: number; levelId?: number; studentId?: string }>({
+    getAcademicGroups: builder.query<
+      PaginatedResponse<AcademicGroupResponse>,
+      { academicYearId?: number; levelId?: number; studentId?: string; pageNumber?: number; pageSize?: number; searchTerm?: string }
+    >({
       query: (params) => ({ url: '/groups', params }),
+      providesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
+    }),
+
+    /**
+     * Groups as a flat array, for selectors that need the whole (year-scoped) list. Still goes
+     * through the paged endpoint — it just asks for one large page rather than an unbounded one.
+     */
+    getAcademicGroupOptions: builder.query<AcademicGroupResponse[], { academicYearId?: number; levelId?: number; studentId?: string }>({
+      query: (params) => ({ url: '/groups', params: { ...params, pageNumber: 1, pageSize: 200 } }),
+      transformResponse: (res: PaginatedResponse<AcademicGroupResponse>) => res.items,
       providesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
 
@@ -453,9 +624,12 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
 
-    getGroupById: builder.query<GroupDetailResponse, number>({
-      query: (id) => `/groups/${id}`,
-      providesTags: (_r, _e, id) => [{ type: 'Level' as const, id: `group-${id}` }],
+    getGroupById: builder.query<
+      GroupDetailResponse,
+      { id: number; pageNumber?: number; pageSize?: number; searchTerm?: string }
+    >({
+      query: ({ id, ...params }) => ({ url: `/groups/${id}`, params }),
+      providesTags: (_r, _e, { id }) => [{ type: 'Level' as const, id: `group-${id}` }],
     }),
 
     updateGroup: builder.mutation<void, { id: number; label: string; geographicZone?: string; rotationGroup?: string | null }>({
@@ -708,7 +882,21 @@ export const {
   useGetLevelsQuery,
   useCreateLevelMutation,
   useUpdateLevelMutation,
+  useGetCnpnVersionsQuery,
+  useCreateCnpnVersionMutation,
+  useUpdateCnpnVersionMutation,
+  useCloneCnpnCurriculaMutation,
+  useDeleteCnpnVersionMutation,
+  usePreviewCnpnTargetMutation,
+  useApplyCnpnTargetMutation,
+  useGetCurriculumQuery,
+  useCompareCurriculaQuery,
+  useSaveCurriculumMutation,
+  useCopyCurriculumMutation,
+  useSeedCurriculaFromHistoryMutation,
   useGetAcademicGroupsQuery,
+  useGetAcademicGroupOptionsQuery,
+  useGetCohortOptionsByStageQuery,
   useGetGroupByIdQuery,
   useCreateGroupMutation,
   useUpdateGroupMutation,

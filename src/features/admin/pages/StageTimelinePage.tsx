@@ -11,7 +11,6 @@ import {
   Loader,
   Paper,
   ScrollArea,
-  Select,
   SimpleGrid,
   Stack,
   Text,
@@ -28,7 +27,8 @@ import {
   IconChevronDown,
 } from '@tabler/icons-react';
 import dayjs from 'dayjs';
-import { useGetAcademicYearsQuery, useGetYearTimelineQuery } from '../api/adminApi';
+import { useGetYearTimelineQuery } from '../api/adminApi';
+import { useAcademicYear } from '../contexts/AcademicYearContext';
 import type { TimelineStage, TimelineLevel, TimelinePartition } from '../types/admin.types';
 
 // ─── Date axis helpers ──────────────────────────────────────────────────────
@@ -367,21 +367,18 @@ function PartitionDrawer({ stage, onClose }: { stage: TimelineStage | null; onCl
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function StageTimelinePage() {
-  const { data: years = [] } = useGetAcademicYearsQuery();
-  const [yearId, setYearId] = useState<string | null>(null);
+  // The year comes from the single global navbar selector. A second picker here meant the page could
+  // sit on a different year from every other admin screen, with nothing on screen saying so.
+  const { currentYear, currentYearId } = useAcademicYear();
   const [stage, setStage] = useState<TimelineStage | null>(null);
   const [drawerOpen, drawer] = useDisclosure(false);
 
-  const effectiveYearId = yearId ?? (years.find((y) => y.isCurrent)?.id ?? years[0]?.id)?.toString() ?? null;
-
   const { data, isFetching, refetch } = useGetYearTimelineQuery(
-    { academicYearId: Number(effectiveYearId) },
-    { skip: !effectiveYearId, refetchOnMountOrArgChange: true },
+    { academicYearId: currentYearId! },
+    { skip: currentYearId == null, refetchOnMountOrArgChange: true },
   );
 
   const axis = useMemo(() => makeAxis(data?.start ?? null, data?.end ?? null), [data?.start, data?.end]);
-
-  const yearOptions = years.map((y) => ({ value: String(y.id), label: y.isCurrent ? `${y.label} (actuelle)` : y.label }));
 
   const openStage = (s: TimelineStage) => { setStage(s); drawer.open(); };
 
@@ -390,11 +387,11 @@ export default function StageTimelinePage() {
       <Group justify="space-between" align="flex-end">
         <Stack gap={2}>
           <Text fw={700} size="xl">Calendrier des stages</Text>
-          <Text size="sm" c="dimmed">Vue chronologique des stages et de leurs partitions sur l'année.</Text>
+          <Text size="sm" c="dimmed">
+            Vue chronologique des stages et de leurs partitions sur {currentYear?.label ?? 'l\'année'}.
+          </Text>
         </Stack>
         <Group align="flex-end" gap="sm">
-          <Select label="Année académique" placeholder="Sélectionner" data={yearOptions}
-            value={effectiveYearId} onChange={setYearId} w={240} />
           <Button variant="light" color="gray" leftSection={<IconRefresh size={16} />}
             loading={isFetching} onClick={() => refetch()}>
             Actualiser

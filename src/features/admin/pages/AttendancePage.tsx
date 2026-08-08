@@ -17,7 +17,7 @@ import { IconCalendarEvent, IconCheck } from '@tabler/icons-react';
 import { useState } from 'react';
 import {
   useGetStagesQuery,
-  useGetCohortsByStageQuery,
+  useGetCohortOptionsByStageQuery,
   useGetServicePeriodsQuery,
   useRecordAttendanceMutation,
 } from '../api/adminApi';
@@ -63,12 +63,11 @@ export default function AttendancePage() {
   const { data: stagesPage } = useGetStagesQuery({ pageSize: 100 });
   const stages = stagesPage?.items ?? [];
 
-  const { data: allCohorts = [] } = useGetCohortsByStageQuery(
-    Number(stageId), { skip: !stageId }
+  // Filtered by year on the server now: fetching every year's cohorts only to discard all but one
+  // client-side is what made this slow once real history landed.
+  const { data: cohorts = [] } = useGetCohortOptionsByStageQuery(
+    { stageId: Number(stageId), academicYearId: currentYearId ?? undefined }, { skip: !stageId }
   );
-  const cohorts = currentYearId
-    ? allCohorts.filter((c) => c.academicYearId === currentYearId)
-    : allCohorts;
 
   const { data: periodsPage, isLoading: loadingPeriods } = useGetServicePeriodsQuery(
     {

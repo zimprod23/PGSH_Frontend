@@ -84,8 +84,8 @@ export const evaluationsApiSlice = apiSlice.injectEndpoints({
   }),
 });
 
-function importParams({ scope, mode, periodNumber }: EvaluationImportTemplateRequest) {
-  return { scope, mode, periodNumber };
+function importParams({ scope, mode, periodNumber, academicYearId }: EvaluationImportTemplateRequest) {
+  return { scope, mode, periodNumber, academicYearId };
 }
 
 function fileBody(file: File) {

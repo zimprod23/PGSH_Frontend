@@ -42,6 +42,11 @@ interface Props {
   stageName?: string;
   /** Period numbers the stage actually has — a per-period import can only target one of these. */
   periodNumbers: number[];
+  /**
+   * The promotion being marked. Without it the canvas listed every year the stage ever ran; the
+   * server falls back to the current year rather than widening, so this is the caller saying which.
+   */
+  academicYearId?: number;
   opened: boolean;
   onClose: () => void;
 }
@@ -54,7 +59,9 @@ interface Props {
  * that silently applies two hundred rows where eight were mis-keyed is worse than no import at all —
  * so nothing is written until the report below has been read, and one bad row refuses the whole file.
  */
-export function EvaluationImportModal({ stageId, stageName, periodNumbers, opened, onClose }: Props) {
+export function EvaluationImportModal({
+  stageId, stageName, periodNumbers, academicYearId, opened, onClose,
+}: Props) {
   const notify = useNotify();
 
   const [scope, setScope] = useState<EvaluationImportScope>('WholeStage');
@@ -75,6 +82,7 @@ export function EvaluationImportModal({ stageId, stageName, periodNumbers, opene
     scope,
     mode,
     periodNumber: scope === 'SinglePeriod' ? Number(periodNumber) : undefined,
+    academicYearId,
   };
 
   const resetReport = () => {
@@ -93,7 +101,10 @@ export function EvaluationImportModal({ stageId, stageName, periodNumbers, opene
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `notes-stage-${stageId}.xlsx`;
+      // The year is part of the name: two canvases for the same stage in different promotions are
+      // different sheets, and downloading both must not silently overwrite one with the other.
+      const suffix = scope === 'SinglePeriod' ? `-P${periodNumber}` : '-stage';
+      link.download = `notes-stage-${stageId}${academicYearId ? `-${academicYearId}` : ''}${suffix}.xlsx`;
       link.click();
       URL.revokeObjectURL(url);
     } catch {

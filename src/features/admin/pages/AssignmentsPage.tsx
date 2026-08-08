@@ -45,7 +45,7 @@ import {
 import { useState, useEffect } from 'react';
 import {
   useGetStagesQuery,
-  useGetCohortsByStageQuery,
+  useGetCohortOptionsByStageQuery,
   useGetCohortByIdQuery,
   useGetStageScheduleQuery,
   useGetInternshipAssignmentsQuery,
@@ -346,8 +346,10 @@ export default function AssignmentsPage() {
   const { data: stagesPage } = useGetStagesQuery({ pageSize: 100 });
   const stages = stagesPage?.items ?? [];
 
-  const { data: cohorts = [], isLoading: cohortsLoading } = useGetCohortsByStageQuery(
-    Number(stageId), { skip: !stageId }
+  // Year-scoped: a stage accumulates a cohort per (group, year), so the unscoped list returned every
+  // year it has ever run — 681 rows for "Chirurgie" on the imported data.
+  const { data: cohorts = [], isLoading: cohortsLoading } = useGetCohortOptionsByStageQuery(
+    { stageId: Number(stageId), academicYearId: currentYearId ?? undefined }, { skip: !stageId }
   );
 
   // Stage periods (P1, P2…) — used to scope bulk start/close to a chosen window.
@@ -488,14 +490,20 @@ export default function AssignmentsPage() {
   const handleBulkStart = async () => {
     if (!stageId) return;
     try {
-      const res = await startStage({ stageId: Number(stageId), cohortIds: selectedIds, periodNumbers: periodArg }).unwrap();
+      const res = await startStage({
+        stageId: Number(stageId), academicYearId: currentYearId ?? undefined,
+        cohortIds: selectedIds, periodNumbers: periodArg,
+      }).unwrap();
       notify.success(`${res.started} période(s) démarrée(s)`);
     } catch { notify.error('Impossible de démarrer'); }
   };
   const handleBulkComplete = async () => {
     if (!stageId) return;
     try {
-      const res = await completeStage({ stageId: Number(stageId), cohortIds: selectedIds, periodNumbers: periodArg }).unwrap();
+      const res = await completeStage({
+        stageId: Number(stageId), academicYearId: currentYearId ?? undefined,
+        cohortIds: selectedIds, periodNumbers: periodArg,
+      }).unwrap();
       notify.success(`${res.completed} période(s) clôturée(s)`);
     } catch { notify.error('Impossible de clôturer'); }
   };
@@ -504,7 +512,8 @@ export default function AssignmentsPage() {
     if (!stageId) return;
     try {
       const res = await pauseStage({
-        stageId: Number(stageId), kind: pauseKind, reason: pauseReason.trim() || undefined,
+        stageId: Number(stageId), academicYearId: currentYearId ?? undefined,
+        kind: pauseKind, reason: pauseReason.trim() || undefined,
         cohortIds: selectedIds, periodNumbers: periodArg,
       }).unwrap();
       notify.success(`${res.paused} rotation(s) en pause`);
@@ -515,7 +524,10 @@ export default function AssignmentsPage() {
   const handleBulkResume = async () => {
     if (!stageId) return;
     try {
-      const res = await resumeStage({ stageId: Number(stageId), cohortIds: selectedIds, periodNumbers: periodArg }).unwrap();
+      const res = await resumeStage({
+        stageId: Number(stageId), academicYearId: currentYearId ?? undefined,
+        cohortIds: selectedIds, periodNumbers: periodArg,
+      }).unwrap();
       notify.success(`${res.resumed} rotation(s) reprise(s)`);
     } catch { notify.error('Impossible de reprendre'); }
   };
@@ -1006,6 +1018,7 @@ export default function AssignmentsPage() {
           stageId={Number(stageId)}
           stageName={stages.find((s) => String(s.id) === stageId)?.name}
           periodNumbers={allPeriodNumbers}
+          academicYearId={currentYearId ?? undefined}
           opened={importOpen}
           onClose={closeImport}
         />

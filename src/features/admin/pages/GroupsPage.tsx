@@ -11,6 +11,7 @@ import {
   Loader,
   Modal,
   NumberInput,
+  Pagination,
   ScrollArea,
   Select,
   SimpleGrid,
@@ -47,6 +48,7 @@ import {
   useGetStudentsQuery,
   useAutoArrangeGroupsMutation,
   useGetAcademicGroupsQuery,
+  useGetAcademicGroupOptionsQuery,
   useCreateGroupMutation,
   useUpdateGroupMutation,
   useDeleteGroupMutation,
@@ -215,7 +217,7 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
 
   // Partitions are per (year, level): scope the groups to the selected level so each
   // level keeps its own partition count (e.g. 2 in 1Med, 4 in 2Med).
-  const { data: groups = [], isLoading: loadingGroups } = useGetAcademicGroupsQuery(
+  const { data: groups = [], isLoading: loadingGroups } = useGetAcademicGroupOptionsQuery(
     { academicYearId: Number(selectedYear), levelId: selectedLevel ? Number(selectedLevel) : undefined },
     { skip: !selectedYear || !selectedLevel },
   );
@@ -504,6 +506,17 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
                   {result.saturatedServices > 0 && (
                     <Badge color="red" variant="light">{result.saturatedServices} service(s) saturé(s)</Badge>
                   )}
+                  {result.cohortsNotRequiredByCnpn > 0 && (
+                    <Tooltip
+                      label="Ces combinaisons ont été écartées : le CNPN suivi par ces groupes n'exige pas ce stage à leur niveau."
+                      multiline
+                      w={280}
+                    >
+                      <Badge color="orange" variant="light">
+                        {result.cohortsNotRequiredByCnpn} hors CNPN
+                      </Badge>
+                    </Tooltip>
+                  )}
                   {result.cohortsPublished > 0 && (
                     <Badge color="teal" variant="filled">{result.cohortsPublished} publiée(s)</Badge>
                   )}
@@ -661,6 +674,8 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
 
 // ─── Groups list tab ──────────────────────────────────────────────────────────
 
+const GROUPS_PAGE_SIZE = 25;
+
 function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
   selectedYear: string | null;
   selectedLevel: string | null;
@@ -688,13 +703,30 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
 
   const { data: levels = [] } = useGetLevelsQuery(undefined);
 
-  const { data: groups = [], isLoading: loadingGroups } = useGetAcademicGroupsQuery(
-    {
-      academicYearId: selectedYear  ? Number(selectedYear)  : undefined,
-      levelId:        selectedLevel ? Number(selectedLevel) : undefined,
-    },
-    { skip: !selectedYear }
-  );
+  // The table is a display list, so it pages for real rather than asking for one large page: there
+  // are 1,003 groups across the imported years and ~101 in the current one, growing by ~100 a year.
+  const [page, setPage] = useState(1);
+  const [labelSearch, setLabelSearch] = useState('');
+  const [debouncedLabelSearch] = useDebouncedValue(labelSearch, 350);
+
+  // Any change to what is being asked for restarts paging, or results hide past the current page.
+  useEffect(() => { setPage(1); }, [selectedYear, selectedLevel, debouncedLabelSearch]);
+
+  const { data: groupsPage, isLoading: loadingGroups, isFetching: fetchingGroups } =
+    useGetAcademicGroupsQuery(
+      {
+        academicYearId: selectedYear  ? Number(selectedYear)  : undefined,
+        levelId:        selectedLevel ? Number(selectedLevel) : undefined,
+        searchTerm:     debouncedLabelSearch.trim() || undefined,
+        pageNumber:     page,
+        pageSize:       GROUPS_PAGE_SIZE,
+      },
+      { skip: !selectedYear }
+    );
+
+  const groups     = groupsPage?.items ?? [];
+  const totalCount = groupsPage?.totalCount ?? 0;
+  const totalPages = groupsPage?.totalPages ?? 1;
 
   const { data: studentMatches, isFetching: searchingStudents } = useGetStudentsQuery(
     { searchTerm: debouncedStudentSearch, pageSize: 10 },
@@ -709,7 +741,7 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
     setPickedStudentId(matches.length === 1 ? matches[0].id : null);
   }, [debouncedStudentSearch, matches.length, matches]);
 
-  const { data: studentGroups = [], isFetching: loadingStudentGroups } = useGetAcademicGroupsQuery(
+  const { data: studentGroups = [], isFetching: loadingStudentGroups } = useGetAcademicGroupOptionsQuery(
     { academicYearId: selectedYear ? Number(selectedYear) : undefined, studentId: pickedStudentId ?? undefined },
     { skip: !pickedStudentId || !selectedYear }
   );
@@ -792,6 +824,16 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
           clearable
           w={240}
         />
+        <TextInput
+          label="Rechercher un groupe"
+          placeholder="Libellé du groupe…"
+          value={labelSearch}
+          onChange={(e) => setLabelSearch(e.currentTarget.value)}
+          leftSection={<IconSearch size={14} stroke={1.5} />}
+          rightSection={fetchingGroups ? <Loader size={14} /> : null}
+          disabled={!selectedYear}
+          w={240}
+        />
         <Button
           size="sm" color="navy" variant="light" radius="md"
           leftSection={<IconPlus size={14} stroke={1.5} />}
@@ -799,7 +841,7 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
         >
           Créer un groupe
         </Button>
-        {selectedYear && groups.length > 0 && (
+        {selectedYear && totalCount > 0 && (
           <Tooltip
             label="Retire tous les étudiants de leurs groupes (les groupes et leurs cohortes restent)."
             position="top"
@@ -816,7 +858,7 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
             </Button>
           </Tooltip>
         )}
-        {selectedYear && groups.length > 0 && (
+        {selectedYear && totalCount > 0 && (
           <Tooltip
             label="Supprime tous les groupes et leurs cohortes. Bloqué si des étudiants sont affectés ou si des affectations ont démarré."
             position="top"
@@ -946,7 +988,9 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
                 <Table.Tr>
                   <Table.Td colSpan={6}>
                     <Text c="dimmed" size="sm" ta="center" py="md">
-                      {selectedLevel
+                      {debouncedLabelSearch.trim()
+                        ? `Aucun groupe ne correspond à « ${debouncedLabelSearch.trim()} ».`
+                        : selectedLevel
                         ? 'Aucun groupe ne correspond à ce niveau pour l\'année sélectionnée.'
                         : 'Aucun groupe pour cette année. Lancez d\'abord la répartition automatique ou créez un groupe manuellement.'}
                     </Text>
@@ -1003,6 +1047,26 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
               )}
             </Table.Tbody>
           </Table>
+
+          {totalCount > 0 && (
+            <Group justify="space-between" align="center" mt="md">
+              <Text size="xs" c="dimmed">
+                {totalCount} groupe{totalCount !== 1 ? 's' : ''}
+                {totalPages > 1 && ` — page ${page} sur ${totalPages}`}
+              </Text>
+              {totalPages > 1 && (
+                <Pagination
+                  value={page}
+                  onChange={setPage}
+                  total={totalPages}
+                  size="sm"
+                  radius="md"
+                  color="navy"
+                  withEdges
+                />
+              )}
+            </Group>
+          )}
         </Card>
       )}
 
@@ -1023,7 +1087,7 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
         opened={deleteAllOpen}
         onClose={closeDeleteAll}
         title="Supprimer tous les groupes"
-        message={`Supprimer tous les groupes de l'année "${yearLabel}" (${groups.length} groupe${groups.length !== 1 ? 's' : ''}) ? Cette action supprime également toutes les cohortes associées. Elle est bloquée si des étudiants sont affectés aux groupes ou si des affectations ont déjà démarré.`}
+        message={`Supprimer tous les groupes de l'année "${yearLabel}" (${totalCount} groupe${totalCount !== 1 ? 's' : ''}) ? Cette action supprime également toutes les cohortes associées. Elle est bloquée si des étudiants sont affectés aux groupes ou si des affectations ont déjà démarré.`}
         confirmLabel="Tout supprimer"
         confirmColor="red"
         onConfirm={handleDeleteAllConfirm}

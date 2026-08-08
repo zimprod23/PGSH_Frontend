@@ -45,6 +45,11 @@ export interface EvaluationImportRequest {
   scope: EvaluationImportScope;
   mode: EvaluationImportMode;
   periodNumber?: number;
+  /**
+   * A stage keeps a cohort per (group, year), so without this the sheet spans every promotion that
+   * ever took it — 3,553 students for one 6ème année stage where 688 were meant.
+   */
+  academicYearId?: number;
   file: File;
 }
 
@@ -53,6 +58,7 @@ export interface EvaluationImportTemplateRequest {
   scope: EvaluationImportScope;
   mode: EvaluationImportMode;
   periodNumber?: number;
+  academicYearId?: number;
 }
 
 /** Rows that will be written; everything else refuses the import. */

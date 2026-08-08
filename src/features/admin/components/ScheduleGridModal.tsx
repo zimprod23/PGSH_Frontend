@@ -60,6 +60,7 @@ import {
 import type { SlotCellResponse, StageSlotResponse, CohortScheduleRow } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
+import { useAcademicYear } from '../contexts/AcademicYearContext';
 
 // ─── Saturation summary bar ──────────────────────────────────────────────────
 
@@ -369,10 +370,11 @@ interface AddSlotModalProps {
   opened: boolean;
   onClose: () => void;
   stageId: number;
+  academicYearId: number;
   nextPeriodNumber: number;
 }
 
-function AddSlotModal({ opened, onClose, stageId, nextPeriodNumber }: AddSlotModalProps) {
+function AddSlotModal({ opened, onClose, stageId, academicYearId, nextPeriodNumber }: AddSlotModalProps) {
   const notify = useNotify();
   const [createSlot, { isLoading }] = useCreateStageSlotMutation();
   const [form, setForm] = useState({ label: '', startDate: '', endDate: '' });
@@ -381,6 +383,7 @@ function AddSlotModal({ opened, onClose, stageId, nextPeriodNumber }: AddSlotMod
     try {
       await createSlot({
         stageId,
+        academicYearId,
         periodNumber: nextPeriodNumber,
         label: form.label || undefined,
         startDate: form.startDate,
@@ -579,7 +582,12 @@ function PublishButton({ cohortId, stageId, isPublished }: { cohortId: number; s
 // ─── Publish all unpublished cohorts ─────────────────────────────────────────
 
 function PublishAllButton(
-  { stageId, cohorts, activePartition }: { stageId: number; cohorts: CohortScheduleRow[]; activePartition: string | null },
+  { stageId, academicYearId, cohorts, activePartition }: {
+    stageId: number;
+    academicYearId?: number;
+    cohorts: CohortScheduleRow[];
+    activePartition: string | null;
+  },
 ) {
   const notify = useNotify();
   const [publishStage, { isLoading: loading }] = usePublishStageScheduleMutation();
@@ -593,6 +601,7 @@ function PublishAllButton(
     try {
       const res = await publishStage({
         stageId,
+        academicYearId,
         partitionLabels: activePartition ? [activePartition] : undefined,
         allowOverCapacity,
       }).unwrap();
@@ -651,6 +660,10 @@ interface Props {
 
 export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, allowedServiceIds = [] }: Props) {
   const notify = useNotify();
+  // Periods belong to a (stage, year) pair, so the grid always works against one year: the caller's
+  // if it passed one, otherwise whatever the navbar is showing.
+  const { currentYearId } = useAcademicYear();
+  const yearId = academicYearId ?? currentYearId ?? undefined;
   const [addSlotOpened, setAddSlotOpened]   = useState(false);
   const [activePartition, setActivePartition] = useState<string | null>(null);
   const [autoArrangePeriods, setAutoArrangePeriods] = useState<string[]>([]);
@@ -658,7 +671,7 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
   const [editing, setEditing] = useState<{ cohortId: number; slotId: number } | null>(null);
   const [clearingKey, setClearingKey] = useState<string | null>(null);
   const { data: schedule, isLoading } = useGetStageScheduleQuery(
-    { stageId, academicYearId },
+    { stageId, academicYearId: yearId },
     { skip: !opened },
   );
   const [autoArrange, { isLoading: arranging }] = useAutoArrangeStageScheduleMutation();
@@ -690,6 +703,7 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
     try {
       const res = await autoArrange({
         stageId,
+        academicYearId: yearId,
         partitionLabels: activePartition ? [activePartition] : undefined,
         periodNumbers: autoArrangePeriods.length ? autoArrangePeriods.map(Number) : undefined,
       }).unwrap();
@@ -729,6 +743,18 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
       : (schedule?.cohorts ?? [])),
     [schedule, activePartition],
   );
+
+  // Why "Répartition auto." cannot run yet, or null when it can. Mirrors the two guards
+  // RotationArranger returns, so the user reads the reason on a disabled button instead of
+  // discovering it in an error toast.
+  const autoArrangeBlockedReason =
+    slots.length === 0
+      ? 'Aucune période définie pour cette année — ajoutez d’abord un créneau.'
+      : allowedServiceIds.length === 0
+      ? 'Aucun service autorisé pour ce stage — configurez-les avant de répartir.'
+      : visibleCohorts.length === 0
+      ? 'Aucune cohorte à répartir dans cette sélection.'
+      : null;
 
   // Periods with no cell assigned in any visible cohort — i.e. the freshly-added columns.
   // Arranging only these continues the existing rotation instead of rewriting everything.
@@ -793,22 +819,41 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
               )}
             </Group>
             <Group gap="xs" wrap="nowrap" align="flex-end">
-              {schedule && <PublishAllButton stageId={stageId} cohorts={visibleCohorts} activePartition={activePartition} />}
-              <Button
-                size="xs" color="violet" variant="light" radius="md"
-                leftSection={<IconArrowsShuffle size={12} stroke={1.5} />}
-                loading={arranging}
-                onClick={openAutoArrange}
+              {schedule && (
+                <PublishAllButton
+                  stageId={stageId}
+                  academicYearId={yearId}
+                  cohorts={visibleCohorts}
+                  activePartition={activePartition}
+                />
+              )}
+              {/* Both preconditions the server enforces (Schedule.NoSlots / NoAllowedServices), stated
+                  before the click rather than as a toast after it. The slots one is not hypothetical:
+                  the legacy import carried no planning grid, so every stage starts with zero periods. */}
+              <Tooltip label={autoArrangeBlockedReason} disabled={autoArrangeBlockedReason == null} multiline w={260}>
+                <Button
+                  size="xs" color="violet" variant="light" radius="md"
+                  leftSection={<IconArrowsShuffle size={12} stroke={1.5} />}
+                  loading={arranging}
+                  disabled={autoArrangeBlockedReason != null}
+                  onClick={openAutoArrange}
+                >
+                  Répartition auto.
+                </Button>
+              </Tooltip>
+              <Tooltip
+                label="Sélectionnez une année universitaire dans la barre de navigation."
+                disabled={yearId != null}
               >
-                Répartition auto.
-              </Button>
-              <Button
-                size="xs" color="navy" variant="light" radius="md"
-                leftSection={<IconPlus size={12} stroke={1.5} />}
-                onClick={() => setAddSlotOpened(true)}
-              >
-                Ajouter créneau
-              </Button>
+                <Button
+                  size="xs" color="navy" variant="light" radius="md"
+                  leftSection={<IconPlus size={12} stroke={1.5} />}
+                  disabled={yearId == null}
+                  onClick={() => setAddSlotOpened(true)}
+                >
+                  Ajouter créneau
+                </Button>
+              </Tooltip>
             </Group>
           </Group>
 
@@ -848,10 +893,15 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
             <Card padding="xl" radius="lg" withBorder>
               <Stack align="center" gap="xs">
                 <IconCalendarTime size={32} stroke={1} color="#94A3B8" />
-                <Text c="dimmed" size="sm">
-                  {schedule?.cohorts.length === 0
-                    ? 'Aucune cohorte dans ce stage. Créez des cohortes d\'abord.'
-                    : 'Aucun créneau défini. Ajoutez un créneau pour commencer.'}
+                {/* This branch is only reached when BOTH are empty, so the old ternary could never
+                    show its second arm. Name both — after the legacy import that is the real state
+                    of every stage: rotations were imported, the planning grid never existed. */}
+                <Text c="dimmed" size="sm" ta="center">
+                  Ni cohorte ni créneau pour cette année.
+                </Text>
+                <Text c="dimmed" size="xs" ta="center" maw={320}>
+                  Créez les cohortes du stage, puis ajoutez ses créneaux (P1, P2…) — ils sont propres
+                  à chaque année universitaire.
                 </Text>
               </Stack>
             </Card>
@@ -950,12 +1000,15 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
         </Stack>
       </Modal>
 
-      <AddSlotModal
-        opened={addSlotOpened}
-        onClose={() => setAddSlotOpened(false)}
-        stageId={stageId}
-        nextPeriodNumber={nextPeriodNumber}
-      />
+      {yearId != null && (
+        <AddSlotModal
+          opened={addSlotOpened}
+          onClose={() => setAddSlotOpened(false)}
+          stageId={stageId}
+          academicYearId={yearId}
+          nextPeriodNumber={nextPeriodNumber}
+        />
+      )}
 
       <Modal
         opened={autoArrangeOpen}

@@ -2,10 +2,11 @@ import { apiSlice } from '../../../app/apiSlice';
 import type { PaginatedResponse } from '../../../common/types';
 import type {
   StudentResponse, StudentHistoryResponse, StudentRegistrationResponse,
-  InternshipAssignmentSummary, InternshipAssignmentDetail,
+  InternshipAssignmentDetail,
   AttendanceRecord, ServiceEvaluationDetail, StudentServiceDetailResponse,
 } from '../types/student.types';
 import type { StageSummaryResponse, StageResponse, GetStagesQuery } from '../types/stage.types';
+import type { StudentParcoursResponse } from '../types/parcours.types';
 
 export const studentApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
@@ -32,6 +33,13 @@ export const studentApiSlice = apiSlice.injectEndpoints({
       providesTags: (_result, _err, id) => [{ type: 'Registration' as const, id }],
     }),
 
+    // The whole course, every registration folded together. Every stage screen reads this instead of
+    // the current registration's assignments, which hid all previous years.
+    getStudentParcours: builder.query<StudentParcoursResponse, string>({
+      query: (studentId) => `/students/${studentId}/parcours`,
+      providesTags: (_result, _err, id) => [{ type: 'Registration' as const, id: `parcours-${id}` }],
+    }),
+
     getStages: builder.query<PaginatedResponse<StageSummaryResponse>, GetStagesQuery>({
       query: (params) => ({ url: '/stages', params }),
       providesTags: ['Stage'],
@@ -40,19 +48,6 @@ export const studentApiSlice = apiSlice.injectEndpoints({
     getStageById: builder.query<StageResponse, number>({
       query: (id) => `/stages/${id}`,
       providesTags: (_r, _e, id) => [{ type: 'Stage' as const, id }],
-    }),
-
-    getMyAssignments: builder.query<
-      PaginatedResponse<InternshipAssignmentSummary>,
-      { registrationId: string; stageId?: number; pageSize?: number }
-    >({
-      query: ({ registrationId, stageId, pageSize = 50 }) => ({
-        url: '/internship-assignments',
-        params: { registrationId, stageId, pageSize },
-      }),
-      providesTags: (_r, _e, { registrationId }) => [
-        { type: 'Registration' as const, id: `assignments-${registrationId}` },
-      ],
     }),
 
     getAssignmentById: builder.query<InternshipAssignmentDetail, string>({
@@ -82,9 +77,9 @@ export const {
   useGetStudentByIdQuery,
   useGetStudentHistoryQuery,
   useGetStudentRegistrationsQuery,
+  useGetStudentParcoursQuery,
   useGetStagesQuery,
   useGetStageByIdQuery,
-  useGetMyAssignmentsQuery,
   useGetAssignmentByIdQuery,
   useGetAttendanceByPeriodQuery,
   useGetEvaluationByPeriodQuery,

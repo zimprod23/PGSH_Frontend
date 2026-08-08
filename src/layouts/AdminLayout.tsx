@@ -21,6 +21,7 @@ import {
   IconUsers,
   IconClipboardList,
   IconCalendar,
+  IconBook2,
   IconSchool,
   IconUsersGroup,
   IconBuildingHospital,
@@ -85,6 +86,7 @@ const NAV: NavEntry[] = [
     items: [
       { kind: 'leaf', label: 'Années académiques', icon: IconCalendar,   path: `${ROOT}/academic-years` },
       { kind: 'leaf', label: 'Niveaux',            icon: IconSchool,     path: `${ROOT}/levels`         },
+      { kind: 'leaf', label: 'CNPN (programme)',    icon: IconBook2,      path: `${ROOT}/curriculum`     },
       { kind: 'leaf', label: 'Groupes',            icon: IconUsersGroup, path: `${ROOT}/groups`             },
     ],
   },

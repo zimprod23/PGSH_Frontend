@@ -1,17 +1,19 @@
 import {
   ActionIcon,
   Badge,
-  Box,
   Card,
   Collapse,
   Container,
   Divider,
+  Grid,
   Group,
   Progress,
+  ScrollArea,
   SimpleGrid,
   Skeleton,
   Stack,
   Table,
+  Tabs,
   Text,
   ThemeIcon,
   Title,
@@ -28,21 +30,24 @@ import {
   IconChevronUp,
   IconCircleCheck,
   IconClipboardList,
-  IconInfoCircle,
   IconStethoscope,
   IconTimeline,
 } from '@tabler/icons-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useMemo } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useGetCurrentStudentQuery,
   useGetStageByIdQuery,
-  useGetMyAssignmentsQuery,
+  useGetStudentParcoursQuery,
   useGetAssignmentByIdQuery,
   useGetAttendanceByPeriodQuery,
   useGetEvaluationByPeriodQuery,
 } from '../../api/studentApi';
 import { PATHS } from '../../../../routes/paths';
 import type { ServicePeriodSummary } from '../../types/student.types';
+import type { ParcoursStage } from '../../types/parcours.types';
+import { StageStateBadge } from '../../components/StageStateBadge';
+import { finalNoteOf, formatRotationSpan, stageStateOf } from '../../utils/stageState';
 
 // ─── Attendance mini-bar ─────────────────────────────────────────────────────
 
@@ -99,6 +104,7 @@ function EvaluationDetail({ periodId }: { periodId: string }) {
       </Group>
 
       {evaluation.objectiveScores.length > 0 && (
+        <Table.ScrollContainer minWidth={320} type="native">
         <Table fz="xs" verticalSpacing={4} withColumnBorders withTableBorder>
           <Table.Thead>
             <Table.Tr>
@@ -132,6 +138,7 @@ function EvaluationDetail({ periodId }: { periodId: string }) {
             ))}
           </Table.Tbody>
         </Table>
+        </Table.ScrollContainer>
       )}
 
       {evaluation.supervisorComment && (
@@ -188,10 +195,10 @@ function PeriodCard({ period }: { period: ServicePeriodSummary }) {
           </Stack>
         </Group>
 
-        <Group gap="xs">
-          <IconCalendar size={13} stroke={1.5} color="#94A3B8" />
-          <Text size="xs" c="dimmed" ff="monospace">
-            {period.startDate} → {period.endDate}
+        <Group gap="xs" wrap="nowrap">
+          <IconCalendar size={13} stroke={1.5} color="#94A3B8" style={{ flexShrink: 0 }} />
+          <Text size="xs" c="dimmed" lineClamp={1}>
+            {formatRotationSpan(period.startDate, period.endDate)}
           </Text>
         </Group>
 
@@ -221,11 +228,11 @@ function PeriodCard({ period }: { period: ServicePeriodSummary }) {
 
 // ─── Assignment detail section ────────────────────────────────────────────────
 
-function AssignmentSection({ assignmentId }: { assignmentId: string }) {
+function AssignmentSection({ attempt }: { attempt: ParcoursStage }) {
   // Pause/resume/transfer mutations live in the admin & employee API slices, so they can't
   // invalidate this student-slice query's cache. Refetch on mount/arg change so revisiting the
   // stage always shows live period status (En cours / En pause / Planifié) instead of a stale snapshot.
-  const { data: assignment, isLoading } = useGetAssignmentByIdQuery(assignmentId, {
+  const { data: assignment, isLoading } = useGetAssignmentByIdQuery(attempt.assignmentId, {
     refetchOnMountOrArgChange: true,
   });
 
@@ -242,27 +249,40 @@ function AssignmentSection({ assignmentId }: { assignmentId: string }) {
   const total     = assignment.servicePeriods.length;
   const pct       = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  const statusColor = () => {
-    if (assignment.status === 'Validated' || assignment.status === 'Evaluated') return 'teal';
-    if (assignment.status === 'Ongoing' || assignment.status === 'Completed') return 'blue';
-    if (assignment.status === 'Rejected') return 'red';
-    return 'gray';
-  };
+  const note = finalNoteOf(attempt);
+  const span = formatRotationSpan(attempt.startDate, attempt.endDate);
 
   return (
     <Stack gap="md">
-      <Group justify="space-between" wrap="wrap">
+      <Group justify="space-between" wrap="wrap" gap="sm">
         <Group gap="sm">
-          <Badge color={statusColor()} variant="light" size="sm">
-            {assignment.status}
-          </Badge>
-          {assignment.finalScore !== null && (
-            <Text size="sm" fw={700} c="navy">
-              Note finale : {assignment.finalScore} / 20
+          <StageStateBadge state={stageStateOf(attempt)} />
+          {note !== null ? (
+            <Text size="sm" fw={700} c={note >= 10 ? 'teal.7' : 'red.7'}>
+              Note finale : {note.toFixed(2)} / 20
             </Text>
-          )}
+          ) : attempt.finalScore !== null ? (
+            <Tooltip label="Toutes les rotations ne sont pas encore notées" withArrow>
+              <Text size="sm" c="dimmed" fs="italic">
+                Note provisoire : {attempt.finalScore.toFixed(2)} / 20
+              </Text>
+            </Tooltip>
+          ) : null}
         </Group>
         <Text size="xs" c="dimmed">{completed}/{total} rotations terminées</Text>
+      </Group>
+
+      <Group gap="lg">
+        <Group gap={6}>
+          <IconBuildingHospital size={13} stroke={1.5} color="#94A3B8" />
+          <Text size="xs" c="dimmed">{attempt.cohortLabel}</Text>
+        </Group>
+        {span && (
+          <Group gap={6}>
+            <IconCalendar size={13} stroke={1.5} color="#94A3B8" />
+            <Text size="xs" c="dimmed">{span}</Text>
+          </Group>
+        )}
       </Group>
 
       {total > 0 && (
@@ -288,24 +308,54 @@ export default function StageDetailsPage() {
   const { id }  = useParams<{ id: string }>();
   const stageId = Number(id);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const { data: stage,   isLoading: stageLoading   } = useGetStageByIdQuery(stageId);
-  const { data: student                             } = useGetCurrentStudentQuery();
-  const registrationId = student?.currentRegistration?.id;
+  const { data: stage, isLoading: stageLoading } = useGetStageByIdQuery(stageId);
+  const { data: student } = useGetCurrentStudentQuery();
 
-  const { data: assignmentsPage, isLoading: assignmentsLoading } = useGetMyAssignmentsQuery(
-    { registrationId: registrationId ?? '', stageId },
-    { skip: !registrationId, refetchOnMountOrArgChange: true },
+  const { data: parcours, isLoading: parcoursLoading } = useGetStudentParcoursQuery(
+    student?.id ?? '',
+    { skip: !student?.id, refetchOnMountOrArgChange: true },
   );
-  const myAssignment = assignmentsPage?.items?.[0] ?? null;
+
+  // Every sitting of this stage, across every registration — a retake belongs here next to the
+  // attempt it repeats, and a stage served two years ago must not read as "pas encore affecté"
+  // just because it is absent from the current registration.
+  const attempts = useMemo<ParcoursStage[]>(
+    () =>
+      (parcours?.years ?? [])
+        .flatMap((year) => year.stages.map((s) => ({ year, stage: s })))
+        .filter(({ stage: s }) => s.stageId === stageId)
+        .sort((a, b) => b.stage.attemptNumber - a.stage.attemptNumber)
+        .map(({ stage: s }) => s),
+    [parcours, stageId],
+  );
+
+  const yearLabelOf = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const year of parcours?.years ?? []) {
+      for (const s of year.stages) map.set(s.assignmentId, year.academicYearLabel);
+    }
+    return map;
+  }, [parcours]);
+
+  const requested = searchParams.get('attempt');
+  const selected =
+    attempts.find((a) => a.assignmentId === requested) ?? attempts[0] ?? null;
+
+  const selectAttempt = (assignmentId: string) => {
+    searchParams.set('attempt', assignmentId);
+    setSearchParams(searchParams, { replace: true });
+  };
 
   return (
     <Container size="lg">
       <Stack gap="xl">
         {/* Back + title */}
-        <Group gap="sm">
+        <Group gap="sm" wrap="nowrap" align="flex-start">
           <ActionIcon
             variant="subtle" color="gray" radius="md"
+            style={{ flexShrink: 0 }}
             onClick={() => navigate(`${PATHS.STUDENT.ROOT}/${PATHS.STUDENT.STAGES}`)}
           >
             <IconArrowLeft size={18} stroke={1.5} />
@@ -313,8 +363,10 @@ export default function StageDetailsPage() {
           {stageLoading ? (
             <Skeleton height={28} width={220} radius="sm" />
           ) : (
-            <Stack gap={2}>
-              <Title order={2} fw={700}>{stage?.name}</Title>
+            <Stack gap={2} style={{ minWidth: 0 }}>
+              <Title order={2} fw={700} lineClamp={2} style={{ wordBreak: 'break-word' }}>
+                {stage?.name}
+              </Title>
               {stage?.levelResponse && (
                 <Text size="xs" c="dimmed">
                   {stage.levelResponse.label ?? `Année ${stage.levelResponse.year}`}
@@ -324,8 +376,11 @@ export default function StageDetailsPage() {
           )}
         </Group>
 
-        <SimpleGrid cols={{ base: 1, md: 3 }} spacing="xl">
-          {/* Left: stage info + objectives */}
+        {/* Grid, not SimpleGrid: the assignment panel spans two of three columns on desktop, and a
+            hard `gridColumn: span 2` inside a single-column mobile grid overflowed the viewport.
+            `order` also puts the affectation first on a phone — it is what the student came for. */}
+        <Grid gutter={{ base: 'md', md: 'xl' }} align="flex-start">
+          <Grid.Col span={{ base: 12, md: 4 }} order={{ base: 2, md: 1 }}>
           <Stack gap="md">
             <Card padding="md" radius="lg" withBorder shadow="sm">
               <Stack gap="sm">
@@ -402,45 +457,78 @@ export default function StageDetailsPage() {
               </Stack>
             </Card>
           </Stack>
+          </Grid.Col>
 
-          {/* Right: assignment (spans 2 cols) */}
-          <Box style={{ gridColumn: 'span 2' }}>
+          <Grid.Col span={{ base: 12, md: 8 }} order={{ base: 1, md: 2 }}>
             <Card padding="lg" radius="lg" withBorder shadow="sm" style={{ height: '100%' }}>
               <Stack gap="md">
-                <Group gap="sm">
-                  <IconClipboardList size={18} stroke={1.5} color="#0F4C81" />
-                  <Text fw={600} size="sm">Mon affectation</Text>
+                <Group justify="space-between" wrap="nowrap">
+                  <Group gap="sm">
+                    <IconClipboardList size={18} stroke={1.5} color="#0F4C81" />
+                    <Text fw={600} size="sm">Mon affectation</Text>
+                  </Group>
+                  {attempts.length > 1 && (
+                    <Badge size="xs" variant="light" color="grape" radius="xl">
+                      {attempts.length} tentatives
+                    </Badge>
+                  )}
                 </Group>
+
+                {/* A retake and the attempt it repeats are two different records with two different
+                    marks — switching between them is the only honest way to show both. */}
+                {attempts.length > 1 && selected && (
+                  <ScrollArea type="auto" offsetScrollbars scrollbarSize={6}>
+                    <Tabs
+                      value={selected.assignmentId}
+                      onChange={(v) => v && selectAttempt(v)}
+                      variant="outline"
+                    >
+                      <Tabs.List style={{ flexWrap: 'nowrap' }}>
+                        {attempts.map((attempt) => (
+                          <Tabs.Tab
+                            key={attempt.assignmentId}
+                            value={attempt.assignmentId}
+                            style={{ whiteSpace: 'nowrap' }}
+                          >
+                            <Group gap={6} wrap="nowrap">
+                              <span>
+                                {yearLabelOf.get(attempt.assignmentId) ??
+                                  `Tentative ${attempt.attemptNumber}`}
+                              </span>
+                              <StageStateBadge state={stageStateOf(attempt)} size="xs" />
+                            </Group>
+                          </Tabs.Tab>
+                        ))}
+                      </Tabs.List>
+                    </Tabs>
+                  </ScrollArea>
+                )}
+
                 <Divider />
 
-                {!registrationId ? (
-                  <Group gap="sm">
-                    <IconInfoCircle size={16} stroke={1.5} color="#94A3B8" />
-                    <Text size="sm" c="dimmed">Aucune inscription active.</Text>
-                  </Group>
-                ) : assignmentsLoading ? (
+                {parcoursLoading ? (
                   <Stack gap="sm">
                     <Skeleton height={40} radius="md" />
                     <Skeleton height={110} radius="md" />
                   </Stack>
-                ) : !myAssignment ? (
+                ) : !selected ? (
                   <Stack align="center" py="xl" gap="sm">
                     <ThemeIcon size={48} radius="xl" variant="light" color="gray">
                       <IconTimeline size={24} stroke={1.5} />
                     </ThemeIcon>
                     <Text size="sm" c="dimmed" ta="center">
-                      Vous n'êtes pas encore affecté à ce stage.
-                      <br />
-                      Votre coordinateur créera votre affectation prochainement.
+                      {student?.currentRegistration
+                        ? <>Vous n'êtes pas encore affecté à ce stage.<br />Votre coordinateur créera votre affectation prochainement.</>
+                        : 'Aucune inscription active.'}
                     </Text>
                   </Stack>
                 ) : (
-                  <AssignmentSection assignmentId={myAssignment.id} />
+                  <AssignmentSection key={selected.assignmentId} attempt={selected} />
                 )}
               </Stack>
             </Card>
-          </Box>
-        </SimpleGrid>
+          </Grid.Col>
+        </Grid>
       </Stack>
     </Container>
   );
