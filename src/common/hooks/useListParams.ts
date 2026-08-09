@@ -77,18 +77,33 @@ export function useListParams<TFilters extends Record<string, string | null>>(
   const page = Math.max(1, Number(params.get('page')) || 1);
 
   /**
-   * Holds what we have asked for but not yet had rendered back to us.
+   * The params we intend, which is not always the params React has rendered.
    *
-   * ⚠ `setSearchParams` is not a React state setter: its function form receives the params as of the
-   * last *render*, not the pending value. So two calls in one tick both start from the same stale base
-   * and the second silently discards the first — which is exactly how selecting a stage on the
-   * Affectations page stopped working, because the handler set the stage and then cleared the status
-   * filter. Composing through this ref makes consecutive calls accumulate instead of clobbering.
+   * Two problems it solves at once:
+   *
+   * ⚠ `setSearchParams` is not a React state setter — its function form receives the params as of the
+   * last *render*, not the pending value. Two calls in one tick both start from the same stale base and
+   * the second silently discards the first, which is how selecting a stage on Affectations stopped
+   * working (the handler set the stage, then cleared the status filter). Reading and writing this ref
+   * makes consecutive calls accumulate instead of clobbering.
+   *
+   * ⚠ Reading `params` inside `patch` would make `patch` — and therefore every setter below — take a new
+   * identity on each URL change. Any effect listing a setter in its deps then re-runs on every
+   * navigation: that reset the students list to page 1 the instant you clicked page 2, and wiped the
+   * cohort selection on Affectations the instant you typed in the search box. The setters must be
+   * stable, so the only dependency here is `setParams`.
    */
-  const pending = useRef<URLSearchParams | null>(null);
+  const intended = useRef(params);
   useEffect(() => {
-    pending.current = null;
+    intended.current = params;
   }, [params]);
+
+  // ⚠ React Router's own `setSearchParams` is memoised on `searchParams`, so it is not stable either —
+  // depending on it directly would reintroduce exactly the churn described above. Call it through a ref.
+  const commit = useRef(setParams);
+  useEffect(() => {
+    commit.current = setParams;
+  }, [setParams]);
 
   /**
    * Absent and default are the same thing, so a default value is removed rather than written. That
@@ -97,18 +112,20 @@ export function useListParams<TFilters extends Record<string, string | null>>(
    */
   const patch = useCallback(
     (next: Record<string, string | null>) => {
-      const merged = new URLSearchParams(pending.current ?? params);
+      const merged = new URLSearchParams(intended.current);
       for (const [key, value] of Object.entries(next)) {
         if (value === null || value === '') merged.delete(key);
         else merged.set(key, value);
       }
-      pending.current = merged;
+      intended.current = merged;
 
       // A filter change is not a new place — it must not stack history entries you have to press
       // back through one at a time to leave the page.
-      setParams(merged, { replace: true });
+      commit.current(merged, { replace: true });
     },
-    [params, setParams],
+    // No dependencies on purpose: every setter derived from this must keep a stable identity, or an
+    // effect listing one re-runs on every navigation.
+    [],
   );
 
   // Local so typing is instant and lossless; the URL is written from the settled value below.
@@ -117,10 +134,10 @@ export function useListParams<TFilters extends Record<string, string | null>>(
 
   useEffect(() => {
     if (debouncedSearch !== urlSearch) patch({ q: debouncedSearch, page: null });
-    // patch is intentionally excluded: it changes identity on every params change, which would make
-    // this effect re-run and write the URL again in a loop.
+    // urlSearch is read but deliberately not a dependency: it changes *because* of this effect, and
+    // listing it would run the write again on the render that observes it. patch is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch]);
+  }, [debouncedSearch, patch]);
 
   // The URL moving on its own — back/forward, or a pasted link — has to reach the input.
   useEffect(() => {
@@ -159,7 +176,8 @@ export function useListParams<TFilters extends Record<string, string | null>>(
       filterKeys.some((key) => (params.get(key) ?? defaultFilters[key]) !== defaultFilters[key]),
 
     reset: useCallback(() => {
-      setParams(new URLSearchParams(), { replace: true });
-    }, [setParams]),
+      intended.current = new URLSearchParams();
+      commit.current(intended.current, { replace: true });
+    }, []),
   };
 }
