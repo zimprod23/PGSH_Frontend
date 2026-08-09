@@ -31,6 +31,7 @@ import {
   IconUsersGroup,
 } from '@tabler/icons-react';
 import { useState, useMemo, useEffect } from 'react';
+import { useListParams } from '../../../common/hooks/useListParams';
 import { useNavigate } from 'react-router-dom';
 import {
   useGetStagesQuery,
@@ -61,6 +62,9 @@ interface StageForm {
 const EMPTY_FORM: StageForm = {
   name: '', levelId: null, durationInDays: 30, coefficient: 1, description: '', objectives: [],
 };
+
+/** Module-level so its identity is stable — useListParams memoises on it. */
+const STAGE_FILTERS = { level: null as string | null };
 
 const newObjective = (): ObjectiveRow => ({
   _key: crypto.randomUUID(), label: '', description: '', weight: 10, isMandatory: false,
@@ -261,9 +265,11 @@ export default function StagesPage() {
   const navigate = useNavigate();
   const notify = useNotify();
 
-  const [search, setSearch] = useState('');
-  const [levelFilter, setLevelFilter] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
+  // In the URL, not in component state: opening a stage and coming back must not lose the filter you
+  // narrowed the list with. See useListParams for why this also costs fewer requests.
+  const { search, setSearch, filters, setFilter, page, setPage } =
+    useListParams<{ level: string | null }>(STAGE_FILTERS);
+  const levelFilter = filters.level;
   const PAGE_SIZE = 15;
 
   const [debouncedSearch] = useDebouncedValue(search, 350);
@@ -357,14 +363,14 @@ export default function StagesPage() {
               <TextInput
                 placeholder="Rechercher un stage…"
                 value={search}
-                onChange={(e) => { setSearch(e.currentTarget.value); setPage(1); }}
+                onChange={(e) => setSearch(e.currentTarget.value)}
                 radius="md"
                 style={{ flex: 1, minWidth: rem(200) }}
               />
               <Select
                 data={levelOptions}
                 value={levelFilter ?? ''}
-                onChange={(v) => { setLevelFilter(v || null); setPage(1); }}
+                onChange={(v) => setFilter('level', v || null)}
                 radius="md"
                 w={220}
                 placeholder="Filtrer par niveau"

@@ -67,6 +67,7 @@ import type {
   PauseKind,
 } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
+import { useListParams } from '../../../common/hooks/useListParams';
 import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import { StudentRecordModal } from '../components/StudentRecordModal';
@@ -319,18 +320,26 @@ function CohortPlanMiniCard({ cohortId }: { cohortId: number }) {
 
 const PAGE_SIZE = 25;
 
+type AssignmentFilters = { stage: string | null; status: string | null };
+/** Module-level so its identity is stable — useListParams memoises on it. */
+const ASSIGNMENT_FILTERS: AssignmentFilters = { stage: null, status: null };
+
 export default function AssignmentsPage() {
   const notify = useNotify();
   const isMobile = useMediaQuery('(max-width: 768px)');
 
-  const [stageId,       setStageId]       = useState<string | null>(null);
+  // Stage, status filter, search and page live in the URL: picking a stage, opening a record and
+  // coming back must not drop you on an unfiltered list of every stage again.
+  const { search, setSearch, filters, setFilter, page, setPage } =
+    useListParams<AssignmentFilters>(ASSIGNMENT_FILTERS);
+  const stageId = filters.stage;
+  const statusFilter = filters.status as InternshipStatus | null;
+  const setStageId = (v: string | null) => setFilter('stage', v);
+
   const [selectedIds,   setSelectedIds]   = useState<number[]>([]);
   const [selectedPeriods, setSelectedPeriods] = useState<number[]>([]);
   const [focusedId,     setFocusedId]     = useState<number | null>(null);
-  const [statusFilter,  setStatusFilter]  = useState<InternshipStatus | null>(null);
-  const [search,        setSearch]        = useState('');
   const [debouncedSearch] = useDebouncedValue(search, 350);
-  const [page,          setPage]          = useState(1);
   const [groupingMode,  setGroupingMode]  = useState<'status' | 'rotation'>('status');
   const [drawerOpen,    { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
 
@@ -393,16 +402,16 @@ export default function AssignmentsPage() {
         return occupied ? [...occupied].some((pn) => effectivePeriods.includes(pn)) : false;
       });
 
-  // Clear selections when the year or stage changes
+  // Clear selections when the year or stage changes. Changing the stage already resets the page (it
+  // goes through setFilter); a year change from the navbar does not, so it is reset here.
   useEffect(() => {
     setSelectedIds([]);
     setFocusedId(null);
     setSelectedPeriods([]);
     setPage(1);
-  }, [currentYearId, stageId]);
+  }, [currentYearId, stageId, setPage]);
 
-  // A new search term restarts pagination so results aren't hidden past the current page.
-  useEffect(() => { setPage(1); }, [debouncedSearch]);
+  // Pagination reset on a new search term or stage is handled by useListParams' setters.
 
   const planGroups = visibleCohorts.reduce<Record<string, CohortResponse[]>>((acc, c) => {
     const key = c.isSchedulePublished ? 'Publié' : c.slotAssignmentCount > 0 ? 'Configuré' : 'Sans planning';
@@ -561,8 +570,7 @@ export default function AssignmentsPage() {
 
   const setFocus = (id: number) => {
     setFocusedId(id);
-    setStatusFilter(null);
-    setPage(1);
+    setFilter('status', null);
     if (isMobile) closeDrawer();
   };
 
@@ -571,8 +579,7 @@ export default function AssignmentsPage() {
     setSelectedIds([]);
     setFocusedId(null);
     setSelectedPeriods([]);
-    setStatusFilter(null);
-    setPage(1);
+    setFilter('status', null);
   };
 
   const stageOptions  = stages.map((s) => ({ value: String(s.id), label: s.name }));
@@ -879,7 +886,7 @@ export default function AssignmentsPage() {
                               placeholder="Tous les statuts"
                               data={statusOptions}
                               value={statusFilter}
-                              onChange={(v) => { setStatusFilter(v as InternshipStatus | null); setPage(1); }}
+                              onChange={(v) => setFilter('status', v)}
                               clearable size="xs" w={160}
                             />
                           </Group>
