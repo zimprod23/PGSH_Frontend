@@ -22,7 +22,7 @@ import {
   Tooltip,
   rem,
 } from '@mantine/core';
-import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
+import { useDisclosure } from '@mantine/hooks';
 import {
   IconPencil,
   IconPlus,
@@ -267,12 +267,11 @@ export default function StagesPage() {
 
   // In the URL, not in component state: opening a stage and coming back must not lose the filter you
   // narrowed the list with. See useListParams for why this also costs fewer requests.
-  const { search, setSearch, filters, setFilter, page, setPage } =
+  const { search, setSearch, debouncedSearch, filters, setFilter, page, setPage } =
     useListParams<{ level: string | null }>(STAGE_FILTERS);
   const levelFilter = filters.level;
   const PAGE_SIZE = 15;
 
-  const [debouncedSearch] = useDebouncedValue(search, 350);
 
   const { data: levels = [] } = useGetLevelsQuery(undefined);
   const { data, isLoading, isFetching } = useGetStagesQuery({

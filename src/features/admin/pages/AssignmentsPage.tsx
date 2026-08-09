@@ -26,7 +26,7 @@ import {
   Title,
   Tooltip,
 } from '@mantine/core';
-import { useDisclosure, useMediaQuery, useDebouncedValue } from '@mantine/hooks';
+import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
   IconArrowRight,
   IconBuildingHospital,
@@ -330,16 +330,14 @@ export default function AssignmentsPage() {
 
   // Stage, status filter, search and page live in the URL: picking a stage, opening a record and
   // coming back must not drop you on an unfiltered list of every stage again.
-  const { search, setSearch, filters, setFilter, page, setPage } =
+  const { search, setSearch, debouncedSearch, filters, setFilter, setFilters, page, setPage } =
     useListParams<AssignmentFilters>(ASSIGNMENT_FILTERS);
   const stageId = filters.stage;
   const statusFilter = filters.status as InternshipStatus | null;
-  const setStageId = (v: string | null) => setFilter('stage', v);
 
   const [selectedIds,   setSelectedIds]   = useState<number[]>([]);
   const [selectedPeriods, setSelectedPeriods] = useState<number[]>([]);
   const [focusedId,     setFocusedId]     = useState<number | null>(null);
-  const [debouncedSearch] = useDebouncedValue(search, 350);
   const [groupingMode,  setGroupingMode]  = useState<'status' | 'rotation'>('status');
   const [drawerOpen,    { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
 
@@ -575,11 +573,12 @@ export default function AssignmentsPage() {
   };
 
   const handleStageChange = (v: string | null) => {
-    setStageId(v);
     setSelectedIds([]);
     setFocusedId(null);
     setSelectedPeriods([]);
-    setFilter('status', null);
+    // One atomic update: two consecutive patches would both start from the pre-render params and the
+    // second would drop the stage — which is what broke stage selection here.
+    setFilters({ stage: v, status: null });
   };
 
   const stageOptions  = stages.map((s) => ({ value: String(s.id), label: s.name }));

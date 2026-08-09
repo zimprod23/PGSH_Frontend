@@ -17,9 +17,9 @@ import {
   Title,
   rem,
 } from '@mantine/core';
-import { useDebouncedValue } from '@mantine/hooks';
 import { IconSearch, IconUsers } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { useListParams } from '../../../../common/hooks/useListParams';
 import { useNavigate } from 'react-router-dom';
 import { useGetStudentsQuery } from '../../api/adminApi';
 import { useAcademicYear } from '../../contexts/AcademicYearContext';
@@ -72,21 +72,27 @@ function SkeletonRows({ count }: { count: number }) {
   );
 }
 
+type StudentFilters = { program: string | null; size: string | null };
+/** Module-level so its identity is stable — useListParams memoises on it. */
+const STUDENT_FILTERS: StudentFilters = { program: '', size: '15' };
+
 export default function StudentListPage() {
   const navigate = useNavigate();
 
-  const [search, setSearch]         = useState('');
-  const [program, setProgram]       = useState('');
-  const [page, setPage]             = useState(1);
-  const [pageSize, setPageSize]     = useState(15);
+  // In the URL so opening a student and coming back keeps the search, the programme and the page.
+  const { search, setSearch, debouncedSearch, filters, setFilter, page, setPage } =
+    useListParams<StudentFilters>(STUDENT_FILTERS);
+  const program = filters.program ?? '';
+  const pageSize = Number(filters.size) || 15;
+  const setProgram = (v: string) => setFilter('program', v);
 
-  const [debouncedSearch] = useDebouncedValue(search, 350);
 
   // The navbar's globally-selected year drives the Niveau/Groupe/Statut columns: they reflect
   // that year's registration (blank when the student wasn't registered then).
   const { currentYearId } = useAcademicYear();
 
-  useEffect(() => { setPage(1); }, [debouncedSearch, program, currentYearId]);
+  // Search and programme reset the page through useListParams' setters; a navbar year change does not.
+  useEffect(() => { setPage(1); }, [currentYearId, setPage]);
 
   const { data, isLoading, isFetching } = useGetStudentsQuery({
     searchTerm: debouncedSearch.trim() || undefined,
@@ -124,7 +130,7 @@ export default function StudentListPage() {
               />
               <Select
                 value={String(pageSize)}
-                onChange={(v) => { if (v) { setPageSize(Number(v)); setPage(1); } }}
+                onChange={(v) => { if (v) setFilter('size', v); }}
                 data={PAGE_SIZE_OPTIONS.map(v => ({ value: v, label: `${v} / page` }))}
                 radius="md"
                 w={120}
