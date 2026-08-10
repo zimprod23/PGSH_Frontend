@@ -23,6 +23,8 @@ export const PATHS = {
     GROUPS:          'groups',
     GROUP_DETAIL:    'groups/:id',
     TIMELINE:        'timeline',
+    REPARTITION:     'repartition',
+    ROTATION_CYCLE:  'rotation-cycle',
     LEVELS:          'levels',
     CURRICULUM:      'curriculum',
     STAGES:          'stages',

@@ -44,6 +44,7 @@ export interface CenterSummaryResponse {
   city: string | null;
   x: string | null;
   y: string | null;
+  z: string | null;
 }
 
 export interface CreateCenterRequest {
@@ -63,6 +64,10 @@ export interface HospitalSummaryResponse {
   hospitalType: string;
   city: string;
   email: string | null;
+  description: string | null;
+  x: string | null;
+  y: string | null;
+  z: string | null;
 }
 
 export interface CreateHospitalRequest {
@@ -72,6 +77,27 @@ export interface CreateHospitalRequest {
   city: string;
   description?: string;
   email?: string;
+  localizationX?: string;
+  localizationY?: string;
+  localizationZ?: string;
+}
+
+/**
+ * One intake rule: this service takes `capacity` students of `levelId` at once.
+ *
+ * A service whose list is EMPTY takes every promotion up to its own `capacity` — that is the
+ * unrestricted default, not an unconfigured one. Adding the first rule closes the service to every
+ * level without one, so the editor must say so before saving.
+ */
+export interface ServiceLevelCapacity {
+  levelId: number;
+  capacity: number;
+}
+
+export interface ServiceLevelCapacityResponse extends ServiceLevelCapacity {
+  levelLabel: string | null;
+  levelYear: number;
+  academicProgram: AcademicProgram;
 }
 
 export interface ServiceSummaryResponse {
@@ -80,6 +106,8 @@ export interface ServiceSummaryResponse {
   serviceType: string;
   specialty: string | null;
   capacity: number;
+  /** 0 = no intake rules, i.e. open to every promotion. */
+  restrictedLevelCount: number;
   hospitalId: number;
   hospitalName: string;
   serviceChefName: string | null;
@@ -93,6 +121,10 @@ export interface CreateServiceRequest {
   specialty?: string;
   capacity: number;
   description: string;
+  localizationX?: string;
+  localizationY?: string;
+  localizationZ?: string;
+  levelCapacities?: ServiceLevelCapacity[];
 }
 
 // ─── Stages ─────────────────────────────────────────────────────────────────
@@ -360,10 +392,11 @@ export interface CohortResponse {
   studentAssignmentCount: number;
   slotAssignmentCount: number;
   isSchedulePublished: boolean;
-  cnpnVersionId: number;
-  cnpnVersionCode: string;
-  cnpnVersionLabel: string;
-  totalYears: number;
+  // A cohort is year-constituted (group × stage, and groups exist per year). It carries no CNPN
+  // version — that lives on the student. These four were `cnpnVersionId/Code/Label/totalYears`,
+  // which the endpoint has never returned, so they read `undefined` at runtime.
+  academicYearId: number;
+  academicYearLabel: string;
   rotationGroup: string | null;
 }
 
@@ -401,14 +434,24 @@ export interface StageSlotResponse {
   endDate: string;      // YYYY-MM-DD
 }
 
+/**
+ * `capacity` / `occupiedSeats` are the ONE limit governing this cell and the load measured against
+ * it — never two competing numbers, because quotas replace a service's total rather than sitting
+ * under it. `isLevelQuota` says which rule is in force, and therefore what the numbers count:
+ *  - `true`  — the quota granted to this stage's promotion, against that promotion's students alone.
+ *  - `false` — the service's own total, against every promotion sharing it over these dates.
+ */
 export interface SlotCellResponse {
   assignmentId: number;
   stageSlotId: number;
   serviceId: number;
   serviceName: string;
   hospitalName: string;
-  serviceCapacity: number;
+  capacity: number;
   occupiedSeats: number;
+  isLevelQuota: boolean;
+  /** False when the service refuses this promotion outright — publish will reject the cell. */
+  admitsLevel: boolean;
 }
 
 export interface CohortScheduleRow {
@@ -428,9 +471,71 @@ export interface StageScheduleResponse {
   cohorts: CohortScheduleRow[];
 }
 
+// ─── Répartition annuelle des stages ──────────────────────────────────────────
+// The table the faculty publishes: the schedule grid turned a quarter. Rows are
+// (stage, service) across the whole level, columns are the level's periods, cells
+// are collapsed group-number ranges. Planning only — no marks, no execution state.
+
+export interface RepartitionColumn {
+  index: number;
+  startDate: string;    // YYYY-MM-DD
+  endDate: string;      // YYYY-MM-DD
+}
+
+export interface RepartitionCell {
+  slotId: number;
+  periodNumber: number;
+  /** Already collapsed server-side: "47-50", "47-48, 50", "27". */
+  groups: string;
+  groupNumbers: number[];
+}
+
+export interface RepartitionRow {
+  stageId: number;
+  stageName: string;
+  serviceId: number;
+  serviceName: string;
+  hospitalName: string;
+  chefName: string | null;
+  /**
+   * True when `chefName` came off the legacy « Responsable (source) » note in the service
+   * description rather than a chef linked to the service. Printed the same either way — the flag
+   * only drives a hint in the app that linking a real chef makes the attribution dated.
+   */
+  chefIsFromSourceNote: boolean;
+  /** Partition of the period the row opens on — drives the colour banding. */
+  rotationGroup: string | null;
+  /** Aligned 1:1 with the columns; null is a period with nothing planned. */
+  cells: (RepartitionCell | null)[];
+}
+
+export interface RepartitionSummary {
+  rowCount: number;
+  columnCount: number;
+  plannedCells: number;
+  emptyCells: number;
+  groupCount: number;
+}
+
+export interface LevelRepartitionResponse {
+  levelId: number;
+  levelLabel: string | null;
+  levelYear: number;
+  program: AcademicProgram;
+  academicYearId: number;
+  academicYearLabel: string;
+  columns: RepartitionColumn[];
+  rows: RepartitionRow[];
+  summary: RepartitionSummary;
+}
+
 export interface CreateStageSlotRequest {
-  /** Periods are per (stage, year) — the same P1 exists once per promotion, with its own dates. */
-  cnpnVersionId: number;
+  /**
+   * Periods are per (stage, **year**) — the same P1 exists once per promotion, with its own dates.
+   * This said `cnpnVersionId` while the endpoint has always bound `AcademicYearId`; the name was
+   * borrowed from the curriculum routes, which really are keyed by CNPN version. Slots are not.
+   */
+  academicYearId: number;
   periodNumber: number;
   label?: string;
   startDate: string;    // YYYY-MM-DD
@@ -457,10 +562,9 @@ export interface AcademicGroupResponse {
   id: number;
   label: string;
   groupNumber: number;
-  cnpnVersionId: number;
-  cnpnVersionCode: string;
-  cnpnVersionLabel: string;
-  totalYears: number;
+  /** A roster is year-constituted — remove the year and it is not a roster. Never CNPN-keyed. */
+  academicYearId: number;
+  academicYearLabel: string;
   rotationGroup: string | null;
   levelId: number | null;
   levelLabel: string | null;
@@ -474,10 +578,8 @@ export interface GroupDetailResponse {
   groupNumber: number;
   geographicZone: string | null;
   rotationGroup: string | null;
-  cnpnVersionId: number;
-  cnpnVersionCode: string;
-  cnpnVersionLabel: string;
-  totalYears: number;
+  academicYearId: number;
+  academicYearLabel: string;
   /** Whole roster, independent of the page being viewed. */
   studentCount: number;
   /**
@@ -718,7 +820,8 @@ export interface PartitionStagePlan {
 }
 
 export interface GenerateMacroPlanRequest {
-  cnpnVersionId: number;
+  /** The promotion being planned. `GenerateMacroPlanCommand` binds `AcademicYearId`. */
+  academicYearId: number;
   plans: PartitionStagePlan[];
   assignStudents: boolean;
   autoArrange: boolean;
@@ -740,6 +843,12 @@ export interface MacroPlanResult {
    * out a partition looks like it worked.
    */
   cohortsNotRequiredByCnpn: number;
+  /**
+   * Cells the arranger declined because the group was already placed in an overlapping period of
+   * another stage — the plan's partitions were authored to collide. Shown for the same reason as
+   * the line above: a stage that arranged nothing otherwise looks like it had nothing to do.
+   */
+  groupConflicts: number;
 }
 
 // ─── Stage timeline (calendar) ─────────────────────────────────────────────────
@@ -802,13 +911,15 @@ export interface YearTimelineResponse {
 
 export interface AutoArrangeRequest {
   levelId: number;
-  cnpnVersionId: number;
+  /** Groups are arranged within one promotion — `AutoArrangeGroupsCommand` binds `AcademicYearId`. */
+  academicYearId: number;
   groupSize: number;
 }
 
 export interface CreateRegistrationRequest {
   studentId: string;
-  cnpnVersionId: number;
+  /** A registration links student ↔ year ↔ level; the CNPN version is derived, never posted. */
+  academicYearId: number;
   levelId: number;
   status?: RegistrationStatus;
 }
@@ -909,14 +1020,82 @@ export interface ServiceDetailResponse {
   name: string;
   description: string;
   serviceType: string;
+  specialty: string | null;
   capacity: number;
   hospitalId: number;
   hospitalName: string;
   hospitalCity: string;
   hospitalDescription: string | null;
-  latitude: string | null;
-  longitude: string | null;
+  /** The service's own coordinates when it has them, the hospital's otherwise. */
+  localizationX: string | null;
+  localizationY: string | null;
+  localizationZ: string | null;
+  /** False when the coordinates above are the hospital's — never save those back as the service's own. */
+  hasOwnLocalization: boolean;
   serviceChef: ServiceChefSummary | null;
+  levelCapacities: ServiceLevelCapacityResponse[];
   staff: StaffMemberResponse[];
 }
 
+// ── Rotation cycle ────────────────────────────────────────────────────────────────────────────────
+// A block of stages that run concurrently on one shared axis. See the backend's RotationCyclePlanner:
+// T = Σkₛ columns, and stage s holds Lₛ = P·kₛ/T partitions at once.
+
+export interface RotationStageInput {
+  stageId: number;
+  /** Columns a partition spends here — i.e. how many *different services* it passes through. */
+  periods: number;
+}
+
+export interface DateWindowInput {
+  startDate: string;
+  endDate: string;
+}
+
+export interface RotationCycleRequest {
+  stages: RotationStageInput[];
+  /** The axis at its finest granularity, entered once for the whole block. */
+  windows: DateWindowInput[];
+  academicYearId?: number;
+}
+
+export interface RotationColumn {
+  number: number;
+  startDate: string;
+  endDate: string;
+}
+
+export interface StageTiling {
+  stageId: number;
+  periods: number;
+  slotCount: number;
+  /** How many partitions sit in this stage at the same time. */
+  concurrency: number;
+}
+
+export interface RotationCycleLayout {
+  timeline: number;
+  /** The partition count this block needs a multiple of. */
+  partitionStep: number;
+  columns: RotationColumn[];
+  stages: StageTiling[];
+  matrix: PartitionStagePlan[];
+  warnings: string[];
+}
+
+export interface RotationCyclePreview {
+  academicYearLabel: string;
+  levelLabel: string;
+  stages: { stageId: number; name: string }[];
+  layout: RotationCycleLayout;
+  existingSlots: number;
+  publishedCells: number;
+  canApply: boolean;
+}
+
+export interface RotationCycleResult {
+  slotsCreated: number;
+  slotsReplaced: number;
+  layout: RotationCycleLayout;
+  matrix: PartitionStagePlan[];
+}

@@ -28,6 +28,8 @@ import {
   IconBriefcase,
   IconStethoscope,
   IconCalendarEvent,
+  IconTable,
+  IconRefresh,
   IconClipboardCheck,
   IconBell,
   IconSearch,
@@ -97,6 +99,8 @@ const NAV: NavEntry[] = [
     items: [
       { kind: 'leaf', label: 'Stages',   icon: IconStethoscope, path: `${ROOT}/stages`   },
       { kind: 'leaf', label: 'Calendrier', icon: IconCalendarEvent, path: `${ROOT}/timeline` },
+      { kind: 'leaf', label: 'Répartition annuelle', icon: IconTable, path: `${ROOT}/repartition` },
+      { kind: 'leaf', label: 'Bloc de rotation', icon: IconRefresh, path: `${ROOT}/rotation-cycle` },
     ],
   },
   {

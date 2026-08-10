@@ -61,8 +61,12 @@ import type {
   BulkCohortsFromPartitionsResult,
   GenerateMacroPlanRequest,
   MacroPlanResult,
+  RotationCycleRequest,
+  RotationCyclePreview,
+  RotationCycleResult,
   YearTimelineResponse,
   PauseKind,
+  LevelRepartitionResponse,
 } from '../types/admin.types';
 
 export const adminApiSlice = apiSlice.injectEndpoints({
@@ -105,6 +109,24 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
       transformResponse: (res: PaginatedResponse<AdminLevelResponse>) => res.items,
       providesTags: [{ type: 'Level', id: 'LIST' }],
+    }),
+
+    // The published planning matrix. Not paginated by design — rows are the services of one level
+    // (tens) and columns its periods (≤ ~10) — but the response carries the shape in `summary` so
+    // the page can assert it instead of assuming it.
+    getLevelRepartition: builder.query<
+      LevelRepartitionResponse,
+      { levelId: number; academicYearId?: number }
+    >({
+      query: ({ levelId, academicYearId }) => ({
+        url: `/levels/${levelId}/repartition`,
+        params: academicYearId ? { academicYearId } : undefined,
+      }),
+      // A coarse tag, not one per level: the planning mutations know only a stageId and cannot work
+      // out which level's matrix they changed. Without this the page served a cached pre-arrange
+      // matrix for up to 60s, and "Télécharger (.html)" exported that stale document to the faculty
+      // site — the one failure this artefact must not have.
+      providesTags: [{ type: 'Stage' as const, id: 'REPARTITION' }],
     }),
 
     createLevel: builder.mutation<number, CreateLevelRequest>({
@@ -158,19 +180,28 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: [{ type: 'Hospital', id: 'LIST' }],
     }),
 
-    getServices: builder.query<PaginatedResponse<ServiceSummaryResponse>, { hospitalId?: number; searchTerm?: string; pageNumber?: number; pageSize?: number }>({
+    // `admitsLevelId` narrows to the services that would actually take one promotion — those with a
+    // quota for it, plus every unrestricted service, since those take all comers.
+    getServices: builder.query<PaginatedResponse<ServiceSummaryResponse>, { hospitalId?: number; admitsLevelId?: number; searchTerm?: string; pageNumber?: number; pageSize?: number }>({
       query: (params) => ({ url: '/services', params }),
       providesTags: [{ type: 'Service' as const, id: 'LIST' }],
     }),
 
     createService: builder.mutation<number, CreateServiceRequest>({
       query: (body) => ({ url: '/services', method: 'POST', body }),
-      invalidatesTags: [{ type: 'Service', id: 'LIST' }],
+      // Service/LIST already reaches the schedule grid, which provides it. TIMELINE does not, and
+      // its saturation flag now reads the quotas too — a stale one shows a plan as publishable
+      // when it is not.
+      invalidatesTags: [{ type: 'Service', id: 'LIST' }, { type: 'Stage', id: 'TIMELINE' }],
     }),
 
     updateService: builder.mutation<void, { id: number } & CreateServiceRequest>({
       query: ({ id, ...body }) => ({ url: `/services/${id}`, method: 'PUT', body }),
-      invalidatesTags: [{ type: 'Service', id: 'LIST' }],
+      invalidatesTags: (_r, _e, { id }) => [
+        { type: 'Service', id: 'LIST' },
+        { type: 'Service', id: `detail-${id}` },
+        { type: 'Stage', id: 'TIMELINE' },
+      ],
     }),
 
     deleteService: builder.mutation<void, number>({
@@ -502,32 +533,50 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     createStageSlot: builder.mutation<number, { stageId: number } & CreateStageSlotRequest>({
       query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/slots`, method: 'POST', body }),
-      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'REPARTITION' },
+      ],
     }),
 
     updateStageSlot: builder.mutation<void, { stageId: number; slotId: number } & UpdateStageSlotRequest>({
       query: ({ stageId, slotId, ...body }) => ({ url: `/stages/${stageId}/slots/${slotId}`, method: 'PUT', body }),
-      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'REPARTITION' },
+      ],
     }),
 
     deleteStageSlot: builder.mutation<void, { stageId: number; slotId: number }>({
       query: ({ stageId, slotId }) => ({ url: `/stages/${stageId}/slots/${slotId}`, method: 'DELETE' }),
-      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'REPARTITION' },
+      ],
     }),
 
     setCohortSlotAssignment: builder.mutation<number, { stageId: number; slotId: number; cohortId: number } & SetCohortSlotAssignmentRequest>({
       query: ({ stageId, slotId, cohortId, ...body }) => ({ url: `/stages/${stageId}/slots/${slotId}/cohorts/${cohortId}`, method: 'PUT', body }),
-      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'REPARTITION' },
+      ],
     }),
 
     clearCohortSlotAssignment: builder.mutation<void, { stageId: number; slotId: number; cohortId: number }>({
       query: ({ stageId, slotId, cohortId }) => ({ url: `/stages/${stageId}/slots/${slotId}/cohorts/${cohortId}`, method: 'DELETE' }),
-      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'REPARTITION' },
+      ],
     }),
 
     clearSlotAssignments: builder.mutation<{ cleared: number; skipped: number }, { stageId: number; slotId: number }>({
       query: ({ stageId, slotId }) => ({ url: `/stages/${stageId}/slots/${slotId}/cohorts`, method: 'DELETE' }),
-      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `schedule-${stageId}` }],
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'REPARTITION' },
+      ],
     }),
 
     publishSchedule: builder.mutation<void, { cohortId: number; stageId: number; allowOverCapacity?: boolean }>({
@@ -541,6 +590,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         { type: 'Stage' as const, id: `cohort-detail-${cohortId}` },
         { type: 'Stage' as const, id: `cohorts-${stageId}` },
         { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'REPARTITION' },
         { type: 'Stage' as const, id: 'TIMELINE' },
       ],
     }),
@@ -552,11 +602,19 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         { type: 'Stage' as const, id: `cohort-detail-${cohortId}` },
         { type: 'Stage' as const, id: `cohorts-${stageId}` },
         { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'REPARTITION' },
       ],
     }),
 
     autoArrangeStageSchedule: builder.mutation<
-      { assigned: number; saturatedServices: number; totalStudents: number; totalCapacity: number },
+      {
+        assigned: number;
+        saturatedServices: number;
+        totalStudents: number;
+        totalCapacity: number;
+        /** Cells skipped because the group was already placed in an overlapping period of another stage. */
+        groupConflicts: number;
+      },
       { stageId: number; academicYearId?: number; partitionCount?: number; partitionLabels?: string[]; periodNumbers?: number[] }
     >({
       query: ({ stageId, ...body }) => ({
@@ -566,6 +624,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (_r, _e, { stageId }) => [
         { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'REPARTITION' },
         { type: 'Level' as const, id: 'GROUPS' },
       ],
     }),
@@ -584,6 +643,38 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         { type: 'Stage' as const, id: `cohorts-${stageId}` },
         { type: 'Stage' as const, id: `schedule-${stageId}` },
         { type: 'Stage' as const, id: 'TIMELINE' },
+      ],
+    }),
+
+    previewRotationCycle: builder.mutation<
+      RotationCyclePreview,
+      { levelId: number } & RotationCycleRequest
+    >({
+      query: ({ levelId, ...body }) => ({
+        url: `/levels/${levelId}/rotation-cycle/preview`,
+        method: 'POST',
+        body,
+      }),
+      // A dry run writes nothing, so it invalidates nothing.
+    }),
+
+    applyRotationCycle: builder.mutation<
+      RotationCycleResult,
+      { levelId: number } & RotationCycleRequest
+    >({
+      query: ({ levelId, ...body }) => ({
+        url: `/levels/${levelId}/rotation-cycle`,
+        method: 'POST',
+        body,
+      }),
+      // Rewrites every slot of the block, so the grids, the timeline and the répartition all move.
+      invalidatesTags: (_r, _e, { stages }) => [
+        { type: 'Stage' as const, id: 'TIMELINE' },
+        { type: 'Level' as const, id: 'REPARTITION' },
+        ...stages.flatMap((s) => [
+          { type: 'Stage' as const, id: `schedule-${s.stageId}` },
+          { type: 'Stage' as const, id: `cohorts-${s.stageId}` },
+        ]),
       ],
     }),
 
@@ -880,6 +971,7 @@ export const {
   useGetAcademicYearsQuery,
   useCreateAcademicYearMutation,
   useGetLevelsQuery,
+  useGetLevelRepartitionQuery,
   useCreateLevelMutation,
   useUpdateLevelMutation,
   useGetCnpnVersionsQuery,
@@ -943,6 +1035,8 @@ export const {
   useAutoArrangeStageScheduleMutation,
   usePublishStageScheduleMutation,
   useGenerateMacroPlanMutation,
+  usePreviewRotationCycleMutation,
+  useApplyRotationCycleMutation,
   useCreateRegistrationMutation,
   useUpdateRegistrationMutation,
   useGetServicePeriodsQuery,

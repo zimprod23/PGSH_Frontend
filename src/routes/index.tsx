@@ -35,6 +35,8 @@ const CurriculumPage          = lazy(() => import('../features/admin/pages/Curri
 const GroupsPage              = lazy(() => import('../features/admin/pages/GroupsPage'));
 const GroupDetailPage         = lazy(() => import('../features/admin/pages/GroupDetailPage'));
 const StageTimelinePage       = lazy(() => import('../features/admin/pages/StageTimelinePage'));
+const RepartitionPage         = lazy(() => import('../features/admin/pages/RepartitionPage'));
+const RotationCyclePage       = lazy(() => import('../features/admin/pages/RotationCyclePage'));
 const StagesPage              = lazy(() => import('../features/admin/pages/StagesPage'));
 const StageDetailPage         = lazy(() => import('../features/admin/pages/StageDetailPage'));
 const InfrastructurePage      = lazy(() => import('../features/admin/pages/InfrastructurePage'));
@@ -131,6 +133,8 @@ export const router = createBrowserRouter([
                 ],
               },
               { path: PATHS.ADMIN.TIMELINE,    element: wrap(<StageTimelinePage />) },
+              { path: PATHS.ADMIN.REPARTITION, element: wrap(<RepartitionPage />)   },
+              { path: PATHS.ADMIN.ROTATION_CYCLE, element: wrap(<RotationCyclePage />) },
               { path: PATHS.ADMIN.HOSPITALS,    element: wrap(<InfrastructurePage />) },
               { path: PATHS.ADMIN.EMPLOYEES,   element: wrap(<EmployeesPage />)      },
               { path: PATHS.ADMIN.ASSIGNMENTS, element: wrap(<AssignmentsPage />)    },
