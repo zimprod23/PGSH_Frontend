@@ -26,7 +26,7 @@ import {
   IconPlayerPlay,
   IconTrash,
 } from '@tabler/icons-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   useGetLevelsQuery,
   useGetStagesQuery,
@@ -67,7 +67,14 @@ export default function RotationCyclePage() {
   const [stages, setStages] = useState<BlockStage[]>([emptyStage(), emptyStage()]);
   const [windows, setWindows] = useState<[string | null, string | null][]>([]);
   const [layout, setLayout] = useState<RotationCycleLayout | null>(null);
+  const [autoStart, setAutoStart] = useState<string | null>(null);
+  const [columnLength, setColumnLength] = useState(1);
+  const [unit, setUnit] = useState<'months' | 'weeks'>('months');
   const [applied, setApplied] = useState(false);
+
+  // The result card renders below the fold on a laptop, so clicking Simuler looked like nothing had
+  // happened. Bring it into view rather than leaving the user to guess.
+  const resultRef = useRef<HTMLDivElement>(null);
 
   const { data: levels = [] } = useGetLevelsQuery(undefined);
   const { data: stagePage } = useGetStagesQuery(
@@ -107,6 +114,35 @@ export default function RotationCyclePage() {
       Array.from({ length: timeline }, (_, i) => prev[i] ?? [null, null]),
     );
 
+  /**
+   * Lays out all T columns from one start date — the point being that the whole axis comes from a single
+   * entry rather than 2T dates typed by hand. Windows are contiguous and inclusive of both ends, which is
+   * the convention `SlotOverlapGuard` enforces: the next column starts the day after the last one ends.
+   *
+   * Everything stays editable afterwards, because a real calendar has holidays the arithmetic cannot know.
+   */
+  const generateWindows = () => {
+    if (!autoStart || timeline === 0) return;
+
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const generated: [string | null, string | null][] = [];
+    let cursor = new Date(`${autoStart}T00:00:00Z`);
+
+    for (let i = 0; i < timeline; i++) {
+      const end = new Date(cursor);
+      if (unit === 'months') end.setUTCMonth(end.getUTCMonth() + columnLength);
+      else end.setUTCDate(end.getUTCDate() + columnLength * 7);
+      end.setUTCDate(end.getUTCDate() - 1);
+
+      generated.push([iso(cursor), iso(end)]);
+
+      cursor = new Date(end);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+
+    setWindows(generated);
+  };
+
   const payload = () => ({
     levelId: levelId!,
     stages: stages
@@ -124,6 +160,9 @@ export default function RotationCyclePage() {
       const res = await preview(payload()).unwrap();
       setLayout(res.layout);
       setApplied(false);
+      requestAnimationFrame(() =>
+        resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      );
 
       if (!res.canApply)
         notify.error(`${res.publishedCells} créneau(x) déjà publiés — le bloc ne peut plus être redéfini.`);
@@ -278,16 +317,59 @@ export default function RotationCyclePage() {
 
             <Divider label={`Axe partagé — ${timeline} fenêtre(s)`} labelPosition="left" />
 
-            <Group>
+            <Group align="flex-end" gap="sm">
+              <DatePickerInput
+                label="Début de l'axe"
+                placeholder="Première colonne"
+                value={autoStart}
+                onChange={setAutoStart}
+                radius="md"
+                w={190}
+              />
+              <NumberInput
+                label="Durée d'une colonne"
+                value={columnLength}
+                onChange={(v) => setColumnLength(Math.max(1, Number(v) || 1))}
+                min={1}
+                max={12}
+                radius="md"
+                w={140}
+              />
+              <Select
+                label="Unité"
+                data={[
+                  { value: 'months', label: 'mois' },
+                  { value: 'weeks', label: 'semaines' },
+                ]}
+                value={unit}
+                onChange={(v) => setUnit((v as 'months' | 'weeks') ?? 'months')}
+                radius="md"
+                w={120}
+                allowDeselect={false}
+              />
+              <Tooltip
+                label={timeline === 0 ? "Ajoutez d'abord des stages" : 'Choisissez la date de début'}
+                disabled={!!autoStart && timeline > 0}
+              >
+                <Button
+                  radius="md"
+                  variant="light"
+                  color="navy"
+                  leftSection={<IconCalendarPlus size={14} />}
+                  onClick={generateWindows}
+                  disabled={!autoStart || timeline === 0}
+                >
+                  Générer les {timeline} fenêtre(s)
+                </Button>
+              </Tooltip>
               <Button
-                variant="light"
+                variant="subtle"
                 radius="md"
                 size="xs"
-                leftSection={<IconCalendarPlus size={14} />}
                 onClick={syncWindows}
                 disabled={timeline === 0}
               >
-                Préparer {timeline} fenêtre(s)
+                Saisir à la main
               </Button>
               {windows.length > 0 && windows.length !== timeline && (
                 <Text size="xs" c="orange">
@@ -349,7 +431,7 @@ export default function RotationCyclePage() {
         </Card>
 
         {layout && (
-          <Card withBorder radius="md" padding="lg">
+          <Card withBorder radius="md" padding="lg" ref={resultRef}>
             <Stack gap="md">
               <Group justify="space-between" align="flex-start">
                 <div>
