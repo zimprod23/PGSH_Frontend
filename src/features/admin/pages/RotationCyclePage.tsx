@@ -105,6 +105,25 @@ export default function RotationCyclePage() {
 
   const canSimulate = levelId != null && stages.every((s) => s.stageId) && windowsComplete;
 
+  /**
+   * The first unmet precondition, in the order the form is filled.
+   *
+   * ⚠ Rendered as visible text, not as a tooltip on the disabled control: a disabled Mantine button emits
+   * no pointer events, so a Tooltip wrapping one never opens. Disabling a button and hiding the reason
+   * behind a tooltip that cannot fire reads as "the button is broken" — which is exactly how it was
+   * reported.
+   */
+  const nextStep =
+    levelId == null
+      ? 'Choisissez d’abord un niveau.'
+      : !stages.every((s) => s.stageId)
+        ? 'Désignez un stage sur chaque ligne.'
+        : !autoStart && windows.length === 0
+          ? `Choisissez la date de début, puis générez les ${timeline} fenêtre(s) — ou saisissez-les à la main.`
+          : !windowsComplete
+            ? `Complétez les ${timeline} fenêtre(s) de dates.`
+            : null;
+
   const setStage = (index: number, patch: Partial<BlockStage>) =>
     setStages((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
 
@@ -347,21 +366,16 @@ export default function RotationCyclePage() {
                 w={120}
                 allowDeselect={false}
               />
-              <Tooltip
-                label={timeline === 0 ? "Ajoutez d'abord des stages" : 'Choisissez la date de début'}
-                disabled={!!autoStart && timeline > 0}
+              <Button
+                radius="md"
+                variant="light"
+                color="navy"
+                leftSection={<IconCalendarPlus size={14} />}
+                onClick={generateWindows}
+                disabled={!autoStart || timeline === 0}
               >
-                <Button
-                  radius="md"
-                  variant="light"
-                  color="navy"
-                  leftSection={<IconCalendarPlus size={14} />}
-                  onClick={generateWindows}
-                  disabled={!autoStart || timeline === 0}
-                >
-                  Générer les {timeline} fenêtre(s)
-                </Button>
-              </Tooltip>
+                Générer les {timeline} fenêtre(s)
+              </Button>
               <Button
                 variant="subtle"
                 radius="md"
@@ -404,28 +418,26 @@ export default function RotationCyclePage() {
               </ScrollArea.Autosize>
             )}
 
-            <Group justify="flex-end">
-              <Tooltip
-                label={
-                  levelId == null
-                    ? 'Choisissez un niveau'
-                    : !stages.every((s) => s.stageId)
-                      ? 'Chaque ligne doit désigner un stage'
-                      : `Renseignez les ${timeline} fenêtre(s)`
-                }
-                disabled={canSimulate}
+            <Group justify="space-between" align="center">
+              {nextStep ? (
+                <Text size="sm" c="orange">
+                  {nextStep}
+                </Text>
+              ) : (
+                <Text size="sm" c="teal">
+                  Prêt — {timeline} colonne(s) définie(s).
+                </Text>
+              )}
+              <Button
+                radius="md"
+                color="navy"
+                leftSection={<IconPlayerPlay size={16} />}
+                onClick={handleSimulate}
+                loading={previewing}
+                disabled={!canSimulate}
               >
-                <Button
-                  radius="md"
-                  color="navy"
-                  leftSection={<IconPlayerPlay size={16} />}
-                  onClick={handleSimulate}
-                  loading={previewing}
-                  disabled={!canSimulate}
-                >
-                  Simuler
-                </Button>
-              </Tooltip>
+                Simuler
+              </Button>
             </Group>
           </Stack>
         </Card>
