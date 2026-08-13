@@ -72,22 +72,34 @@ function SaturationSummary(
 
   // cell.occupiedSeats is the backend's true per-(slot × service) load across ALL
   // partitions, so it stays correct even when the grid is filtered to one partition.
-  const cells = new Map<string, { service: string; hospital: string; period: number; occupied: number; capacity: number }>();
+  //
+  // The backend already reduced each cell to the one limit that governs it; `reason` only names
+  // which rule that was, because the three are fixed in different places: move groups, raise the
+  // promotion's quota, or raise the service's capacity.
+  type Breach = {
+    service: string; hospital: string; period: number;
+    occupied: number; capacity: number;
+    reason: 'total' | 'quota' | 'refused';
+  };
+
+  const cells = new Map<string, Breach>();
   for (const cohort of visibleCohorts) {
     for (const cell of cohort.cells) {
       if (!cell || cells.has(`${cell.stageSlotId}:${cell.serviceId}`)) continue;
+
       cells.set(`${cell.stageSlotId}:${cell.serviceId}`, {
         service:  cell.serviceName,
         hospital: cell.hospitalName,
         period:   periodBySlot.get(cell.stageSlotId) ?? 0,
         occupied: cell.occupiedSeats,
-        capacity: cell.serviceCapacity,
+        capacity: cell.admitsLevel ? cell.capacity : 0,
+        reason:   !cell.admitsLevel ? 'refused' : cell.isLevelQuota ? 'quota' : 'total',
       });
     }
   }
 
   const saturated = [...cells.values()]
-    .filter((c) => c.occupied > c.capacity)
+    .filter((c) => c.reason === 'refused' || c.occupied > c.capacity)
     .sort((a, b) => (b.occupied - b.capacity) - (a.occupied - a.capacity));
 
   if (saturated.length === 0) return null;
@@ -104,7 +116,8 @@ function SaturationSummary(
               {saturated.length} affectation{saturated.length > 1 ? 's' : ''} saturée{saturated.length > 1 ? 's' : ''}
             </Badge>
             <Text size="xs" c="dimmed">
-              Un service dépasse sa capacité sur une période — augmentez sa capacité ou répartissez sur d'autres services.
+              Un service dépasse sa capacité — totale, ou le quota accordé à cette promotion.
+              Ajustez la fiche du service ou répartissez sur d'autres services.
             </Text>
           </Group>
           <Button size="compact-xs" variant="light" color="red" radius="md" onClick={openReport}>
@@ -114,7 +127,7 @@ function SaturationSummary(
         <Group gap={6} wrap="wrap">
           {top.map((c) => (
             <Badge key={`${c.service}-${c.period}`} color="red" variant="outline" radius="sm" size="sm">
-              {c.service} · P{c.period} : {c.occupied}/{c.capacity}
+              {c.service} · P{c.period} : {c.reason === 'refused' ? 'promotion non admise' : `${c.occupied}/${c.capacity}`}
             </Badge>
           ))}
           {saturated.length > top.length && (
@@ -141,6 +154,7 @@ function SaturationSummary(
               <Table.Tr>
                 <Table.Th>Service</Table.Th>
                 <Table.Th ta="center">Période</Table.Th>
+                <Table.Th ta="center">Motif</Table.Th>
                 <Table.Th ta="center">Étud. / Cap.</Table.Th>
                 <Table.Th ta="center">Requis</Table.Th>
               </Table.Tr>
@@ -156,10 +170,21 @@ function SaturationSummary(
                   </Table.Td>
                   <Table.Td ta="center">P{c.period}</Table.Td>
                   <Table.Td ta="center">
-                    <Badge color="red" variant="light" radius="sm" size="sm">{c.occupied}/{c.capacity}</Badge>
+                    <Text size="xs" c="dimmed">
+                      {c.reason === 'refused' ? 'Promotion non admise'
+                        : c.reason === 'quota' ? 'Quota promotion'
+                        : 'Capacité totale'}
+                    </Text>
                   </Table.Td>
                   <Table.Td ta="center">
-                    <Text size="xs" fw={600} c="red">+{c.occupied - c.capacity}</Text>
+                    <Badge color="red" variant="light" radius="sm" size="sm">
+                      {c.reason === 'refused' ? `${c.occupied} / —` : `${c.occupied}/${c.capacity}`}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td ta="center">
+                    <Text size="xs" fw={600} c="red">
+                      {c.reason === 'refused' ? 'Quota à créer' : `+${c.occupied - c.capacity}`}
+                    </Text>
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -175,21 +200,29 @@ function SaturationSummary(
 // Pure render of a cell's current state. Used by both the lightweight read-only
 // cell and the active editor, so the two always look identical.
 
-interface CellFaceProps {
+interface CellFaceProps extends React.ComponentPropsWithRef<'div'> {
   cell: SlotCellResponse | null;
   loading?: boolean;
   disabled?: boolean;
-  onClick?: () => void;
   onClear?: (e: React.MouseEvent) => void;
 }
 
-function CellFace({ cell, loading, disabled, onClick, onClear }: CellFaceProps) {
-  const capacityOk = !cell || (cell.occupiedSeats <= cell.serviceCapacity);
+// ⚠ It must accept and forward `ref`. `Popover.Target` anchors its dropdown by putting a ref on its
+// child; a component that swallows the ref leaves the popover with no anchor, and the service picker
+// then opened detached from the cell it belongs to — the reason the search box appeared somewhere
+// above the grid. React 19 passes `ref` as an ordinary prop, so no forwardRef is needed, but it does
+// have to reach a real DOM node. The rest props matter too: Popover puts aria-* and its handlers there.
+function CellFace({ cell, loading, disabled, onClick, onClear, ref, ...rest }: CellFaceProps) {
+  // One badge, because one limit governs: the promotion's quota on a restricted service, the
+  // service's own total otherwise. The backend already picked which, and counted the load to match.
+  const capacityOk = !cell || (cell.admitsLevel && cell.occupiedSeats <= cell.capacity);
   const capacityColor = !cell ? 'gray' : capacityOk ? 'teal' : 'red';
 
   return (
     <Box
+      ref={ref}
       onClick={onClick}
+      {...rest}
       style={{
         display: 'flex', flexDirection: 'column', gap: 2,
         padding: '6px 8px',
@@ -215,21 +248,28 @@ function CellFace({ cell, loading, disabled, onClick, onClear }: CellFaceProps) 
             </ActionIcon>
           </Group>
           <Group gap={4} wrap="nowrap">
-            <Tooltip
-              label={
-                capacityOk
-                  ? `${cell.occupiedSeats} étudiant(s) — dans la limite des ${cell.serviceCapacity} places`
-                  : `${cell.occupiedSeats} étudiant(s) pour ${cell.serviceCapacity} places — augmentez la capacité du service à ${cell.occupiedSeats} pour éviter la saturation`
+            {/* A native title, not a Mantine Tooltip. This renders once per cell, and a promotion
+                of 80 groups over 4 periods is 320 of them — 320 floating-ui instances were most of
+                the seconds this modal took to open and to close. */}
+            <Badge
+              size="xs"
+              radius="xl"
+              color={capacityColor}
+              variant="light"
+              title={
+                !cell.admitsLevel
+                  ? "Ce service n'accueille pas cette promotion — la publication sera refusée. Choisissez un autre service, ou ajoutez-lui un quota pour cette promotion."
+                  : cell.isLevelQuota
+                    ? capacityOk
+                      ? `${cell.occupiedSeats} étudiant(s) de cette promotion — quota de ${cell.capacity} places dans ce service`
+                      : `${cell.occupiedSeats} étudiant(s) de cette promotion pour un quota de ${cell.capacity} — la publication sera refusée. Déplacez des groupes, ou portez le quota à ${cell.occupiedSeats} depuis la fiche du service.`
+                    : capacityOk
+                      ? `${cell.occupiedSeats} étudiant(s), toutes promotions confondues — dans la limite des ${cell.capacity} places`
+                      : `${cell.occupiedSeats} étudiant(s), toutes promotions confondues, pour ${cell.capacity} places — augmentez la capacité du service à ${cell.occupiedSeats} pour éviter la saturation`
               }
-              position="top"
-              withArrow
-              multiline
-              w={240}
             >
-              <Badge size="xs" radius="xl" color={capacityColor} variant="light">
-                {cell.occupiedSeats} / {cell.serviceCapacity}
-              </Badge>
-            </Tooltip>
+              {cell.admitsLevel ? `${cell.occupiedSeats} / ${cell.capacity}` : 'Non admis'}
+            </Badge>
           </Group>
         </>
       ) : (
@@ -310,7 +350,20 @@ function ServicePicker({ cell, stageId, slotId, cohortId, allowedServiceIds = []
   };
 
   return (
-    <Popover opened={opened} onChange={handlePopoverChange} withArrow shadow="md" radius="md" width={300}>
+    // Anchored under the cell and portalled out of the grid's ScrollArea, so it is never clipped by
+    // the scroll container and flips above only when there is genuinely no room below.
+    <Popover
+      opened={opened}
+      onChange={handlePopoverChange}
+      position="bottom-start"
+      withinPortal
+      trapFocus
+      middlewares={{ flip: true, shift: true }}
+      withArrow
+      shadow="md"
+      radius="md"
+      width={300}
+    >
       <Popover.Target>
         <CellFace
           cell={cell}
@@ -343,6 +396,14 @@ function ServicePicker({ cell, stageId, slotId, cohortId, allowedServiceIds = []
                 ) : !servicesPage?.items.length ? (
                   <Combobox.Empty>Aucun service trouvé</Combobox.Empty>
                 ) : (
+                  // An empty whitelist means "not configured", and manual assignment stays open —
+                  // matching SetCohortSlotAssignmentCommandHandler, which only enforces the list
+                  // when the stage actually has one. Only RotationArranger refuses, because it has
+                  // no set to rotate through; that is why StageDetailPage's warning is scoped to
+                  // «la répartition automatique» and not to planning as a whole.
+                  // ⚠ Known limitation: the filter is applied to one page of 20 search results, so a
+                  // whitelisted service ranked past the 20th match is invisible. Needs a server-side
+                  // filter on /services to fix properly.
                   (allowedServiceIds.length > 0
                     ? servicesPage.items.filter((s) => allowedServiceIds.includes(s.id))
                     : servicesPage.items
@@ -500,84 +561,37 @@ function SlotHeader({ slot, stageId }: { slot: StageSlotResponse; stageId: numbe
 
 // ─── Publish button per cohort ────────────────────────────────────────────────
 
-function PublishButton({ cohortId, stageId, isPublished }: { cohortId: number; stageId: number; isPublished: boolean }) {
-  const notify = useNotify();
-  const [publish, { isLoading: publishing }] = usePublishScheduleMutation();
-  const [unpublish, { isLoading: unpublishing }] = useUnpublishScheduleMutation();
-  const [unpublishOpen, { open: openUnpublish, close: closeUnpublish }] = useDisclosure(false);
-  const [publishOpen, { open: openPublish, close: closePublish }] = useDisclosure(false);
-  const [allowOverCapacity, setAllowOverCapacity] = useState(false);
-  const loading = publishing || unpublishing;
-
-  const handlePublish = async () => {
-    closePublish();
-    try {
-      await publish({ cohortId, stageId, allowOverCapacity }).unwrap();
-      notify.success('Planning publié');
-    } catch (err: unknown) {
-      const detail = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(detail ?? 'Erreur lors de la publication');
-    }
-  };
-
-  const handleUnpublish = async () => {
-    try {
-      const res = await unpublish({ cohortId, stageId }).unwrap();
-      notify.success(`${res.removed} période(s) supprimée(s)`);
-    } catch { notify.error('Erreur lors de la dépublication'); }
-    closeUnpublish();
-  };
-
-  if (isPublished) {
-    return (
-      <>
-        <Tooltip label="Dépublier" position="left">
-          <ActionIcon size="sm" variant="subtle" color="red" loading={loading} onClick={openUnpublish}>
-            <IconRocketOff size={14} stroke={1.5} />
-          </ActionIcon>
-        </Tooltip>
-        <ConfirmModal
-          opened={unpublishOpen}
-          onClose={closeUnpublish}
-          title="Dépublier le planning"
-          message="Les périodes de service générées seront supprimées."
-          confirmLabel="Dépublier"
-          confirmColor="red"
-          onConfirm={handleUnpublish}
-          loading={unpublishing}
-        />
-      </>
-    );
-  }
-
-  return (
-    <>
-      <Tooltip label="Publier le planning" position="left">
-        <ActionIcon size="sm" variant="subtle" color="teal" loading={loading} onClick={openPublish}>
-          <IconRocket size={14} stroke={1.5} />
-        </ActionIcon>
-      </Tooltip>
-      <ConfirmModal
-        opened={publishOpen}
-        onClose={closePublish}
-        title="Publier le planning"
-        message="Générer les périodes de service de cette cohorte ?"
-        confirmLabel="Publier"
-        confirmColor="teal"
-        onConfirm={handlePublish}
-        loading={publishing}
-      >
-        <Checkbox
-          checked={allowOverCapacity}
-          onChange={(e) => setAllowOverCapacity(e.currentTarget.checked)}
-          label="Autoriser le dépassement de capacité"
-          description="Publie même si un service dépasse sa capacité sur sa fenêtre."
-          color="orange"
-        />
-      </ConfirmModal>
-    </>
+// One icon per row and nothing else — no mutation hook, no confirm modal, no Tooltip. Those used to
+// be per-row: 80 cohorts meant 160 RTK subscriptions and 80 mounted Mantine Modals, which together
+// with the cell tooltips is what made this grid take seconds to open *and* to close. The dialogs and
+// the mutations now live once in the parent, keyed by the row being acted on.
+const PublishButton = memo(function PublishButton(
+  { cohortId, isPublished, busy, onPublish, onUnpublish }: {
+    cohortId: number;
+    isPublished: boolean;
+    busy: boolean;
+    onPublish: (cohortId: number) => void;
+    onUnpublish: (cohortId: number) => void;
+  },
+) {
+  return isPublished ? (
+    <ActionIcon
+      size="sm" variant="subtle" color="red" loading={busy}
+      title="Dépublier"
+      onClick={() => onUnpublish(cohortId)}
+    >
+      <IconRocketOff size={14} stroke={1.5} />
+    </ActionIcon>
+  ) : (
+    <ActionIcon
+      size="sm" variant="subtle" color="teal" loading={busy}
+      title="Publier le planning"
+      onClick={() => onPublish(cohortId)}
+    >
+      <IconRocket size={14} stroke={1.5} />
+    </ActionIcon>
   );
-}
+});
 
 // ─── Publish all unpublished cohorts ─────────────────────────────────────────
 
@@ -640,7 +654,7 @@ function PublishAllButton(
           checked={allowOverCapacity}
           onChange={(e) => setAllowOverCapacity(e.currentTarget.checked)}
           label="Autoriser le dépassement de capacité"
-          description="Publie même si un service dépasse sa capacité sur sa fenêtre."
+          description="Publie malgré tout : capacité totale d'un service dépassée, quota d'une promotion dépassé, ou service n'accueillant pas cette promotion."
           color="orange"
         />
       </ConfirmModal>
@@ -677,7 +691,47 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
   const [autoArrange, { isLoading: arranging }] = useAutoArrangeStageScheduleMutation();
   const [clearAssignment] = useClearCohortSlotAssignmentMutation();
 
+  // Publish/unpublish live here, once, rather than in each of the 80 rows.
+  const [publish, { isLoading: publishing }] = usePublishScheduleMutation();
+  const [unpublish, { isLoading: unpublishing }] = useUnpublishScheduleMutation();
+  const [publishTarget, setPublishTarget] = useState<number | null>(null);
+  const [unpublishTarget, setUnpublishTarget] = useState<number | null>(null);
+  const [allowOverCapacity, setAllowOverCapacity] = useState(false);
+  const busyCohortId = publishing ? publishTarget : unpublishing ? unpublishTarget : null;
+
   const handleClose = useCallback(() => { setEditing(null); onClose(); }, [onClose]);
+
+  const askPublish = useCallback((cohortId: number) => {
+    setAllowOverCapacity(false);
+    setPublishTarget(cohortId);
+  }, []);
+
+  const askUnpublish = useCallback((cohortId: number) => setUnpublishTarget(cohortId), []);
+
+  // The target is cleared only once the call has settled. Clearing it first left `busyCohortId`
+  // null for the whole request, so the row's spinner and the dialog's loading state never showed
+  // and nothing stopped a second publish being fired meanwhile.
+  const confirmPublish = useCallback(async () => {
+    if (publishTarget == null) return;
+    try {
+      await publish({ cohortId: publishTarget, stageId, allowOverCapacity }).unwrap();
+      notify.success('Planning publié');
+    } catch (err: unknown) {
+      const detail = (err as { data?: { detail?: string } })?.data?.detail;
+      notify.error(detail ?? 'Erreur lors de la publication');
+    } finally {
+      setPublishTarget(null);
+    }
+  }, [publishTarget, publish, stageId, allowOverCapacity, notify]);
+
+  const confirmUnpublish = useCallback(async () => {
+    if (unpublishTarget == null) return;
+    try {
+      const res = await unpublish({ cohortId: unpublishTarget, stageId }).unwrap();
+      notify.success(`${res.removed} période(s) supprimée(s)`);
+    } catch { notify.error('Erreur lors de la dépublication'); }
+    finally { setUnpublishTarget(null); }
+  }, [unpublishTarget, unpublish, stageId, notify]);
 
   const handleEditCell = useCallback(
     (cohortId: number, slotId: number) => setEditing({ cohortId, slotId }),
@@ -707,25 +761,41 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
         partitionLabels: activePartition ? [activePartition] : undefined,
         periodNumbers: autoArrangePeriods.length ? autoArrangePeriods.map(Number) : undefined,
       }).unwrap();
-      if (res.assigned === 0) {
-        notify.info('Aucune cohorte non publiée à configurer');
-      } else if (res.saturatedServices > 0) {
+      // Conflicts and saturation are independent outcomes of one run, so they are composed rather
+      // than chained: an else-if reported the conflicts and silently swallowed "il manque N places",
+      // which is the message that tells the admin the plan will not fit at all.
+      const problems: string[] = [];
+
+      if (res.groupConflicts > 0) {
+        problems.push(
+          `${res.groupConflicts} affectation(s) ignorée(s) : ces groupes sont déjà affectés à un ` +
+          'autre stage sur les mêmes dates — ciblez une partition (A / B) avant de répartir.'
+        );
+      }
+
+      if (res.saturatedServices > 0) {
         const gap = res.totalStudents - res.totalCapacity;
         if (gap > 0) {
-          notify.warning(
-            `${res.assigned} affectation(s) générée(s) · ${res.saturatedServices} service(s) saturé(s). ` +
-            `Il manque ${gap} place(s) — augmentez les capacités des services ou ajoutez de nouveaux services.`
+          problems.push(
+            `${res.saturatedServices} service(s) saturé(s) — il manque ${gap} place(s) : augmentez ` +
+            'les capacités ou ajoutez de nouveaux services.'
           );
         } else {
           const unpublishedCohorts = schedule?.cohorts.filter((c) => !c.isSchedulePublished) ?? [];
           const avgStudents = unpublishedCohorts.length > 0
             ? Math.ceil(unpublishedCohorts.reduce((s, c) => s + c.studentCount, 0) / unpublishedCohorts.length)
             : 0;
-          notify.warning(
-            `${res.assigned} affectation(s) générée(s) · ${res.saturatedServices} service(s) saturé(s). ` +
-            `Capacité insuffisante par service — chaque service doit pouvoir accueillir au moins ${avgStudents} étudiant(s).`
+          problems.push(
+            `${res.saturatedServices} service(s) saturé(s) — capacité insuffisante par service : ` +
+            `chaque service doit pouvoir accueillir au moins ${avgStudents} étudiant(s).`
           );
         }
+      }
+
+      if (problems.length > 0) {
+        notify.warning(`${res.assigned} affectation(s) générée(s). ${problems.join(' ')}`);
+      } else if (res.assigned === 0) {
+        notify.info('Aucune cohorte non publiée à configurer');
       } else {
         notify.success(`${res.assigned} affectation(s) générée(s) — aucun service saturé`);
       }
@@ -983,7 +1053,13 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
                       {schedule.slots.length === 0 && <Table.Td />}
                       <Table.Td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                         <Group justify="center">
-                          <PublishButton cohortId={row.cohortId} stageId={stageId} isPublished={row.isSchedulePublished} />
+                          <PublishButton
+                            cohortId={row.cohortId}
+                            isPublished={row.isSchedulePublished}
+                            busy={busyCohortId === row.cohortId}
+                            onPublish={askPublish}
+                            onUnpublish={askUnpublish}
+                          />
                         </Group>
                       </Table.Td>
                     </Table.Tr>
@@ -1009,6 +1085,37 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
           nextPeriodNumber={nextPeriodNumber}
         />
       )}
+
+      {/* One instance each, driven by which row was clicked — not one pair per row. */}
+      <ConfirmModal
+        opened={publishTarget != null}
+        onClose={() => setPublishTarget(null)}
+        title="Publier le planning"
+        message="Générer les périodes de service de cette cohorte ?"
+        confirmLabel="Publier"
+        confirmColor="teal"
+        onConfirm={confirmPublish}
+        loading={publishing}
+      >
+        <Checkbox
+          checked={allowOverCapacity}
+          onChange={(e) => setAllowOverCapacity(e.currentTarget.checked)}
+          label="Autoriser le dépassement de capacité"
+          description="Publie malgré tout : capacité totale d'un service dépassée, quota d'une promotion dépassé, ou service n'accueillant pas cette promotion."
+          color="orange"
+        />
+      </ConfirmModal>
+
+      <ConfirmModal
+        opened={unpublishTarget != null}
+        onClose={() => setUnpublishTarget(null)}
+        title="Dépublier le planning"
+        message="Les périodes de service générées seront supprimées."
+        confirmLabel="Dépublier"
+        confirmColor="red"
+        onConfirm={confirmUnpublish}
+        loading={unpublishing}
+      />
 
       <Modal
         opened={autoArrangeOpen}

@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# MSBuild output from the Aspire project reference
+obj/
+bin/

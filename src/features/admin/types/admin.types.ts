@@ -488,6 +488,16 @@ export interface RepartitionCell {
   /** Already collapsed server-side: "47-50", "47-48, 50", "27". */
   groups: string;
   groupNumbers: number[];
+  /**
+   * The partition sitting in this cell — the colour band — or null when its cohorts disagree.
+   *
+   * ⚠ A partition is a fact about the *cell* and nothing larger. This used to sit on the row, where
+   * it could only mean "the partition the row opens on": with two partitions every Médecine row
+   * opens on A and every Chirurgie row on B, so the document printed one colour per **stage** under
+   * a legend reading « Partition A / Partition B ». A row visits every partition over the year —
+   * that is what the crossover is.
+   */
+  rotationGroup: string | null;
 }
 
 export interface RepartitionRow {
@@ -503,8 +513,6 @@ export interface RepartitionRow {
    * only drives a hint in the app that linking a real chef makes the attribution dated.
    */
   chefIsFromSourceNote: boolean;
-  /** Partition of the period the row opens on — drives the colour banding. */
-  rotationGroup: string | null;
   /** Aligned 1:1 with the columns; null is a period with nothing planned. */
   cells: (RepartitionCell | null)[];
 }
@@ -515,6 +523,12 @@ export interface RepartitionSummary {
   plannedCells: number;
   emptyCells: number;
   groupCount: number;
+  /**
+   * Periods authored for this level and year, arranged or not. An empty table has two causes calling
+   * for opposite actions — no periods at all (0: go and lay an axis), or periods nobody has been
+   * placed in (> 0: go and arrange) — and `rowCount` alone collapses them.
+   */
+  declaredSlotCount: number;
 }
 
 export interface LevelRepartitionResponse {
@@ -1083,14 +1097,36 @@ export interface RotationCycleLayout {
   warnings: string[];
 }
 
+/**
+ * What one stage of the block actually gets, measured on the calendar, against the duration its catalogue
+ * row states. A range because partitions take *different* runs of the axis — a run over février is
+ * genuinely shorter than one over mars, which is a fact about calendars, not a defect.
+ */
+export interface StageDurationCheck {
+  stageId: number;
+  name: string;
+  periods: number;
+  /** ⚠ `Stage.DurationInDays` — the catalogue's number, not necessarily what any CNPN states. */
+  statedDurationInDays: number;
+  minWorkingDays: number;
+  maxWorkingDays: number;
+  minCalendarDays: number;
+  maxCalendarDays: number;
+  /** Set only when the gap deserves a human look. Never blocking. */
+  note: string | null;
+}
+
 export interface RotationCyclePreview {
   academicYearLabel: string;
   levelLabel: string;
-  stages: { stageId: number; name: string }[];
+  stages: { stageId: number; name: string; durationInDays: number }[];
   layout: RotationCycleLayout;
   existingSlots: number;
   publishedCells: number;
   canApply: boolean;
+  durationChecks: StageDurationCheck[];
+  /** No holiday recorded across the axis, so every count is calendar days minus weekends. */
+  calendarIsEmpty: boolean;
 }
 
 export interface RotationCycleResult {
@@ -1098,4 +1134,128 @@ export interface RotationCycleResult {
   slotsReplaced: number;
   layout: RotationCycleLayout;
   matrix: PartitionStagePlan[];
+}
+
+// ── Axis generation ───────────────────────────────────────────────────────────────────────────────
+// Laying the axis out from one start date is a *server* call: the working-day count needs the holiday
+// table, which the browser does not have. Doing it here with setUTCMonth was right for calendar months
+// and silently wrong the moment a duration means jours ouvrables.
+
+export type AxisColumnUnit = 'Months' | 'Weeks' | 'WorkingDays';
+
+export interface GeneratedAxisColumn {
+  number: number;
+  startDate: string;
+  endDate: string;
+  calendarDays: number;
+  workingDays: number;
+  holidays: string[];
+  /** A lunar date inside can still move, so the window may have to be reprinted. */
+  hasProvisionalDates: boolean;
+}
+
+export interface GeneratedAxisResponse {
+  columns: GeneratedAxisColumn[];
+  workingDaysTotal: number;
+  calendarDaysTotal: number;
+  calendarIsEmpty: boolean;
+  missingReligious: string[];
+  warnings: string[];
+}
+
+export interface GenerateAxisWindowsRequest {
+  columns: number;
+  startDate: string;
+  unit: AxisColumnUnit;
+  length: number;
+}
+
+// ── Partitions ────────────────────────────────────────────────────────────────────────────────────
+
+export type PartitionStrategy = 'Interleaved' | 'Contiguous';
+
+export interface PartitionMembership {
+  label: string;
+  groupCount: number;
+  /** Printed the way the répartition prints a cell: `1, 3, 5, 7` or `1-40`. */
+  groupNumbers: string;
+}
+
+export interface PartitionAssignmentResult {
+  labeled: number;
+  reassigned: number;
+  totalGroups: number;
+  /** Cells planned on the *previous* cut — untouched, but an arrange is owed. */
+  plannedCellsAffected: number;
+  partitions: PartitionMembership[];
+}
+
+export interface ClearRotationGroupsResult {
+  cleared: number;
+  totalGroups: number;
+  plannedCellsAffected: number;
+}
+
+// ── Calendar ──────────────────────────────────────────────────────────────────────────────────────
+
+export type HolidayKind = 'National' | 'Religious' | 'Academic';
+
+export interface Holiday {
+  id: number;
+  startDate: string;
+  endDate: string;
+  dayCount: number;
+  name: string;
+  kind: HolidayKind;
+  /** Lunar dates are announced by decree; until then the row is an estimate. */
+  isConfirmed: boolean;
+  /** Worked days it actually costs — zero for a holiday landing on a weekend. */
+  workingDaysLost: number;
+}
+
+export interface HolidayCoverage {
+  academicYearId: number;
+  academicYearLabel: string;
+  from: string;
+  to: string;
+  calendarDays: number;
+  workingDays: number;
+  nationalDays: number;
+  religiousDays: number;
+  academicDays: number;
+  provisionalCount: number;
+  /** Religious holidays with no row yet — PGSH cannot compute these. */
+  missingReligious: string[];
+  holidays: Holiday[];
+}
+
+export interface HolidayInput {
+  startDate: string;
+  endDate: string;
+  name: string;
+  kind: HolidayKind;
+  isConfirmed: boolean;
+}
+
+export interface SeedNationalHolidaysResult {
+  academicYearLabel: string;
+  created: number;
+  alreadyPresent: number;
+  missingReligious: string[];
+}
+
+export interface DeleteHolidayResult {
+  name: string;
+  startDate: string;
+  /** Slots whose window was laid *over* this holiday — their dates stay, but no longer reproduce. */
+  slotsSpanning: number;
+}
+
+export interface UpdateHolidayResult {
+  name: string;
+  startDate: string;
+  /** False when only the name, kind or confirmation flag changed — no window's day count moves. */
+  datesMoved: boolean;
+  /** Slots over the span it left *or* the span it arrived at, counted once. 0 when `datesMoved` is false. */
+  slotsSpanning: number;
 }

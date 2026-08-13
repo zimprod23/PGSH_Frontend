@@ -54,13 +54,18 @@ import {
   useDeleteGroupMutation,
   useGetStagesQuery,
   useAssignRotationGroupsMutation,
+  useClearRotationGroupsMutation,
   useGenerateMacroPlanMutation,
   useDeleteAllYearGroupsMutation,
   useEmptyGroupMutation,
   useEmptyAllYearGroupsMutation,
 } from '../api/adminApi';
 import type { BulkResponse } from '../../../common/types';
-import type { AcademicGroupResponse, MacroPlanResult } from '../types/admin.types';
+import type {
+  AcademicGroupResponse,
+  MacroPlanResult,
+  PartitionStrategy,
+} from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { PATHS } from '../../../routes/paths';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
@@ -203,6 +208,7 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
 
   const [selectedLevel,   setSelectedLevel]   = useState<string | null>(null);
   const [partitionCount,  setPartitionCount]  = useState<number | string>(2);
+  const [strategy,        setStrategy]        = useState<PartitionStrategy>('Interleaved');
   // partition → (stageId → raw period window string, e.g. "1,2"; empty = all periods)
   const [selection,       setSelection]       = useState<Map<string, Map<number, string>>>(new Map());
   const [assignStudents,  setAssignStudents]   = useState(true);
@@ -228,11 +234,31 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
   );
 
   const [assignPartitions, { isLoading: assigning }] = useAssignRotationGroupsMutation();
+  const [clearPartitions,  { isLoading: clearing }]  = useClearRotationGroupsMutation();
   const [generatePlan,     { isLoading: generating }] = useGenerateMacroPlanMutation();
+
+  const [clearOpen, { open: openClear, close: closeClear }] = useDisclosure(false);
 
   const partitions = Array.from(
     new Set(groups.map((g) => g.rotationGroup).filter((r): r is string => r != null))
   ).sort();
+
+  // Groups this level created after its partitions were cut — a new group, or a promotion the auto-arrange
+  // extended. They are invisible to every partition filter until they are labelled, and the only path that
+  // labels them without re-cutting is an assign with reassign=false.
+  const unlabelled = groups.filter((g) => g.rotationGroup == null);
+
+  // Named, not just counted — the admin has to recognise which groups these are. Truncated because a
+  // promotion runs to ~100 groups and an unbroken list of numbers stops being readable long before that.
+  const unlabelledNumbers = (() => {
+    const numbers = unlabelled.map((g) => g.groupNumber).sort((a, b) => a - b);
+    return numbers.length > 12
+      ? `${numbers.slice(0, 12).join(', ')}… +${numbers.length - 12}`
+      : numbers.join(', ');
+  })();
+
+  const levelLabel =
+    levels.find((l) => String(l.id) === selectedLevel)?.label ?? 'ce niveau';
 
   const stages = stagesPage?.items ?? [];
 
@@ -282,18 +308,56 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
   const parsePeriods = (raw: string): number[] =>
     raw.split(',').map((p) => Number(p.trim())).filter((n) => Number.isInteger(n) && n > 0);
 
-  const handleAssignPartitions = async () => {
+  const handleAssignPartitions = async (reassign: boolean) => {
     if (!selectedYear || !selectedLevel) return;
     try {
       const res = await assignPartitions({
         academicYearId: Number(selectedYear),
         partitionCount: Number(partitionCount) || 2,
         levelId: Number(selectedLevel),
+        strategy,
+        reassign,
       }).unwrap();
-      notify.success(`${res.labeled} groupe(s) labelisé(s)`);
+
+      const moved = reassign && res.reassigned > 0 ? `, ${res.reassigned} déplacé(s)` : '';
+      notify.success(
+        `${res.labeled} groupe(s) labelisé(s)${moved} — `
+        + res.partitions.map((p) => `${p.label}: ${p.groupNumbers}`).join(' · '),
+      );
+
+      // Every one of these was placed for a partition the group may have just left.
+      if (res.plannedCellsAffected > 0)
+        notify.info(
+          `${res.plannedCellsAffected} cellule(s) planifiée(s) sur l'ancien découpage — relancez la `
+          + 'répartition automatique.',
+        );
     } catch (err: unknown) {
       const msg = (err as { data?: { detail?: string } })?.data?.detail;
       notify.error(msg ?? 'Erreur lors de l\'assignation des partitions');
+    }
+  };
+
+  const handleClearPartitions = async () => {
+    if (!selectedYear || !selectedLevel) return;
+    try {
+      const res = await clearPartitions({
+        academicYearId: Number(selectedYear),
+        levelId: Number(selectedLevel),
+      }).unwrap();
+
+      notify.success(`${res.cleared} label(s) supprimé(s) sur ${res.totalGroups} groupe(s).`);
+      closeClear();
+      setSelection(new Map());
+      setResult(null);
+
+      if (res.plannedCellsAffected > 0)
+        notify.info(
+          `${res.plannedCellsAffected} cellule(s) planifiée(s) conservée(s), mais elles ne décrivent plus `
+          + 'aucune partition — une répartition automatique est à relancer.',
+        );
+    } catch (err: unknown) {
+      const msg = (err as { data?: { detail?: string } })?.data?.detail;
+      notify.error(msg ?? 'Erreur lors de la suppression des partitions');
     }
   };
 
@@ -377,12 +441,28 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
                 onChange={setPartitionCount}
                 min={1} max={26} w={200}
               />
+              <Select
+                label="Découpage"
+                description={
+                  strategy === 'Contiguous'
+                    ? 'A = 1-40, B = 41-80 — la cellule imprimée se replie en intervalle'
+                    : 'A = 1, 3, 5…, B = 2, 4, 6… — équilibré, mais rien à replier'
+                }
+                data={[
+                  { value: 'Interleaved', label: 'Alterné (par défaut)' },
+                  { value: 'Contiguous', label: 'Contigu (comme le tableau facultaire)' },
+                ]}
+                value={strategy}
+                onChange={(v) => setStrategy((v as PartitionStrategy) ?? 'Interleaved')}
+                allowDeselect={false}
+                w={330}
+              />
               <Button
                 color="violet"
                 loading={assigning}
                 disabled={!partitionCount || Number(partitionCount) < 1}
                 leftSection={<IconWand size={16} stroke={1.5} />}
-                onClick={handleAssignPartitions}
+                onClick={() => handleAssignPartitions(false)}
               >
                 Assigner les partitions
               </Button>
@@ -392,6 +472,116 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
               Les groupes de ce niveau sont distribués équitablement entre les partitions par ordre de numéro.
               Ces labels (A, B, C…) sont persistants et réutilisés dans tous les stages de ce niveau.
             </Alert>
+          </Stack>
+        </Card>
+      )}
+
+      {/* ── Correcting a cut that is already in place ─────────────────────────────────────────────
+          Separate from step 1 because the two acts differ in what they can destroy. Filling empty
+          labels is safe; changing the count moves groups between partitions, which is exactly what an
+          existing plan encodes — so both paths here are explicit and both are refused once a cell is
+          published. */}
+      {selectedYear && selectedLevel && partitions.length > 0 && (
+        <Card padding="lg" radius="lg" withBorder shadow="sm">
+          <Stack gap="md">
+            <Group gap="sm" justify="space-between">
+              <Group gap="sm">
+                <ThemeIcon size={32} radius="md" variant="light" color="orange">
+                  <IconLayoutGrid size={18} stroke={1.5} />
+                </ThemeIcon>
+                <Stack gap={0}>
+                  <Text fw={600} size="sm">Corriger le découpage</Text>
+                  <Text size="xs" c="dimmed">
+                    {partitions.length} partition(s) en place : {partitions.join(', ')}
+                  </Text>
+                </Stack>
+              </Group>
+            </Group>
+
+            <Divider />
+
+            {/* ── The safe act, kept above and apart from the two that move groups ──────────────────
+                Filling empty labels touches only the groups that have none, so it can never move a
+                group out of the partition an existing plan placed it in. It had no button at all: once
+                any label existed the page only offered "Redécouper", which re-cuts the whole level. */}
+            {unlabelled.length > 0 && (
+              <Alert icon={<IconCircleCheck size={16} />} color="teal" variant="light">
+                <Stack gap="sm">
+                  <Text size="sm">
+                    <b>{unlabelled.length} groupe(s)</b> de ce niveau n'ont aucune partition
+                    (n° {unlabelledNumbers}). Tant qu'ils ne sont pas labelisés ils sont absents de la
+                    matrice ci-dessous et de toute répartition.
+                  </Text>
+                  <Group gap="sm">
+                    <Button
+                      color="teal"
+                      variant="light"
+                      loading={assigning}
+                      leftSection={<IconWand size={16} stroke={1.5} />}
+                      onClick={() => handleAssignPartitions(false)}
+                    >
+                      Compléter les groupes sans partition
+                    </Button>
+                    <Text size="xs" c="dimmed" maw={420}>
+                      Ils rejoignent les {partitions.length} partitions existantes ({partitions.join(', ')})
+                      en complétant les plus petites. Aucun groupe déjà labelisé ne bouge.
+                    </Text>
+                  </Group>
+                </Stack>
+              </Alert>
+            )}
+
+            <Alert icon={<IconAlertTriangle size={14} />} color="orange" variant="light">
+              Un niveau qui porte déjà des labels garde <b>son</b> nombre de partitions, quel que soit le
+              nombre demandé — c'est ce qui empêche une simple relance de rebattre un plan existant. Pour
+              passer de {partitions.length} à un autre nombre, redécoupez ou supprimez d'abord les
+              partitions.
+            </Alert>
+
+            <Group align="flex-end" gap="md">
+              <NumberInput
+                label="Nouveau nombre"
+                value={partitionCount}
+                onChange={setPartitionCount}
+                min={1} max={26} w={160}
+              />
+              <Select
+                label="Découpage"
+                data={[
+                  { value: 'Interleaved', label: 'Alterné' },
+                  { value: 'Contiguous', label: 'Contigu' },
+                ]}
+                value={strategy}
+                onChange={(v) => setStrategy((v as PartitionStrategy) ?? 'Interleaved')}
+                allowDeselect={false}
+                w={180}
+              />
+              <Button
+                variant="light"
+                color="orange"
+                loading={assigning}
+                disabled={!partitionCount || Number(partitionCount) < 1}
+                leftSection={<IconWand size={16} stroke={1.5} />}
+                onClick={() => handleAssignPartitions(true)}
+              >
+                Redécouper
+              </Button>
+              <Button
+                variant="subtle"
+                color="red"
+                loading={clearing}
+                leftSection={<IconTrash size={16} stroke={1.5} />}
+                onClick={openClear}
+              >
+                Supprimer les partitions
+              </Button>
+            </Group>
+
+            <Text size="xs" c="dimmed">
+              Supprimer les partitions ne supprime aucune cohorte, cellule, affectation ni période — rien
+              ne pointe vers un label. Les cellules déjà planifiées survivent mais ne décrivent plus aucune
+              partition : une répartition automatique reste à relancer.
+            </Text>
           </Stack>
         </Card>
       )}
@@ -517,6 +707,17 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
                       </Badge>
                     </Tooltip>
                   )}
+                  {result.groupConflicts > 0 && (
+                    <Tooltip
+                      label="Ces cellules n'ont pas été écrites : le groupe est déjà affecté à un autre stage sur les mêmes dates. Vérifiez le croisement des partitions entre les stages."
+                      multiline
+                      w={280}
+                    >
+                      <Badge color="orange" variant="light">
+                        {result.groupConflicts} conflit(s) de groupe
+                      </Badge>
+                    </Tooltip>
+                  )}
                   {result.cohortsPublished > 0 && (
                     <Badge color="teal" variant="filled">{result.cohortsPublished} publiée(s)</Badge>
                   )}
@@ -536,6 +737,24 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
           </Stack>
         </Card>
       )}
+
+      {/* Sat one click from "Redécouper" with nothing between it and the level's whole partitioning —
+          which is how a level got cleared by a stray click. The confirmation names the level. */}
+      <ConfirmModal
+        opened={clearOpen}
+        onClose={closeClear}
+        title="Supprimer les partitions"
+        message={
+          `Retirer les ${partitions.length} label(s) de partition (${partitions.join(', ')}) de tous les `
+          + `groupes de « ${levelLabel} » ? Aucune cohorte, cellule, affectation ni période n'est `
+          + 'supprimée — mais les cellules déjà planifiées ne décriront plus aucune partition, et une '
+          + 'répartition automatique sera à relancer. Action refusée si une cellule est déjà publiée.'
+        }
+        confirmLabel="Supprimer les partitions"
+        confirmColor="red"
+        onConfirm={handleClearPartitions}
+        loading={clearing}
+      />
     </Stack>
   );
 }

@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Alert,
   Badge,
   Button,
   Card,
@@ -22,6 +23,7 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
+  IconAlertTriangle,
   IconArrowLeft,
   IconBuildingHospital,
   IconCalendar,
@@ -139,9 +141,12 @@ export default function StageDetailPage() {
 
   // Allowed services
   const [serviceSearch, setServiceSearch] = useState('');
+  // admitsLevelId keeps out the services whose quotas exclude this stage's promotion — the server
+  // refuses those outright, so offering them would only produce an error toast. Unrestricted
+  // services still come back: they take every promotion.
   const { data: servicesPage } = useGetServicesQuery(
-    { searchTerm: serviceSearch, pageSize: 20 },
-    { skip: serviceSearch.length < 2 },
+    { searchTerm: serviceSearch, admitsLevelId: stage?.levelResponse?.id, pageSize: 20 },
+    { skip: serviceSearch.length < 2 || stage?.levelResponse?.id === undefined },
   );
   const [addAllowedService,    { isLoading: addingService    }] = useAddAllowedServiceMutation();
   const [removeAllowedService, { isLoading: removingService  }] = useRemoveAllowedServiceMutation();
@@ -150,7 +155,12 @@ export default function StageDetailPage() {
   const handleAddService = async (service: AllowedServiceSummary) => {
     setServiceSearch('');
     try { await addAllowedService({ stageId, service }).unwrap(); }
-    catch { notify.error('Impossible d\'ajouter ce service'); }
+    catch (err: unknown) {
+      // The server names the promotions the service does take; that is far more useful than a
+      // generic failure, so it is surfaced when present.
+      const detail = (err as { data?: { detail?: string } })?.data?.detail;
+      notify.error(detail ?? 'Impossible d\'ajouter ce service');
+    }
   };
   const handleRemoveService = async (serviceId: number) => {
     try { await removeAllowedService({ stageId, serviceId }).unwrap(); }
@@ -427,8 +437,8 @@ export default function StageDetailPage() {
                     Services autorisés
                   </Text>
                   {stage && (
-                    <Badge variant="light" color={stage.allowedServices.length > 0 ? 'teal' : 'gray'} radius="xl" size="sm">
-                      {stage.allowedServices.length === 0 ? 'Tous' : stage.allowedServices.length}
+                    <Badge variant="light" color={stage.allowedServices.length > 0 ? 'teal' : 'orange'} radius="xl" size="sm">
+                      {stage.allowedServices.length === 0 ? 'Aucun' : stage.allowedServices.length}
                     </Badge>
                   )}
                 </Group>
@@ -438,10 +448,16 @@ export default function StageDetailPage() {
                 ) : (
                   <>
                     {stage?.allowedServices.length === 0 ? (
-                      <Text size="xs" c="dimmed">
-                        Aucune restriction — tous les services peuvent être utilisés dans la grille.
-                        Ajoutez des services pour restreindre les affectations.
-                      </Text>
+                      // An empty list is NOT "all services allowed" — RotationArranger refuses with
+                      // Schedule.NoAllowedServices, so planning this stage is impossible until one
+                      // is added. Saying "aucune restriction" here sent admins to a grid whose
+                      // "Répartition auto." could only ever be disabled.
+                      <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />} p="xs">
+                        <Text size="xs">
+                          Aucun service n’est autorisé pour ce stage — la répartition automatique est
+                          impossible tant qu’aucun n’est ajouté.
+                        </Text>
+                      </Alert>
                     ) : (
                       <Stack gap="xs">
                         {stage?.allowedServices.map((svc) => (

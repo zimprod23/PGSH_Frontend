@@ -33,8 +33,15 @@ import {
   usePreviewRotationCycleMutation,
   useApplyRotationCycleMutation,
   useGenerateMacroPlanMutation,
+  useLazyGenerateAxisWindowsQuery,
 } from '../api/adminApi';
-import type { DateWindowInput, RotationCycleLayout } from '../types/admin.types';
+import type {
+  AxisColumnUnit,
+  DateWindowInput,
+  GeneratedAxisResponse,
+  RotationCycleLayout,
+  StageDurationCheck,
+} from '../types/admin.types';
 import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { useListParams } from '../../../common/hooks/useListParams';
@@ -69,8 +76,11 @@ export default function RotationCyclePage() {
   const [layout, setLayout] = useState<RotationCycleLayout | null>(null);
   const [autoStart, setAutoStart] = useState<string | null>(null);
   const [columnLength, setColumnLength] = useState(1);
-  const [unit, setUnit] = useState<'months' | 'weeks'>('months');
+  const [unit, setUnit] = useState<AxisColumnUnit>('Months');
   const [applied, setApplied] = useState(false);
+  /** What the server made of the axis: working-day counts, holidays hit, warnings. */
+  const [axis, setAxis] = useState<GeneratedAxisResponse | null>(null);
+  const [durationChecks, setDurationChecks] = useState<StageDurationCheck[]>([]);
 
   // The result card renders below the fold on a laptop, so clicking Simuler looked like nothing had
   // happened. Bring it into view rather than leaving the user to guess.
@@ -85,6 +95,7 @@ export default function RotationCyclePage() {
   const [preview, { isLoading: previewing }] = usePreviewRotationCycleMutation();
   const [apply, { isLoading: applying }] = useApplyRotationCycleMutation();
   const [macroPlan, { isLoading: planning }] = useGenerateMacroPlanMutation();
+  const [fetchAxis, { isFetching: generatingAxis }] = useLazyGenerateAxisWindowsQuery();
 
   const stageOptions = (stagePage?.items ?? []).map((s) => ({
     value: String(s.id),
@@ -128,38 +139,47 @@ export default function RotationCyclePage() {
     setStages((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
 
   /** Resizes the window list to T, keeping whatever the user already typed. */
-  const syncWindows = () =>
+  const syncWindows = () => {
+    setAxis(null);
     setWindows((prev) =>
       Array.from({ length: timeline }, (_, i) => prev[i] ?? [null, null]),
     );
+  };
 
   /**
    * Lays out all T columns from one start date — the point being that the whole axis comes from a single
-   * entry rather than 2T dates typed by hand. Windows are contiguous and inclusive of both ends, which is
-   * the convention `SlotOverlapGuard` enforces: the next column starts the day after the last one ends.
+   * entry rather than 2T dates typed by hand.
    *
-   * Everything stays editable afterwards, because a real calendar has holidays the arithmetic cannot know.
+   * ⚠ A **server** call, deliberately. This used to be `setUTCMonth` here, which is right for calendar
+   * months and silently wrong the moment a duration means *jours ouvrables*: the browser has no holiday
+   * table, so a window generated locally counts Aïd as four days of stage. The server returns the windows
+   * *and* what they cost in worked days, which is the number the faculty is actually choosing.
+   *
+   * Everything stays editable afterwards — a real calendar has irregularities no rule captures.
    */
-  const generateWindows = () => {
+  const generateWindows = async () => {
     if (!autoStart || timeline === 0) return;
 
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const generated: [string | null, string | null][] = [];
-    let cursor = new Date(`${autoStart}T00:00:00Z`);
+    try {
+      const res = await fetchAxis({
+        columns: timeline,
+        startDate: autoStart,
+        unit,
+        length: columnLength,
+      }).unwrap();
 
-    for (let i = 0; i < timeline; i++) {
-      const end = new Date(cursor);
-      if (unit === 'months') end.setUTCMonth(end.getUTCMonth() + columnLength);
-      else end.setUTCDate(end.getUTCDate() + columnLength * 7);
-      end.setUTCDate(end.getUTCDate() - 1);
+      setAxis(res);
+      setWindows(res.columns.map((c) => [c.startDate, c.endDate]));
 
-      generated.push([iso(cursor), iso(end)]);
-
-      cursor = new Date(end);
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      if (res.calendarIsEmpty)
+        notify.info(
+          'Aucun jour férié enregistré sur cette période — les jours ouvrables ne comptent donc que '
+          + 'les week-ends. Renseignez le calendrier pour un décompte juste.',
+        );
+    } catch {
+      // The error middleware toasts the API's own message.
+      setAxis(null);
     }
-
-    setWindows(generated);
   };
 
   const payload = () => ({
@@ -178,6 +198,7 @@ export default function RotationCyclePage() {
     try {
       const res = await preview(payload()).unwrap();
       setLayout(res.layout);
+      setDurationChecks(res.durationChecks);
       setApplied(false);
       requestAnimationFrame(() =>
         resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
@@ -350,26 +371,36 @@ export default function RotationCyclePage() {
                 value={columnLength}
                 onChange={(v) => setColumnLength(Math.max(1, Number(v) || 1))}
                 min={1}
-                max={12}
+                max={unit === 'WorkingDays' ? 260 : 12}
                 radius="md"
                 w={140}
               />
               <Select
                 label="Unité"
+                description={
+                  unit === 'WorkingDays'
+                    ? 'Week-ends et jours fériés exclus — toutes les colonnes durent autant'
+                    : 'Durée calendaire — février et mars ne pèsent pas pareil'
+                }
                 data={[
-                  { value: 'months', label: 'mois' },
-                  { value: 'weeks', label: 'semaines' },
+                  { value: 'Months', label: 'mois' },
+                  { value: 'Weeks', label: 'semaines' },
+                  { value: 'WorkingDays', label: 'jours ouvrables' },
                 ]}
                 value={unit}
-                onChange={(v) => setUnit((v as 'months' | 'weeks') ?? 'months')}
+                onChange={(v) => {
+                  setUnit((v as AxisColumnUnit) ?? 'Months');
+                  setAxis(null);
+                }}
                 radius="md"
-                w={120}
+                w={260}
                 allowDeselect={false}
               />
               <Button
                 radius="md"
                 variant="light"
                 color="navy"
+                loading={generatingAxis}
                 leftSection={<IconCalendarPlus size={14} />}
                 onClick={generateWindows}
                 disabled={!autoStart || timeline === 0}
@@ -392,28 +423,96 @@ export default function RotationCyclePage() {
               )}
             </Group>
 
-            {windows.length > 0 && (
-              <ScrollArea.Autosize mah={280}>
-                <Stack gap="xs">
-                  {windows.map((w, i) => (
-                    <Group key={i} gap="sm" wrap="nowrap">
-                      <Badge variant="light" color="navy" w={54}>
-                        C{i + 1}
+            {axis && (
+              <Stack gap="xs">
+                {axis.warnings.map((w) => (
+                  <Alert key={w} variant="light" color="orange" icon={<IconAlertTriangle size={14} />}>
+                    {w}
+                  </Alert>
+                ))}
+
+                <Group gap="xs">
+                  <Badge variant="light" color="teal">
+                    {axis.workingDaysTotal} jour(s) ouvrable(s) au total
+                  </Badge>
+                  <Badge variant="light" color="gray">
+                    {axis.calendarDaysTotal} jour(s) calendaires
+                  </Badge>
+                  {axis.calendarIsEmpty && (
+                    <Badge variant="light" color="orange">Calendrier vide — week-ends seuls</Badge>
+                  )}
+                  {axis.missingReligious.length > 0 && (
+                    <Tooltip
+                      multiline
+                      w={320}
+                      label={
+                        'Ces fêtes suivent le calendrier hégirien : leur date est fixée par décret et '
+                        + 'PGSH ne peut pas la calculer. Saisissez-les dans Calendrier pour que le '
+                        + 'décompte soit juste.'
+                      }
+                    >
+                      <Badge variant="light" color="yellow" style={{ cursor: 'help' }}>
+                        À saisir : {axis.missingReligious.join(', ')}
                       </Badge>
-                      <DatePickerInput
-                        type="range"
-                        placeholder="Début → fin"
-                        value={w}
-                        onChange={(v) =>
-                          setWindows((prev) =>
-                            prev.map((x, j) => (j === i ? (v as [string | null, string | null]) : x)),
-                          )
-                        }
-                        radius="md"
-                        style={{ flex: 1 }}
-                      />
-                    </Group>
-                  ))}
+                    </Tooltip>
+                  )}
+                </Group>
+              </Stack>
+            )}
+
+            {windows.length > 0 && (
+              <ScrollArea.Autosize mah={320}>
+                <Stack gap="xs">
+                  {windows.map((w, i) => {
+                    const column = axis?.columns[i];
+
+                    return (
+                      <Group key={i} gap="sm" wrap="nowrap">
+                        <Badge variant="light" color="navy" w={54}>
+                          C{i + 1}
+                        </Badge>
+                        <DatePickerInput
+                          type="range"
+                          placeholder="Début → fin"
+                          value={w}
+                          onChange={(v) => {
+                            // Typing over a generated window makes the server's counts describe dates
+                            // that are no longer on screen.
+                            setAxis(null);
+                            setWindows((prev) =>
+                              prev.map((x, j) => (j === i ? (v as [string | null, string | null]) : x)),
+                            );
+                          }}
+                          radius="md"
+                          style={{ flex: 1 }}
+                        />
+                        {column && (
+                          <Group gap={6} wrap="nowrap" w={rem(260)}>
+                            <Badge
+                              variant="light"
+                              color={column.workingDays === 0 ? 'red' : 'teal'}
+                              size="sm"
+                            >
+                              {column.workingDays} j. ouvr.
+                            </Badge>
+                            <Text size="xs" c="dimmed">/ {column.calendarDays} j.</Text>
+                            {column.holidays.length > 0 && (
+                              <Tooltip label={column.holidays.join(' · ')} multiline w={260}>
+                                <Badge
+                                  variant="dot"
+                                  size="sm"
+                                  color={column.hasProvisionalDates ? 'orange' : 'gray'}
+                                  style={{ cursor: 'help' }}
+                                >
+                                  {column.holidays.length} férié(s)
+                                </Badge>
+                              </Tooltip>
+                            )}
+                          </Group>
+                        )}
+                      </Group>
+                    );
+                  })}
                 </Stack>
               </ScrollArea.Autosize>
             )}
@@ -509,6 +608,60 @@ export default function RotationCyclePage() {
                   ))}
                 </Table.Tbody>
               </Table>
+
+              {durationChecks.length > 0 && (
+                <>
+                  <Divider label="Durée réelle par stage" labelPosition="left" />
+
+                  <Text size="xs" c="dimmed">
+                    Ce que les fenêtres donnent réellement à chaque stage, en jours ouvrables, face à la
+                    durée annoncée par son catalogue. Un intervalle plutôt qu'un nombre : les partitions
+                    prennent des tranches différentes de l'axe, et une tranche sur février est réellement
+                    plus courte qu'une tranche sur mars. Informatif — jamais bloquant.
+                  </Text>
+
+                  <Table striped withTableBorder>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Stage</Table.Th>
+                        <Table.Th>Périodes</Table.Th>
+                        <Table.Th>Annoncé</Table.Th>
+                        <Table.Th>Jours ouvrables</Table.Th>
+                        <Table.Th>Jours calendaires</Table.Th>
+                        <Table.Th>Remarque</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {durationChecks.map((c) => (
+                        <Table.Tr key={c.stageId}>
+                          <Table.Td>{c.name}</Table.Td>
+                          <Table.Td>{c.periods}</Table.Td>
+                          <Table.Td>{c.statedDurationInDays} j.</Table.Td>
+                          <Table.Td>
+                            <Badge variant="light" color={c.note ? 'orange' : 'teal'}>
+                              {c.minWorkingDays === c.maxWorkingDays
+                                ? c.minWorkingDays
+                                : `${c.minWorkingDays} – ${c.maxWorkingDays}`}
+                            </Badge>
+                          </Table.Td>
+                          <Table.Td>
+                            <Text size="sm" c="dimmed">
+                              {c.minCalendarDays === c.maxCalendarDays
+                                ? c.minCalendarDays
+                                : `${c.minCalendarDays} – ${c.maxCalendarDays}`}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td>
+                            <Text size="xs" c={c.note ? 'orange' : 'dimmed'}>
+                              {c.note ?? '—'}
+                            </Text>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </>
+              )}
 
               <Divider label="Qui va où" labelPosition="left" />
 

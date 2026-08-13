@@ -25,6 +25,7 @@ export const PATHS = {
     TIMELINE:        'timeline',
     REPARTITION:     'repartition',
     ROTATION_CYCLE:  'rotation-cycle',
+    HOLIDAYS:        'holidays',
     LEVELS:          'levels',
     CURRICULUM:      'curriculum',
     STAGES:          'stages',

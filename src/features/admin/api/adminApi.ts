@@ -67,7 +67,26 @@ import type {
   YearTimelineResponse,
   PauseKind,
   LevelRepartitionResponse,
+  GeneratedAxisResponse,
+  GenerateAxisWindowsRequest,
+  PartitionStrategy,
+  PartitionAssignmentResult,
+  ClearRotationGroupsResult,
+  HolidayCoverage,
+  HolidayInput,
+  SeedNationalHolidaysResult,
+  DeleteHolidayResult,
+  UpdateHolidayResult,
 } from '../types/admin.types';
+
+/**
+ * Changing the calendar changes every working-day count already on screen — the coverage list, and any axis
+ * laid out from it. Module-level so the tag list identity is stable.
+ */
+const CALENDAR_CHANGED = [
+  { type: 'Calendar' as const, id: 'HOLIDAYS' },
+  { type: 'Calendar' as const, id: 'AXIS' },
+];
 
 export const adminApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
@@ -646,6 +665,16 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    /**
+     * Lays the block's axis out from one start date. A query, not a mutation — it writes nothing, and
+     * caching it means changing the unit back and forth does not re-hit the server. Server-side because
+     * the working-day count needs the holiday table.
+     */
+    generateAxisWindows: builder.query<GeneratedAxisResponse, GenerateAxisWindowsRequest>({
+      query: (params) => ({ url: '/stages/axis-windows', params }),
+      providesTags: [{ type: 'Calendar' as const, id: 'AXIS' }],
+    }),
+
     previewRotationCycle: builder.mutation<
       RotationCyclePreview,
       { levelId: number } & RotationCycleRequest
@@ -766,14 +795,82 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: '/groups/auto-arrange', method: 'POST', body }),
     }),
 
-    assignRotationGroups: builder.mutation<{ labeled: number }, { academicYearId: number; partitionCount: number; levelId?: number }>({
-      query: ({ academicYearId, partitionCount, levelId }) => ({
+    /**
+     * `strategy` and `reassign` both default to the historical behaviour, so a caller sending only
+     * `partitionCount` is unaffected. ⚠ Without `reassign`, a promotion that already carries labels keeps
+     * its *existing* partition count whatever is asked for — to change the count, clear first.
+     */
+    assignRotationGroups: builder.mutation<
+      PartitionAssignmentResult,
+      {
+        academicYearId: number;
+        partitionCount: number;
+        levelId?: number;
+        strategy?: PartitionStrategy;
+        reassign?: boolean;
+      }
+    >({
+      query: ({ academicYearId, partitionCount, levelId, strategy, reassign }) => ({
         url: '/groups/assign-partitions',
         method: 'POST',
         params: levelId != null ? { academicYearId, levelId } : { academicYearId },
-        body: { partitionCount },
+        body: { partitionCount, strategy, reassign },
       }),
-      invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
+      invalidatesTags: [
+        { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Level' as const, id: 'REPARTITION' },
+      ],
+    }),
+
+    /**
+     * Un-partitions a promotion. Breaks no link — nothing points at a label — but the planned cells no
+     * longer describe any partition, so an arrange is owed. Refused outright once a cell is published.
+     */
+    clearRotationGroups: builder.mutation<
+      ClearRotationGroupsResult,
+      { academicYearId: number; levelId?: number }
+    >({
+      query: ({ academicYearId, levelId }) => ({
+        url: '/groups/partitions',
+        method: 'DELETE',
+        params: levelId != null ? { academicYearId, levelId } : { academicYearId },
+      }),
+      invalidatesTags: [
+        { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Level' as const, id: 'REPARTITION' },
+      ],
+    }),
+
+    getHolidayCoverage: builder.query<HolidayCoverage, { academicYearId?: number }>({
+      query: ({ academicYearId }) => ({
+        url: '/calendar/holidays',
+        params: academicYearId != null ? { academicYearId } : undefined,
+      }),
+      providesTags: [{ type: 'Calendar' as const, id: 'HOLIDAYS' }],
+    }),
+
+    createHoliday: builder.mutation<number, HolidayInput>({
+      query: (body) => ({ url: '/calendar/holidays', method: 'POST', body }),
+      invalidatesTags: CALENDAR_CHANGED,
+    }),
+
+    updateHoliday: builder.mutation<UpdateHolidayResult, { id: number } & HolidayInput>({
+      query: ({ id, ...body }) => ({ url: `/calendar/holidays/${id}`, method: 'PUT', body }),
+      invalidatesTags: CALENDAR_CHANGED,
+    }),
+
+    deleteHoliday: builder.mutation<DeleteHolidayResult, number>({
+      query: (id) => ({ url: `/calendar/holidays/${id}`, method: 'DELETE' }),
+      invalidatesTags: CALENDAR_CHANGED,
+    }),
+
+    seedNationalHolidays: builder.mutation<SeedNationalHolidaysResult, { academicYearId?: number }>({
+      query: ({ academicYearId }) => ({
+        url: '/calendar/holidays/seed-national',
+        method: 'POST',
+        params: academicYearId != null ? { academicYearId } : undefined,
+      }),
+      invalidatesTags: CALENDAR_CHANGED,
     }),
 
     bulkCreateCohortsFromPartitions: builder.mutation<BulkCohortsFromPartitionsResult, BulkCreateCohortsFromPartitionsRequest>({
@@ -1037,6 +1134,14 @@ export const {
   useGenerateMacroPlanMutation,
   usePreviewRotationCycleMutation,
   useApplyRotationCycleMutation,
+  useGenerateAxisWindowsQuery,
+  useLazyGenerateAxisWindowsQuery,
+  useClearRotationGroupsMutation,
+  useGetHolidayCoverageQuery,
+  useCreateHolidayMutation,
+  useUpdateHolidayMutation,
+  useDeleteHolidayMutation,
+  useSeedNationalHolidaysMutation,
   useCreateRegistrationMutation,
   useUpdateRegistrationMutation,
   useGetServicePeriodsQuery,

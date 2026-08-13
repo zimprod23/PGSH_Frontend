@@ -8,7 +8,6 @@ import {
   Drawer,
   Group,
   Modal,
-  NumberInput,
   Pagination,
   ScrollArea,
   Select,
@@ -29,7 +28,7 @@ import { useEffect, useState } from 'react';
 import {
   useGetCentersQuery, useCreateCenterMutation, useUpdateCenterMutation, useDeleteCenterMutation,
   useGetHospitalsQuery, useCreateHospitalMutation, useUpdateHospitalMutation, useDeleteHospitalMutation,
-  useGetServicesQuery, useCreateServiceMutation, useUpdateServiceMutation, useDeleteServiceMutation,
+  useGetServicesQuery, useDeleteServiceMutation,
   useGetCentersQuery as useAllCenters,
   useGetHospitalsQuery as useAllHospitals,
   useGetServiceByIdQuery,
@@ -42,12 +41,14 @@ import {
 import type { CenterSummaryResponse, HospitalSummaryResponse, ServiceSummaryResponse, StaffMemberResponse } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
+import { ServiceFormModal } from '../components/ServiceFormModal';
+import { LocalizationFields } from '../components/LocalizationFields';
+import { coordinatePayload, EMPTY_COORDINATES } from '../components/localization';
 
 const PAGE_SIZE = 15;
 
 const CENTER_TYPE_OPTIONS = ['None', 'CHU', 'Regional', 'Militaire'].map((v) => ({ value: v, label: v }));
 const HOSPITAL_TYPE_OPTIONS = ['None', 'CHU', 'Central', 'Spetialité', 'LHOMA', 'Autre'].map((v) => ({ value: v, label: v }));
-const SERVICE_TYPE_OPTIONS = ['Biologie', 'Chirurgie', 'Medical'].map((v) => ({ value: v, label: v }));
 
 const TYPE_COLOR: Record<string, string> = {
   // CenterType
@@ -90,14 +91,21 @@ function CentersTab() {
   const [editTarget, setEditTarget]         = useState<CenterSummaryResponse | null>(null);
   const [deleteTarget, setDeleteTarget]     = useState<CenterSummaryResponse | null>(null);
   const [deleteOpen, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
-  const [form, setForm] = useState({ name: '', centerType: 'CHU', city: '' });
+  const [form, setForm] = useState({ name: '', centerType: 'CHU', city: '', ...EMPTY_COORDINATES });
 
-  const openCreate = () => { setEditTarget(null); setForm({ name: '', centerType: 'CHU', city: '' }); open(); };
-  const openEdit = (c: CenterSummaryResponse) => { setEditTarget(c); setForm({ name: c.name, centerType: c.centerType, city: c.city ?? '' }); open(); };
+  const openCreate = () => { setEditTarget(null); setForm({ name: '', centerType: 'CHU', city: '', ...EMPTY_COORDINATES }); open(); };
+  const openEdit = (c: CenterSummaryResponse) => {
+    setEditTarget(c);
+    setForm({
+      name: c.name, centerType: c.centerType, city: c.city ?? '',
+      localizationX: c.x ?? '', localizationY: c.y ?? '', localizationZ: c.z ?? '',
+    });
+    open();
+  };
 
   const handleSave = async () => {
     if (!form.name.trim()) return;
-    const payload = { name: form.name.trim(), centerType: form.centerType, city: form.city.trim() || undefined };
+    const payload = { name: form.name.trim(), centerType: form.centerType, city: form.city.trim() || undefined, ...coordinatePayload(form) };
     try {
       if (editTarget) { await updateCenter({ id: editTarget.id, ...payload }).unwrap(); notify.success('Centre mis à jour'); }
       else { await createCenter(payload).unwrap(); notify.success('Centre créé'); }
@@ -152,11 +160,12 @@ function CentersTab() {
 
       {(data?.totalPages ?? 1) > 1 && <Group justify="center"><Pagination value={page} onChange={setPage} total={data!.totalPages} radius="md" size="sm" color="navy" /></Group>}
 
-      <Modal opened={opened} onClose={close} title={editTarget ? 'Modifier le centre' : 'Nouveau centre'} radius="lg" size="sm">
+      <Modal opened={opened} onClose={close} title={editTarget ? 'Modifier le centre' : 'Nouveau centre'} radius="lg" size="md">
         <Stack gap="md">
           <TextInput label="Nom" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} radius="md" required />
           <Select label="Type" data={CENTER_TYPE_OPTIONS} value={form.centerType} onChange={(v) => setForm((p) => ({ ...p, centerType: v ?? 'CHU' }))} radius="md" />
           <TextInput label="Ville" value={form.city} onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))} radius="md" />
+          <LocalizationFields value={form} onChange={(patch) => setForm((p) => ({ ...p, ...patch }))} />
           <Group justify="flex-end">
             <Button variant="subtle" color="gray" radius="md" onClick={close}>Annuler</Button>
             <Button color="navy" radius="md" loading={creating || updating} disabled={!form.name.trim()} onClick={handleSave}>Enregistrer</Button>
@@ -195,20 +204,26 @@ function HospitalsTab() {
   const [editTarget, setEditTarget]         = useState<HospitalSummaryResponse | null>(null);
   const [deleteTarget, setDeleteTarget]     = useState<HospitalSummaryResponse | null>(null);
   const [deleteOpen, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
-  const [form, setForm] = useState({ name: '', centerId: '', hospitalType: 'Central', city: '', email: '', description: '' });
+  const [form, setForm] = useState({ name: '', centerId: '', hospitalType: 'Central', city: '', email: '', description: '', ...EMPTY_COORDINATES });
 
   const centerOptions = allCenters.items.map((c) => ({ value: String(c.id), label: c.name }));
 
-  const openCreate = () => { setEditTarget(null); setForm({ name: '', centerId: '', hospitalType: 'Central', city: '', email: '', description: '' }); open(); };
+  const openCreate = () => { setEditTarget(null); setForm({ name: '', centerId: '', hospitalType: 'Central', city: '', email: '', description: '', ...EMPTY_COORDINATES }); open(); };
   const openEdit = (h: HospitalSummaryResponse) => {
     setEditTarget(h);
-    setForm({ name: h.name, centerId: String(h.centerId), hospitalType: h.hospitalType, city: h.city, email: h.email ?? '', description: '' });
+    // Every field the save writes back is read here — a blank left in this object is a stored value
+    // destroyed on the next save, which is what used to happen to the description.
+    setForm({
+      name: h.name, centerId: String(h.centerId), hospitalType: h.hospitalType, city: h.city,
+      email: h.email ?? '', description: h.description ?? '',
+      localizationX: h.x ?? '', localizationY: h.y ?? '', localizationZ: h.z ?? '',
+    });
     open();
   };
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.centerId || !form.city.trim()) return;
-    const payload = { centerId: Number(form.centerId), name: form.name.trim(), hospitalType: form.hospitalType, city: form.city.trim(), email: form.email.trim() || undefined, description: form.description.trim() || undefined };
+    const payload = { centerId: Number(form.centerId), name: form.name.trim(), hospitalType: form.hospitalType, city: form.city.trim(), email: form.email.trim() || undefined, description: form.description.trim() || undefined, ...coordinatePayload(form) };
     try {
       if (editTarget) { await updateHospital({ id: editTarget.id, ...payload }).unwrap(); notify.success('Hôpital mis à jour'); }
       else { await createHospital(payload).unwrap(); notify.success('Hôpital créé'); }
@@ -280,6 +295,7 @@ function HospitalsTab() {
             <TextInput label="Email" type="email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} radius="md" />
           </Group>
           <Textarea label="Description" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} radius="md" autosize minRows={2} />
+          <LocalizationFields value={form} onChange={(patch) => setForm((p) => ({ ...p, ...patch }))} />
           <Group justify="flex-end">
             <Button variant="subtle" color="gray" radius="md" onClick={close}>Annuler</Button>
             <Button color="navy" radius="md" loading={creating || updating} disabled={!form.name.trim() || !form.centerId || !form.city.trim()} onClick={handleSave}>Enregistrer</Button>
@@ -447,35 +463,18 @@ function ServicesTab() {
 
   const { data: allHospitals = { items: [] } } = useAllHospitals({ pageSize: 200 });
   const { data, isLoading, isFetching } = useGetServicesQuery({ hospitalId: hospitalFilter ? Number(hospitalFilter) : undefined, searchTerm: debouncedSearch || undefined, pageNumber: page, pageSize: PAGE_SIZE });
-  const [createService, { isLoading: creating }] = useCreateServiceMutation();
-  const [updateService, { isLoading: updating }] = useUpdateServiceMutation();
   const [deleteService] = useDeleteServiceMutation();
 
   const [opened, { open, close }] = useDisclosure(false);
   const [editTarget, setEditTarget]         = useState<ServiceSummaryResponse | null>(null);
   const [deleteTarget, setDeleteTarget]     = useState<ServiceSummaryResponse | null>(null);
   const [deleteOpen, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
-  const [form, setForm] = useState({ name: '', hospitalId: '', serviceType: 'Medical', specialty: '', capacity: 10, description: '' });
   const [staffServiceId, setStaffServiceId] = useState<number | null>(null);
 
   const hospitalOptions = allHospitals.items.map((h) => ({ value: String(h.id), label: `${h.name} — ${h.city}` }));
 
-  const openCreate = () => { setEditTarget(null); setForm({ name: '', hospitalId: '', serviceType: 'Medical', specialty: '', capacity: 10, description: '' }); open(); };
-  const openEdit = (s: ServiceSummaryResponse) => {
-    setEditTarget(s);
-    setForm({ name: s.name, hospitalId: String(s.hospitalId), serviceType: s.serviceType, specialty: s.specialty ?? '', capacity: s.capacity, description: '' });
-    open();
-  };
-
-  const handleSave = async () => {
-    if (!form.name.trim() || !form.hospitalId) return;
-    const payload = { hospitalId: Number(form.hospitalId), name: form.name.trim(), serviceType: form.serviceType, specialty: form.specialty.trim() || undefined, capacity: form.capacity, description: form.description.trim() };
-    try {
-      if (editTarget) { await updateService({ id: editTarget.id, ...payload }).unwrap(); notify.success('Service mis à jour'); }
-      else { await createService(payload).unwrap(); notify.success('Service créé'); }
-      close();
-    } catch { notify.error('Erreur lors de l\'enregistrement'); }
-  };
+  const openCreate = () => { setEditTarget(null); open(); };
+  const openEdit = (s: ServiceSummaryResponse) => { setEditTarget(s); open(); };
 
   const handleDeleteConfirm = async () => {
     const s = deleteTarget;
@@ -505,13 +504,14 @@ function ServicesTab() {
               <Table.Th>Type</Table.Th>
               <Table.Th>Spécialité</Table.Th>
               <Table.Th>Capacité</Table.Th>
+              <Table.Th>Promotions</Table.Th>
               <Table.Th>Chef de service</Table.Th>
               <Table.Th w={80} />
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {isLoading ? <SkeletonRows cols={7} /> : (data?.items ?? []).length === 0 ? (
-              <Table.Tr><Table.Td colSpan={7}><Text c="dimmed" size="sm" ta="center" py="xl">Aucun service trouvé</Text></Table.Td></Table.Tr>
+            {isLoading ? <SkeletonRows cols={8} /> : (data?.items ?? []).length === 0 ? (
+              <Table.Tr><Table.Td colSpan={8}><Text c="dimmed" size="sm" ta="center" py="xl">Aucun service trouvé</Text></Table.Td></Table.Tr>
             ) : (data?.items ?? []).map((s) => (
               <Table.Tr key={s.id}>
                 <Table.Td><Text size="sm" fw={500}>{s.name}</Text></Table.Td>
@@ -519,6 +519,15 @@ function ServicesTab() {
                 <Table.Td><Badge variant="light" color={TYPE_COLOR[s.serviceType] ?? 'gray'} radius="xl" size="sm">{s.serviceType}</Badge></Table.Td>
                 <Table.Td><Text size="sm" c={s.specialty ? undefined : 'dimmed'}>{s.specialty ?? '—'}</Text></Table.Td>
                 <Table.Td><Text size="sm" ff="monospace">{s.capacity}</Text></Table.Td>
+                <Table.Td>
+                  {s.restrictedLevelCount === 0 ? (
+                    <Badge variant="light" color="success" radius="xl" size="sm">Toutes</Badge>
+                  ) : (
+                    <Tooltip label="Ce service n'accueille que certaines promotions">
+                      <Badge variant="light" color="warning" radius="xl" size="sm">{s.restrictedLevelCount} promotion(s)</Badge>
+                    </Tooltip>
+                  )}
+                </Table.Td>
                 <Table.Td><Text size="sm" c={s.serviceChefName ? undefined : 'dimmed'}>{s.serviceChefName ?? '—'}</Text></Table.Td>
                 <Table.Td>
                   <Group gap={4} justify="flex-end" wrap="nowrap">
@@ -541,24 +550,12 @@ function ServicesTab() {
 
       <StaffDrawer serviceId={staffServiceId} onClose={() => setStaffServiceId(null)} />
 
-      <Modal opened={opened} onClose={close} title={editTarget ? 'Modifier le service' : 'Nouveau service'} radius="lg" size="md">
-        <Stack gap="md">
-          <TextInput label="Nom" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} radius="md" required />
-          <Group grow>
-            <Select label="Hôpital" data={hospitalOptions} value={form.hospitalId} onChange={(v) => setForm((p) => ({ ...p, hospitalId: v ?? '' }))} radius="md" searchable required />
-            <Select label="Type" data={SERVICE_TYPE_OPTIONS} value={form.serviceType} onChange={(v) => setForm((p) => ({ ...p, serviceType: v ?? 'Medical' }))} radius="md" />
-          </Group>
-          <Group grow>
-            <TextInput label="Spécialité" placeholder="ex: Cardiologie, Neurologie…" value={form.specialty} onChange={(e) => setForm((p) => ({ ...p, specialty: e.target.value }))} radius="md" />
-            <NumberInput label="Capacité" value={form.capacity} onChange={(v) => setForm((p) => ({ ...p, capacity: Number(v) || 1 }))} min={1} radius="md" />
-          </Group>
-          <Textarea label="Description" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} radius="md" autosize minRows={2} />
-          <Group justify="flex-end">
-            <Button variant="subtle" color="gray" radius="md" onClick={close}>Annuler</Button>
-            <Button color="navy" radius="md" loading={creating || updating} disabled={!form.name.trim() || !form.hospitalId} onClick={handleSave}>Enregistrer</Button>
-          </Group>
-        </Stack>
-      </Modal>
+      <ServiceFormModal
+        opened={opened}
+        serviceId={editTarget?.id ?? null}
+        hospitalOptions={hospitalOptions}
+        onClose={close}
+      />
       <ConfirmModal
         opened={deleteOpen}
         onClose={() => { closeDeleteModal(); setDeleteTarget(null); }}

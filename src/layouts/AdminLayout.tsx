@@ -28,6 +28,7 @@ import {
   IconBriefcase,
   IconStethoscope,
   IconCalendarEvent,
+  IconCalendarOff,
   IconTable,
   IconRefresh,
   IconClipboardCheck,
@@ -101,6 +102,7 @@ const NAV: NavEntry[] = [
       { kind: 'leaf', label: 'Calendrier', icon: IconCalendarEvent, path: `${ROOT}/timeline` },
       { kind: 'leaf', label: 'Répartition annuelle', icon: IconTable, path: `${ROOT}/repartition` },
       { kind: 'leaf', label: 'Bloc de rotation', icon: IconRefresh, path: `${ROOT}/rotation-cycle` },
+      { kind: 'leaf', label: 'Jours fériés', icon: IconCalendarOff, path: `${ROOT}/holidays` },
     ],
   },
   {
