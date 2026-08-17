@@ -653,8 +653,12 @@ function PublishAllButton(
         <Checkbox
           checked={allowOverCapacity}
           onChange={(e) => setAllowOverCapacity(e.currentTarget.checked)}
-          label="Autoriser le dépassement de capacité"
-          description="Publie malgré tout : capacité totale d'un service dépassée, quota d'une promotion dépassé, ou service n'accueillant pas cette promotion."
+          label="Autoriser le dépassement d'effectif"
+          /* Was also promising to force a service that does not admit the promotion, and the server
+             used to honour that. It no longer does, and a checkbox describing a power it lacks is
+             worse than no checkbox: the admin ticks it, gets the same refusal, and concludes the
+             screen is broken rather than that the plan is. */
+          description="Publie malgré tout lorsqu'un service dépasse sa capacité totale ou le quota d'une promotion. Ne force pas un service qui n'accueille pas cette promotion — corrigez le service, ou ajoutez-lui un quota."
           color="orange"
         />
       </ConfirmModal>
@@ -1106,8 +1110,12 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
         <Checkbox
           checked={allowOverCapacity}
           onChange={(e) => setAllowOverCapacity(e.currentTarget.checked)}
-          label="Autoriser le dépassement de capacité"
-          description="Publie malgré tout : capacité totale d'un service dépassée, quota d'une promotion dépassé, ou service n'accueillant pas cette promotion."
+          label="Autoriser le dépassement d'effectif"
+          /* Was also promising to force a service that does not admit the promotion, and the server
+             used to honour that. It no longer does, and a checkbox describing a power it lacks is
+             worse than no checkbox: the admin ticks it, gets the same refusal, and concludes the
+             screen is broken rather than that the plan is. */
+          description="Publie malgré tout lorsqu'un service dépasse sa capacité totale ou le quota d'une promotion. Ne force pas un service qui n'accueille pas cette promotion — corrigez le service, ou ajoutez-lui un quota."
           color="orange"
         />
       </ConfirmModal>
