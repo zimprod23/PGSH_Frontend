@@ -135,6 +135,8 @@ export default function StageDetailPage() {
   const [deleteCohortTarget,  setDeleteCohortTarget]  = useState<{ id: number; label: string } | null>(null);
   const [deleteCohortOpen,    { open: openDeleteCohort,    close: closeDeleteCohort    }] = useDisclosure(false);
   const [unpublishTarget,     setUnpublishTarget]     = useState<{ id: number; label: string } | null>(null);
+  // Non-null once the server has refused: holds its description of what unpublishing would destroy.
+  const [unpublishWarning,    setUnpublishWarning]    = useState<string | null>(null);
   const [unpublishOpen,       { open: openUnpublish,       close: closeUnpublish       }] = useDisclosure(false);
   const [unpublishAllOpen,    { open: openUnpublishAll,    close: closeUnpublishAll    }] = useDisclosure(false);
   const [resetCohortsOpen,    { open: openResetCohorts,    close: closeResetCohorts    }] = useDisclosure(false);
@@ -259,18 +261,40 @@ export default function StageDetailPage() {
     } finally { setPublishingCohortId(null); }
   };
 
+  // Two passes, deliberately. The first asks without `force`; if the rotation has begun the server
+  // refuses and says what would be lost — periods started, marks entered, days of attendance — and
+  // that sentence becomes the second confirmation. Deleting a chef's evaluations must be something
+  // the admin agreed to after reading the count, not a side effect of the ordinary "Dépublier".
   const handleUnpublishRotationConfirm = async () => {
     if (!unpublishTarget) return;
     const { id: cohortId, label } = unpublishTarget;
+    const force = unpublishWarning !== null;
     setUnpublishingCohortId(cohortId);
     try {
-      const res = await unpublishSchedule({ cohortId, stageId }).unwrap();
-      notify.success(`${res.removed} période(s) supprimée(s) pour "${label}"`);
-    } catch {
-      notify.error('Impossible de dépublier ce planning');
+      const res = await unpublishSchedule({ cohortId, stageId, force }).unwrap();
+      notify.success(
+        `${res.periodsRemoved} période(s) supprimée(s) pour "${label}"`
+        + (res.adHocPeriodsKept > 0
+          ? ` — ${res.adHocPeriodsKept} période(s) hors planning conservée(s)`
+          : ''),
+      );
+    } catch (error) {
+      const problem = error as { data?: { detail?: string; title?: string } };
+      const detail = problem.data?.detail;
+      if (!force && problem.data?.title === 'Schedule.Underway' && detail) {
+        setUnpublishWarning(detail);
+        setUnpublishingCohortId(null);
+        return;   // modal stays open, now showing what the deletion would cost
+      }
+      notify.error(detail ?? 'Impossible de dépublier ce planning');
     } finally { setUnpublishingCohortId(null); }
+    closeUnpublishDialog();
+  };
+
+  const closeUnpublishDialog = () => {
     closeUnpublish();
     setUnpublishTarget(null);
+    setUnpublishWarning(null);
   };
 
   const handlePublishAll = async () => {
@@ -294,8 +318,10 @@ export default function StageDetailPage() {
     let removed = 0, failed = 0;
     for (const cohort of targets) {
       try {
+        // Never forced in bulk: a cohort whose rotation has begun is refused and counted, so a
+        // sweep over the stage cannot quietly take an evaluation with it.
         const res = await unpublishSchedule({ cohortId: cohort.id, stageId }).unwrap();
-        removed += res.removed;
+        removed += res.periodsRemoved;
       } catch { failed++; }
     }
     setUnpublishingAll(false);
@@ -828,10 +854,11 @@ export default function StageDetailPage() {
       />
       <ConfirmModal
         opened={unpublishOpen}
-        onClose={() => { closeUnpublish(); setUnpublishTarget(null); }}
-        title="Dépublier le planning"
-        message={`Dépublier le planning de "${unpublishTarget?.label}" ? Toutes les périodes de service générées seront supprimées.`}
-        confirmLabel="Dépublier"
+        onClose={closeUnpublishDialog}
+        title={unpublishWarning ? 'Cette répartition est engagée' : 'Dépublier le planning'}
+        message={unpublishWarning
+          ?? `Dépublier le planning de "${unpublishTarget?.label}" ? Toutes les périodes de service générées seront supprimées. Les périodes hors planning (historique importé, délocalisations, rattrapages) sont conservées.`}
+        confirmLabel={unpublishWarning ? 'Supprimer quand même' : 'Dépublier'}
         onConfirm={handleUnpublishRotationConfirm}
         loading={!!unpublishingCohortId}
       />

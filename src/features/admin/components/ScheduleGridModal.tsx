@@ -727,9 +727,15 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
   const confirmUnpublish = useCallback(async () => {
     if (unpublishTarget == null) return;
     try {
+      // Never forced here. The grid is for editing a plan; a rotation already underway is refused,
+      // and the server's message says what it would have cost. Forcing it through is done from the
+      // stage page, which shows that message and asks a second time.
       const res = await unpublish({ cohortId: unpublishTarget, stageId }).unwrap();
-      notify.success(`${res.removed} période(s) supprimée(s)`);
-    } catch { notify.error('Erreur lors de la dépublication'); }
+      notify.success(`${res.periodsRemoved} période(s) supprimée(s)`);
+    } catch (error) {
+      const problem = error as { data?: { detail?: string } };
+      notify.error(problem.data?.detail ?? 'Erreur lors de la dépublication');
+    }
     finally { setUnpublishTarget(null); }
   }, [unpublishTarget, unpublish, stageId, notify]);
 
