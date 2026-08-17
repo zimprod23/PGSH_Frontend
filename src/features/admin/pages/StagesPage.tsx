@@ -10,6 +10,7 @@ import {
   Group,
   NumberInput,
   Pagination,
+  Radio,
   ScrollArea,
   Select,
   Skeleton,
@@ -36,12 +37,16 @@ import { useNavigate } from 'react-router-dom';
 import {
   useGetStagesQuery,
   useGetStageByIdQuery,
-  useGetLevelsQuery,
+  useGetPromotionLevelsQuery,
   useCreateStageMutation,
   useUpdateStageMutation,
   useDeleteStageMutation,
 } from '../api/adminApi';
-import type { StageSummaryResponse, StageObjectiveRequest } from '../types/admin.types';
+import type {
+  StageSummaryResponse,
+  StageObjectiveRequest,
+  StageRotationMode,
+} from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { PATHS } from '../../../routes/paths';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
@@ -57,10 +62,12 @@ interface StageForm {
   coefficient: number;
   description: string;
   objectives: ObjectiveRow[];
+  rotationMode: StageRotationMode;
 }
 
 const EMPTY_FORM: StageForm = {
   name: '', levelId: null, durationInDays: 30, coefficient: 1, description: '', objectives: [],
+  rotationMode: 'PerPeriod',
 };
 
 /** Module-level so its identity is stable — useListParams memoises on it. */
@@ -80,7 +87,7 @@ function StageFormDrawer({
   onSaved: () => void;
 }) {
   const notify = useNotify();
-  const { data: levels = [] } = useGetLevelsQuery(undefined);
+  const { data: levels = [] } = useGetPromotionLevelsQuery(undefined);
   const [createStage, { isLoading: creating }] = useCreateStageMutation();
   const [updateStage, { isLoading: updating }] = useUpdateStageMutation();
 
@@ -119,6 +126,7 @@ function StageFormDrawer({
       description: form.description.trim() || undefined,
       durationInDays: form.durationInDays,
       levelId: Number(form.levelId),
+      rotationMode: form.rotationMode,
       objectives: form.objectives
         .filter((o) => o.label.trim())
         .map(({ _key: _k, ...o }) => ({ ...o, description: o.description || undefined })),
@@ -183,6 +191,30 @@ function StageFormDrawer({
             radius="md"
           />
         </Group>
+
+        {/* Neither option is the "normal" one, so neither is presented as the exception: the choice
+            depends on the stage, and the imported history has both. The description spells out the
+            consequence that actually matters to whoever fills the form — how many evaluations the
+            chef will be asked for. */}
+        <Radio.Group
+          label="Déroulement des périodes"
+          description="Ce que fait le groupe quand ce stage occupe plusieurs périodes de l'axe."
+          value={form.rotationMode}
+          onChange={(v) => set('rotationMode', v as StageRotationMode)}
+        >
+          <Stack gap="xs" mt="xs">
+            <Radio
+              value="PerPeriod"
+              label="Un service par période"
+              description="Le groupe change de service à chaque période (S1 → S2 → …). Une évaluation par période ; la note du stage est leur moyenne et chacune doit être validée."
+            />
+            <Radio
+              value="SingleService"
+              label="Un seul service pour tout le stage"
+              description="Le groupe reste dans le même service pendant toutes ses périodes consécutives, et le chef ne saisit qu'une seule évaluation."
+            />
+          </Stack>
+        </Radio.Group>
 
         <Textarea
           label="Description"
@@ -273,7 +305,7 @@ export default function StagesPage() {
   const PAGE_SIZE = 15;
 
 
-  const { data: levels = [] } = useGetLevelsQuery(undefined);
+  const { data: levels = [] } = useGetPromotionLevelsQuery(undefined);
   const { data, isLoading, isFetching } = useGetStagesQuery({
     searchTerm: debouncedSearch.trim() || undefined,
     levelId: levelFilter ? Number(levelFilter) : undefined,
@@ -324,12 +356,16 @@ export default function StagesPage() {
       coefficient: editTarget.coefficient,
       description: '',
       objectives: [],
+      // From the list row, so the placeholder form cannot write PerPeriod back over a
+      // SingleService stage if the detail request has not landed yet.
+      rotationMode: editTarget.rotationMode,
     };
     return {
       name: stageDetail.name,
       levelId: stageDetail.levelResponse ? String(stageDetail.levelResponse.id) : null,
       durationInDays: stageDetail.durationInDays,
       coefficient: stageDetail.coefficient,
+      rotationMode: stageDetail.rotationMode,
       description: stageDetail.description ?? '',
       objectives: stageDetail.stageObjectiveResponse.map((o) => ({
         _key: crypto.randomUUID(),
@@ -387,6 +423,7 @@ export default function StagesPage() {
                     <Table.Th>Niveau</Table.Th>
                     <Table.Th>Durée</Table.Th>
                     <Table.Th>Coefficient</Table.Th>
+                    <Table.Th>Périodes</Table.Th>
                     <Table.Th w={100} />
                   </Table.Tr>
                 </Table.Thead>
@@ -394,14 +431,14 @@ export default function StagesPage() {
                   {isLoading ? (
                     Array.from({ length: PAGE_SIZE }).map((_, i) => (
                       <Table.Tr key={i}>
-                        {[180, 140, 80, 60, 90].map((w, j) => (
+                        {[180, 140, 80, 60, 110, 90].map((w, j) => (
                           <Table.Td key={j}><Skeleton height={14} width={w} radius="sm" /></Table.Td>
                         ))}
                       </Table.Tr>
                     ))
                   ) : stages.length === 0 ? (
                     <Table.Tr>
-                      <Table.Td colSpan={5}>
+                      <Table.Td colSpan={6}>
                         <Stack align="center" py="xl" gap="xs">
                           <IconStethoscope size={32} stroke={1.5} color="#94A3B8" />
                           <Text c="dimmed" size="sm">Aucun stage trouvé</Text>
@@ -426,6 +463,25 @@ export default function StagesPage() {
                         </Table.Td>
                         <Table.Td>
                           <Text size="sm" ff="monospace">{stage.coefficient}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Tooltip
+                            withArrow
+                            multiline
+                            w={280}
+                            label={stage.rotationMode === 'SingleService'
+                              ? 'Le groupe reste dans le même service pendant toutes ses périodes consécutives, et une seule évaluation est saisie.'
+                              : 'Le groupe change de service à chaque période, avec une évaluation par période.'}
+                          >
+                            <Badge
+                              variant="light"
+                              radius="xl"
+                              size="sm"
+                              color={stage.rotationMode === 'SingleService' ? 'teal' : 'gray'}
+                            >
+                              {stage.rotationMode === 'SingleService' ? 'Service unique' : 'Un par période'}
+                            </Badge>
+                          </Tooltip>
                         </Table.Td>
                         <Table.Td>
                           <Group gap={4} wrap="nowrap" justify="flex-end">

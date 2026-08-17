@@ -28,7 +28,7 @@ import {
 } from '@tabler/icons-react';
 import { useMemo, useRef, useState } from 'react';
 import {
-  useGetLevelsQuery,
+  useGetPromotionLevelsQuery,
   useGetStagesQuery,
   usePreviewRotationCycleMutation,
   useApplyRotationCycleMutation,
@@ -86,7 +86,7 @@ export default function RotationCyclePage() {
   // happened. Bring it into view rather than leaving the user to guess.
   const resultRef = useRef<HTMLDivElement>(null);
 
-  const { data: levels = [] } = useGetLevelsQuery(undefined);
+  const { data: levels = [] } = useGetPromotionLevelsQuery(undefined);
   const { data: stagePage } = useGetStagesQuery(
     { levelId: levelId ?? undefined, pageNumber: 1, pageSize: 100 },
     { skip: levelId == null },
@@ -246,6 +246,25 @@ export default function RotationCyclePage() {
       notify.success(
         `${res.cohortsCreated} cohorte(s), ${res.studentsAssigned} étudiant(s), ${res.cellsArranged} cellule(s).`,
       );
+
+      // ⚠ Never let a refused plan pass for a successful one. The macro plan reports every cell it
+      // declined, and this page was the one place that dropped the number: a run that wrote 120 of
+      // the 540 cells it was asked for toasted "120 cellule(s)" and nothing else, so a répartition
+      // missing seven of its nine columns looked like it had worked.
+      if (res.groupConflicts > 0) {
+        notify.error(
+          `${res.groupConflicts} cellule(s) non écrite(s) : ces groupes sont déjà affectés à un ` +
+          'autre stage sur les mêmes dates. Si ce stage appartient à une autre promotion, les ' +
+          'groupes de cette année sont partagés entre niveaux et doivent être séparés avant de répartir.',
+        );
+      }
+
+      if (res.cohortsNotRequiredByCnpn > 0) {
+        notify.info(
+          `${res.cohortsNotRequiredByCnpn} combinaison(s) écartée(s) : le CNPN suivi par ces groupes ` +
+          "n'exige pas ce stage à leur niveau.",
+        );
+      }
     } catch {
       /* toasted */
     }

@@ -1,6 +1,6 @@
 import { Button, Divider, Group, Modal, NumberInput, Select, Skeleton, Stack, TextInput, Textarea } from '@mantine/core';
 import { useState } from 'react';
-import { useCreateServiceMutation, useGetLevelsQuery, useGetServiceByIdQuery, useUpdateServiceMutation } from '../api/adminApi';
+import { useCreateServiceMutation, useGetPromotionLevelsQuery, useGetServiceByIdQuery, useUpdateServiceMutation } from '../api/adminApi';
 import type { ServiceLevelCapacity } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ServiceLevelCapacityEditor } from './ServiceLevelCapacityEditor';
@@ -39,7 +39,7 @@ export function ServiceFormModal({
   onClose: () => void;
 }) {
   const { data: detail, isFetching } = useGetServiceByIdQuery(serviceId ?? 0, { skip: serviceId === null });
-  const { data: levels = [] } = useGetLevelsQuery(undefined);
+  const { data: levels = [] } = useGetPromotionLevelsQuery(undefined);
 
   const loaded = serviceId === null || (detail?.id === serviceId && !isFetching);
 

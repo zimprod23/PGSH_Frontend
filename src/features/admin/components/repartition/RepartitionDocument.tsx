@@ -1,5 +1,12 @@
-import type { LevelRepartitionResponse, RepartitionRow } from '../../types/admin.types';
+import type { LevelRepartitionResponse } from '../../types/admin.types';
 import { levelTitle, printDate, yearHeading } from './repartitionLabels';
+import {
+  SERVICE_COLUMN_PX,
+  STAGE_COLUMN_PX,
+  groupTokens,
+  periodColumnWidth,
+  stageTints,
+} from './repartitionLayout';
 import './repartitionDocument.css';
 
 /**
@@ -14,38 +21,20 @@ import './repartitionDocument.css';
 // publishes these, so it lives here rather than being invented as configuration.
 const INSTITUTION = 'Université Mohammed V de Rabat\nFaculté de Médecine et de Pharmacie';
 
-/**
- * Which tint each partition prints in, mapped in first-seen order so the colours stay stable whatever
- * the faculty called its partitions.
- *
- * ⚠ **The band belongs to the cell, not to the row.** A row visits every partition over the year —
- * that is precisely what a crossover is — so "the row's partition" can only mean the one it opens on.
- * With two partitions that is the same thing as the stage: every Médecine row opens on A and every
- * Chirurgie row on B, so the table printed one colour per *stage* under a legend reading
- * « Partition A / Partition B ». Reading the labels off the cells, and tinting the cells, is what
- * makes the mirror visible instead of inventing a fact about the row.
- */
-function bandIndexes(rows: RepartitionRow[]): Map<string, number> {
-  const labels = [
-    ...new Set(
-      rows.flatMap((r) => r.cells.map((c) => c?.rotationGroup)).filter((l): l is string => !!l),
-    ),
-  ].sort();
-  return new Map(labels.map((label, i) => [label, i % 6]));
-}
-
 interface Props {
   report: LevelRepartitionResponse;
 }
 
 export function RepartitionDocument({ report }: Props) {
-  const bands = bandIndexes(report.rows);
+  const tints = stageTints(report.rows);
   const hasTable = report.columns.length > 0 && report.rows.length > 0;
   const hasEmptyCell = report.summary.emptyCells > 0;
 
-  // A planned cell whose cohorts come from more than one partition. Rare, and worth a key of its own:
-  // untinted would otherwise be indistinguishable from "this promotion has no partitions at all".
-  const hasMixedCell = report.rows.some((r) => r.cells.some((c) => c != null && c.rotationGroup == null));
+  // The geometry is a property of this promotion, not of the template: a 5th year whose Médecine
+  // Sociale cell holds seven scattered group numbers needs columns a 3rd year does not.
+  const periodPx = periodColumnWidth(report.rows);
+  const tablePx = STAGE_COLUMN_PX + SERVICE_COLUMN_PX + report.columns.length * periodPx;
+  const share = (px: number) => `${((px / tablePx) * 100).toFixed(3)}%`;
 
   return (
     <div className="repartition-doc">
@@ -76,16 +65,21 @@ export function RepartitionDocument({ report }: Props) {
         </div>
       ) : (
         <div className="repartition-doc__scroll">
-          <table style={{ minWidth: 520 + report.columns.length * 92 }}>
-            {/* Explicit widths, because the period columns are what the reader compares down the
+          <table style={{ minWidth: tablePx }}>
+            {/* Explicit widths, because the période columns are what the reader compares down the
                 page and they must be identical. Left to itself the table sized them from the service
-                names and they came out ragged. The identity columns keep a fixed share; the periods
-                split the rest evenly however many there are (4 for Med3, 10 for Med6). */}
+                names and they came out ragged.
+
+                Stated as shares of a px budget rather than as flat percentages: the identity columns
+                need a fixed amount of room whatever the number of périodes (4 for Med3, 10 for Med6),
+                while the périodes need a width that follows how much each cell actually has to say —
+                see `periodColumnWidth`. Splitting a fixed 60% evenly gave a 5th-year column 81px for
+                a cell reading « 3, 12, 21, 30, 39, 48, 57 ». */}
             <colgroup>
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '31%' }} />
+              <col style={{ width: share(STAGE_COLUMN_PX) }} />
+              <col style={{ width: share(SERVICE_COLUMN_PX) }} />
               {report.columns.map((column) => (
-                <col key={`w-${column.index}`} style={{ width: `${60 / report.columns.length}%` }} />
+                <col key={`w-${column.index}`} style={{ width: share(periodPx) }} />
               ))}
             </colgroup>
             <thead>
@@ -120,13 +114,16 @@ export function RepartitionDocument({ report }: Props) {
               {report.rows.map((row, i) => (
                 <tr
                   key={`${row.stageId}-${row.serviceId}`}
-                  className={
+                  className={[
                     // Rows arrive grouped by stage, so a change of stage is a block boundary and
                     // gets a heavier rule — the eye finds Chirurgie without reading the column.
                     i > 0 && report.rows[i - 1].stageId !== row.stageId
                       ? 'repartition-doc__row--stage-start'
-                      : undefined
-                  }
+                      : '',
+                    // …and the block wears its own tint, for the same reason: the reader is a student
+                    // hunting for his group, and the stage is what he navigates by.
+                    `repartition-doc__row--tint-${tints.get(row.stageId) ?? 0}`,
+                  ].filter(Boolean).join(' ')}
                 >
                   <td className="repartition-doc__stage">{row.stageName}</td>
                   {/* Three facts of unequal weight in one cell: the service is what the reader is
@@ -153,18 +150,19 @@ export function RepartitionDocument({ report }: Props) {
                       className={[
                         'repartition-doc__groups',
                         cell ? '' : 'repartition-doc__groups--empty',
-                        // A cell whose cohorts disagree on their partition gets no tint: the backend
-                        // sends null rather than picking one, and inventing a colour here would undo
-                        // that on the only surface anyone reads.
-                        cell?.rotationGroup != null && bands.has(cell.rotationGroup)
-                          ? `repartition-doc__cell--band-${bands.get(cell.rotationGroup)}`
-                          : '',
                       ].filter(Boolean).join(' ')}
-                      // The colour is a second encoding of a fact the cell does not otherwise state,
-                      // so it is also written out for anyone reading in greyscale or with a reader.
-                      title={cell?.rotationGroup ? `Partition ${cell.rotationGroup}` : undefined}
                     >
-                      {cell?.groups ?? '—'}
+                      {/* One span per run, so a line breaks *between* « 12 » and « 21 » and never
+                          inside « 47-50 »: a range split across two lines reads as two ranges, and
+                          the cell is a promise about which students go where. */}
+                      {cell
+                        ? groupTokens(cell.groups).map((token, i, all) => (
+                            <span key={token} className="repartition-doc__grp">
+                              {token}
+                              {i < all.length - 1 ? ',' : ''}
+                            </span>
+                          ))
+                        : '—'}
                     </td>
                   ))}
                 </tr>
@@ -174,29 +172,20 @@ export function RepartitionDocument({ report }: Props) {
         </div>
       )}
 
-      {/* The banding is the only information the document carries in colour alone, so it gets a
-          key. Printed alongside the table, not in the app chrome, because the file is read away
-          from here. */}
-      {hasTable && (bands.size > 0 || hasEmptyCell) && (
+      {/* The hatch is the one thing the document says in ink and nothing else, so it keeps its key.
+          The stage tint needs none — every row names its stage in the first column, which is what
+          made it safe to cycle the palette in the first place.
+
+          There is deliberately no partition key here any more. A partition is scolarité's internal
+          division for building the rotation; the reader of this page is a student looking for his
+          own group, and naming a partition to him explains nothing he can act on. It is still shown
+          where it is actionable — the planning grid and the affectations screen. */}
+      {hasTable && hasEmptyCell && (
         <div className="repartition-doc__legend">
-          {[...bands.entries()].map(([label, index]) => (
-            <span key={label} className="repartition-doc__legend-item">
-              <span className={`repartition-doc__swatch repartition-doc__swatch--band-${index}`} />
-              Partition {label}
-            </span>
-          ))}
-          {hasMixedCell && (
-            <span className="repartition-doc__legend-item">
-              <span className="repartition-doc__swatch repartition-doc__swatch--mixed" />
-              Partitions mêlées
-            </span>
-          )}
-          {hasEmptyCell && (
-            <span className="repartition-doc__legend-item">
-              <span className="repartition-doc__swatch repartition-doc__swatch--empty" />
-              Période non planifiée
-            </span>
-          )}
+          <span className="repartition-doc__legend-item">
+            <span className="repartition-doc__swatch repartition-doc__swatch--empty" />
+            Période non planifiée
+          </span>
         </div>
       )}
 

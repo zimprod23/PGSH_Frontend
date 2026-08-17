@@ -13,7 +13,7 @@ import {
   Title,
 } from '@mantine/core';
 import { IconAlertTriangle, IconDownload, IconPrinter } from '@tabler/icons-react';
-import { useGetLevelsQuery, useGetLevelRepartitionQuery } from '../api/adminApi';
+import { useGetPromotionLevelsQuery, useGetLevelRepartitionQuery } from '../api/adminApi';
 import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { RepartitionDocument } from '../components/repartition/RepartitionDocument';
 import { levelTitle } from '../components/repartition/repartitionLabels';
@@ -30,7 +30,7 @@ export default function RepartitionPage() {
   const [levelId, setLevelId] = useState<string | null>(null);
   const documentRef = useRef<HTMLDivElement>(null);
 
-  const { data: levels = [], isLoading: levelsLoading } = useGetLevelsQuery(undefined);
+  const { data: levels = [], isLoading: levelsLoading } = useGetPromotionLevelsQuery(undefined);
 
   const {
     data: report,

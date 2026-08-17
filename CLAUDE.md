@@ -207,6 +207,12 @@ Rules:
   endpoint, ask for one large page, and unwrap `.items`; they are not a licence to fetch everything.
 - **To show a count, request `pageSize: 1` and read `totalCount`.** `AdminDashboardPage` used to fetch
   all 1,003 groups to render one number.
+- ⚠ **Never compute a count, a total or a grouping from a page.** An `*Options` query asks for one
+  large page; anything derived from it inherits that ceiling *silently*. The Plan macro tab derived
+  its partitions, each one's size and « N groupes sans partition » from `/groups` at `pageSize: 200`,
+  and a promotion adds ~100 rosters a year — past 200 every one of those numbers read low, including
+  the one whose only job is to say a gap-fill is owed. Raising the page size moves the cliff; the fix
+  is an aggregate endpoint (`getPromotionPartitioning`). If a number must be right, the server counts it.
 - **Anything year-scoped passes `academicYearId` to the server.** `AttendancePage` fetched every
   year's cohorts and filtered client-side; `StageDetailPage` did the same. Both now scope the query.
 

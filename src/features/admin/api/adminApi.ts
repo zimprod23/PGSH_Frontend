@@ -24,8 +24,12 @@ import type {
   ServiceSummaryResponse,
   CreateServiceRequest,
   ServiceDetailResponse,
+  ServiceOccupancyResponse,
+  ServiceOccupantResponse,
+  ServiceStageResponse,
   StageSummaryResponse,
   StageDetailResponse,
+  UnpublishScheduleResult,
   AllowedServiceSummary,
   CreateStageRequest,
   UpdateStageRequest,
@@ -72,6 +76,7 @@ import type {
   PartitionStrategy,
   PartitionAssignmentResult,
   ClearRotationGroupsResult,
+  PromotionPartitioning,
   HolidayCoverage,
   HolidayInput,
   SeedNationalHolidaysResult,
@@ -125,6 +130,26 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       query: (program) => ({
         url: '/levels',
         params: { academicProgram: program, pageSize: 100 },
+      }),
+      transformResponse: (res: PaginatedResponse<AdminLevelResponse>) => res.items,
+      providesTags: [{ type: 'Level', id: 'LIST' }],
+    }),
+
+    /**
+     * Levels that are a **promotion** — a year of study — and not « Retrait ».
+     *
+     * ⚠ « Retrait » (année 0) is a withdrawal marker the legacy import kept as a level so the
+     * registrations and the stages already served that year would survive. It has no stage, no
+     * cohorte and nobody to rotate, but being a level it was offered in every picker beside
+     * « Troisième Année » — and one of its rosters ended up carrying a partition label. Use this for
+     * any picker that chooses **a promotion to act on**; use `getLevels` where a level is *displayed*
+     * as recorded history (the level catalogue, a student's dossier, a browse filter over existing
+     * rosters), because a withdrawn registration still has to be able to name its level.
+     */
+    getPromotionLevels: builder.query<AdminLevelResponse[], AcademicProgram | undefined>({
+      query: (program) => ({
+        url: '/levels',
+        params: { academicProgram: program, pageSize: 100, promotionsOnly: true },
       }),
       transformResponse: (res: PaginatedResponse<AdminLevelResponse>) => res.items,
       providesTags: [{ type: 'Level', id: 'LIST' }],
@@ -216,9 +241,13 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     updateService: builder.mutation<void, { id: number } & CreateServiceRequest>({
       query: ({ id, ...body }) => ({ url: `/services/${id}`, method: 'PUT', body }),
+      // The occupancy verdict is computed *from* the quotas, so editing them changes every segment's
+      // answer. Without this the page keeps showing the breach you just fixed.
       invalidatesTags: (_r, _e, { id }) => [
         { type: 'Service', id: 'LIST' },
         { type: 'Service', id: `detail-${id}` },
+        { type: 'Service', id: `occupancy-${id}` },
+        { type: 'Service', id: `stages-${id}` },
         { type: 'Stage', id: 'TIMELINE' },
       ],
     }),
@@ -614,8 +643,18 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    unpublishSchedule: builder.mutation<{ removed: number }, { cohortId: number; stageId: number }>({
-      query: ({ cohortId }) => ({ url: `/cohorts/${cohortId}/publish-schedule`, method: 'DELETE' }),
+    // `force` is required once the rotation has begun: unpublishing deletes the ServicePeriods and
+    // evaluations/attendance cascade from them. Without it the server refuses with Schedule.Underway
+    // and names what would be lost, which is what the confirmation dialog shows.
+    unpublishSchedule: builder.mutation<
+      UnpublishScheduleResult,
+      { cohortId: number; stageId: number; force?: boolean }
+    >({
+      query: ({ cohortId, force }) => ({
+        url: `/cohorts/${cohortId}/publish-schedule`,
+        method: 'DELETE',
+        params: force ? { force: true } : undefined,
+      }),
       invalidatesTags: (_r, _e, { cohortId, stageId }) => [
         { type: 'Assignment' as const, id: 'LIST' },
         { type: 'Stage' as const, id: `cohort-detail-${cohortId}` },
@@ -805,19 +844,23 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       {
         academicYearId: number;
         partitionCount: number;
-        levelId?: number;
+        levelId: number;
         strategy?: PartitionStrategy;
         reassign?: boolean;
       }
     >({
+      // ⚠ `levelId` is required by the API: a partition divides one promotion. Sent year-wide it cut
+      // every promotion of the year at once — each with its own partition count — and reached
+      // « Non réparti », the roster that belongs to no promotion.
       query: ({ academicYearId, partitionCount, levelId, strategy, reassign }) => ({
         url: '/groups/assign-partitions',
         method: 'POST',
-        params: levelId != null ? { academicYearId, levelId } : { academicYearId },
+        params: { academicYearId, levelId },
         body: { partitionCount, strategy, reassign },
       }),
       invalidatesTags: [
         { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Level' as const, id: 'PARTITIONING' },
         { type: 'Level' as const, id: 'REPARTITION' },
       ],
     }),
@@ -828,17 +871,34 @@ export const adminApiSlice = apiSlice.injectEndpoints({
      */
     clearRotationGroups: builder.mutation<
       ClearRotationGroupsResult,
-      { academicYearId: number; levelId?: number }
+      { academicYearId: number; levelId: number }
     >({
       query: ({ academicYearId, levelId }) => ({
         url: '/groups/partitions',
         method: 'DELETE',
-        params: levelId != null ? { academicYearId, levelId } : { academicYearId },
+        params: { academicYearId, levelId },
       }),
       invalidatesTags: [
         { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Level' as const, id: 'PARTITIONING' },
         { type: 'Level' as const, id: 'REPARTITION' },
       ],
+    }),
+
+    /**
+     * How a promotion is divided, counted server-side.
+     *
+     * ⚠ The Plan macro tab used to derive the partitions, their sizes and « N groupes sans partition »
+     * from `/groups` at `pageSize: 200`. A promotion adds ~100 rosters a year, so past 200 it would
+     * have shown a partition smaller than it is and under-reported the very number that says a
+     * gap-fill is owed. Raising the page size moves the cliff; the aggregate removes it.
+     */
+    getPromotionPartitioning: builder.query<
+      PromotionPartitioning,
+      { levelId: number; academicYearId?: number }
+    >({
+      query: (params) => ({ url: '/groups/partitioning', params }),
+      providesTags: [{ type: 'Level' as const, id: 'PARTITIONING' }],
     }),
 
     getHolidayCoverage: builder.query<HolidayCoverage, { academicYearId?: number }>({
@@ -1012,6 +1072,36 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       providesTags: (_r, _e, id) => [{ type: 'Service' as const, id: `detail-${id}` }],
     }),
 
+    // ─── Service occupancy ───────────────────────────────────────────────────
+    // ⚠ academicYearId is in the arg, not just in a client filter: the arg is the RTK Query cache
+    // key, so this is what makes changing the navbar year refetch instead of showing last year's
+    // load under this year's heading.
+    getServiceOccupancy: builder.query<
+      ServiceOccupancyResponse, { serviceId: number; academicYearId?: number }
+    >({
+      query: ({ serviceId, academicYearId }) => ({
+        url: `/services/${serviceId}/occupancy`,
+        params: academicYearId ? { academicYearId } : undefined,
+      }),
+      providesTags: (_r, _e, { serviceId }) => [{ type: 'Service' as const, id: `occupancy-${serviceId}` }],
+    }),
+
+    getServiceStages: builder.query<ServiceStageResponse[], number>({
+      query: (serviceId) => `/services/${serviceId}/stages`,
+      providesTags: (_r, _e, serviceId) => [{ type: 'Service' as const, id: `stages-${serviceId}` }],
+    }),
+
+    // The window comes from the caller: a timeline segment is cut at window boundaries and generally
+    // coincides with no single StageSlot, so there is no période id to pass instead.
+    getServiceOccupants: builder.query<
+      PaginatedResponse<ServiceOccupantResponse>,
+      { serviceId: number; startDate: string; endDate: string; levelId?: number; stageId?: number;
+        pageNumber?: number; pageSize?: number; searchTerm?: string }
+    >({
+      query: ({ serviceId, ...params }) => ({ url: `/services/${serviceId}/occupants`, params }),
+      providesTags: (_r, _e, { serviceId }) => [{ type: 'Service' as const, id: `occupants-${serviceId}` }],
+    }),
+
     assignStaff: builder.mutation<void, { serviceId: number; employeeId: string }>({
       query: ({ serviceId, employeeId }) => ({ url: `/services/${serviceId}/staff`, method: 'POST', body: { employeeId } }),
       invalidatesTags: (_r, _e, { serviceId }) => [{ type: 'Service', id: `detail-${serviceId}` }, { type: 'Service', id: 'LIST' }],
@@ -1068,6 +1158,7 @@ export const {
   useGetAcademicYearsQuery,
   useCreateAcademicYearMutation,
   useGetLevelsQuery,
+  useGetPromotionLevelsQuery,
   useGetLevelRepartitionQuery,
   useCreateLevelMutation,
   useUpdateLevelMutation,
@@ -1137,6 +1228,7 @@ export const {
   useGenerateAxisWindowsQuery,
   useLazyGenerateAxisWindowsQuery,
   useClearRotationGroupsMutation,
+  useGetPromotionPartitioningQuery,
   useGetHolidayCoverageQuery,
   useCreateHolidayMutation,
   useUpdateHolidayMutation,
@@ -1162,6 +1254,9 @@ export const {
   useUpdateEmployeeMutation,
   useDeleteEmployeeMutation,
   useGetServiceByIdQuery,
+  useGetServiceOccupancyQuery,
+  useGetServiceStagesQuery,
+  useGetServiceOccupantsQuery,
   useAssignStaffMutation,
   useRemoveStaffMutation,
   useAssignChefMutation,

@@ -27,7 +27,7 @@ import {
   useCompareCurriculaQuery,
   useGetCnpnVersionsQuery,
   useGetCurriculumQuery,
-  useGetLevelsQuery,
+  useGetPromotionLevelsQuery,
 } from '../api/adminApi';
 import { CurriculumEditor } from '../components/CurriculumEditor';
 import { CnpnTargetingPanel } from '../components/CnpnTargetingPanel';
@@ -81,7 +81,7 @@ function Weight({ from, to }: { from: number | null; to: number | null }) {
 }
 
 export default function CurriculumPage() {
-  const { data: levels = [] } = useGetLevelsQuery(undefined);
+  const { data: levels = [] } = useGetPromotionLevelsQuery(undefined);
   const { data: versions = [] } = useGetCnpnVersionsQuery();
 
   const [levelChoice, setLevelId] = useState<string | null>(null);

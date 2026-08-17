@@ -45,6 +45,7 @@ import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { useNavigate } from 'react-router-dom';
 import {
   useGetLevelsQuery,
+  useGetPromotionLevelsQuery,
   useGetStudentsQuery,
   useAutoArrangeGroupsMutation,
   useGetAcademicGroupsQuery,
@@ -55,6 +56,7 @@ import {
   useGetStagesQuery,
   useAssignRotationGroupsMutation,
   useClearRotationGroupsMutation,
+  useGetPromotionPartitioningQuery,
   useGenerateMacroPlanMutation,
   useDeleteAllYearGroupsMutation,
   useEmptyGroupMutation,
@@ -83,7 +85,7 @@ const EMPTY: FormState = { academicYearId: null, levelId: null, groupSize: 20 };
 function AutoArrangeTab() {
   const notify = useNotify();
   const { currentYearId } = useAcademicYear();
-  const { data: levels = [] } = useGetLevelsQuery(undefined);
+  const { data: levels = [] } = useGetPromotionLevelsQuery(undefined);
   const [arrange, { isLoading }] = useAutoArrangeGroupsMutation();
 
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -219,12 +221,17 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
   // The year is driven by the navbar; reset the in-progress plan whenever it changes.
   useEffect(() => { setSelection(new Map()); setResult(null); setSelectedLevel(null); }, [selectedYear]);
 
-  const { data: levels = [] } = useGetLevelsQuery(undefined);
+  const { data: levels = [] } = useGetPromotionLevelsQuery(undefined);
 
-  // Partitions are per (year, level): scope the groups to the selected level so each
-  // level keeps its own partition count (e.g. 2 in 1Med, 4 in 2Med).
-  const { data: groups = [], isLoading: loadingGroups } = useGetAcademicGroupOptionsQuery(
-    { academicYearId: Number(selectedYear), levelId: selectedLevel ? Number(selectedLevel) : undefined },
+  // Partitions are per (year, level): each promotion keeps its own partition count (2 in 1Med, 10 in
+  // 6Med), so the summary is asked for one promotion at a time.
+  //
+  // ⚠ Counted by the server. Derived here from `/groups` at `pageSize: 200`, every number on this tab
+  // — the partitions in place, each one's size, and « N groupes sans partition » — silently read low
+  // once a promotion passed 200 rosters, and a promotion adds ~100 a year. Raising the page size only
+  // moves the cliff.
+  const { data: partitioning, isLoading: loadingPartitioning } = useGetPromotionPartitioningQuery(
+    { academicYearId: Number(selectedYear), levelId: Number(selectedLevel) },
     { skip: !selectedYear || !selectedLevel },
   );
 
@@ -239,23 +246,16 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
 
   const [clearOpen, { open: openClear, close: closeClear }] = useDisclosure(false);
 
-  const partitions = Array.from(
-    new Set(groups.map((g) => g.rotationGroup).filter((r): r is string => r != null))
-  ).sort();
+  const partitions = partitioning?.partitions.map((p) => p.label) ?? [];
 
-  // Groups this level created after its partitions were cut — a new group, or a promotion the auto-arrange
-  // extended. They are invisible to every partition filter until they are labelled, and the only path that
-  // labels them without re-cutting is an assign with reassign=false.
-  const unlabelled = groups.filter((g) => g.rotationGroup == null);
-
-  // Named, not just counted — the admin has to recognise which groups these are. Truncated because a
-  // promotion runs to ~100 groups and an unbroken list of numbers stops being readable long before that.
-  const unlabelledNumbers = (() => {
-    const numbers = unlabelled.map((g) => g.groupNumber).sort((a, b) => a - b);
-    return numbers.length > 12
-      ? `${numbers.slice(0, 12).join(', ')}… +${numbers.length - 12}`
-      : numbers.join(', ');
-  })();
+  // Rosters this promotion gained after its partitions were cut — a new group, or a promotion the
+  // auto-arrange extended. They are invisible to every partition filter until they are labelled, and
+  // the only path that labels them without re-cutting is an assign with reassign=false.
+  //
+  // Named, not just counted — the admin has to recognise which rosters these are — and collapsed the
+  // way the répartition prints a cell (`41-60`, or `3, 12, 21` for an interleaved cut).
+  const unlabelledCount   = partitioning?.unlabelledGroups ?? 0;
+  const unlabelledNumbers = partitioning?.unlabelledGroupNumbers ?? '';
 
   const levelLabel =
     levels.find((l) => String(l.id) === selectedLevel)?.label ?? 'ce niveau';
@@ -263,7 +263,7 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
   const stages = stagesPage?.items ?? [];
 
   const groupCountByPartition = (partition: string) =>
-    groups.filter((g) => g.rotationGroup === partition).length;
+    partitioning?.partitions.find((p) => p.label === partition)?.groupCount ?? 0;
 
   const isChecked = (partition: string, stageId: number) =>
     selection.get(partition)?.has(stageId) ?? false;
@@ -394,7 +394,7 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
     }, {})
   ).map(([group, items]) => ({ group, items }));
 
-  const showSetup = selectedYear && selectedLevel && !loadingGroups && partitions.length === 0;
+  const showSetup = selectedYear && selectedLevel && !loadingPartitioning && partitions.length === 0;
 
   return (
     <Stack gap="lg">
@@ -504,11 +504,11 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
                 Filling empty labels touches only the groups that have none, so it can never move a
                 group out of the partition an existing plan placed it in. It had no button at all: once
                 any label existed the page only offered "Redécouper", which re-cuts the whole level. */}
-            {unlabelled.length > 0 && (
+            {unlabelledCount > 0 && (
               <Alert icon={<IconCircleCheck size={16} />} color="teal" variant="light">
                 <Stack gap="sm">
                   <Text size="sm">
-                    <b>{unlabelled.length} groupe(s)</b> de ce niveau n'ont aucune partition
+                    <b>{unlabelledCount} groupe(s)</b> de ce niveau n'ont aucune partition
                     (n° {unlabelledNumbers}). Tant qu'ils ne sont pas labelisés ils sont absents de la
                     matrice ci-dessous et de toute répartition.
                   </Text>
@@ -823,7 +823,7 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
   const [rotationGroup, setRotationGroup] = useState('');
   const [levelId, setLevelId]           = useState<string | null>(null);
   const [createGroup, { isLoading }]    = useCreateGroupMutation();
-  const { data: levels = [] }           = useGetLevelsQuery(undefined);
+  const { data: levels = [] }           = useGetPromotionLevelsQuery(undefined);
 
   const levelOptions = Object.entries(
     levels.reduce<Record<string, { value: string; label: string }[]>>((acc, l) => {

@@ -9,8 +9,8 @@
  * app has to stand on its own on the faculty's web server, with no stylesheet to fetch.
  *
  * It is a faculty publication, not an app screen: the restraint is the design. Colour carries
- * exactly one meaning (which partition a row's rotation opens on) and everything else is set in
- * ink on paper. Deliberately NOT theme-aware — a dark-mode répartition prints as a black slab.
+ * exactly one meaning — which stage a row belongs to — and everything else is set in ink on paper.
+ * Deliberately NOT theme-aware — a dark-mode répartition prints as a black slab.
  */
 
 @page {
@@ -162,22 +162,22 @@
   background: #eef3f8;
 }
 
+/* The identity columns wrap rather than truncate. They were `nowrap` + ellipsis, which cut the end
+   of every long line — and the end is where the chef's name is: « Hôp.Spécialités: ORL A - Pr.L.Es… »
+   loses exactly the attribution the column exists to carry. A published document may run to two
+   lines; it may not silently drop what it says. */
 .repartition-doc__stage {
   font-weight: 700;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: var(--navy);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
 }
 
 .repartition-doc__service {
   font-size: 11.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
 }
 
 /* The hospital reads as the quieter half of «Hôpital: Service - Chef». */
@@ -190,13 +190,31 @@
   color: var(--ink-soft);
 }
 
+/* ⚠ The cell is not one line, and holding it to one is what hid the groups.
+   A stage with few services and a whole promotion to place puts every group of a partition in one
+   cell — Médecine Sociale in the 5th year is a single service taking 6 or 7 groups per période. Cut
+   contiguously those collapse to « 21-27 », which is what the faculty's own document prints and what
+   this column was sized for; cut interleaved they cannot collapse at all and read
+   « 3, 12, 21, 30, 39, 48, 57 ». With `white-space: nowrap` that overflowed a fixed-layout <td>,
+   which does not clip, so it painted over the neighbouring périodes and neither cell could be read.
+   The cell now wraps, the row grows, and `periodColumnWidth` sizes the column so wrapping stays a
+   second line. */
 .repartition-doc__groups {
   text-align: center;
-  white-space: nowrap;
   /* Group numbers are the thing being compared down a column; lining figures keep them aligned. */
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.3px;
   font-weight: 600;
+  line-height: 1.3;
+}
+
+/* One run of consecutive groups. Unbreakable, because « 47- » ending a line and « 50 » starting the
+   next reads as two ranges — and the trailing comma travels with the run it follows so a line never
+   opens on punctuation. */
+.repartition-doc__grp {
+  display: inline-block;
+  white-space: nowrap;
+  margin: 0 0.16em;
 }
 
 /* An unplanned period. Left visibly empty rather than closed up: the hole is the point. */
@@ -212,30 +230,33 @@
   font-weight: 400;
 }
 
-/* ─── Partition banding ───────────────────────────────────────────────────── */
-/* The partition occupying one cell. This is the document's only use of colour, so it stays pale
-   enough for black text to dominate and distinct enough to survive greyscale printing.
+/* ─── Stage blocks ────────────────────────────────────────────────────────── */
+/* One tint per stage, across the whole row. This is the document's only use of colour, so it stays
+   pale enough for black text to dominate.
 
-   ⚠ The band is on the **cell**, never on the row. A row visits every partition over the year —
-   that is what a crossover is — so a row-level band could only mean "the one it opens on", and with
-   two partitions that coincides exactly with the stage: the document then printed a colour-per-stage
-   under a legend reading « Partition A / Partition B ». Colouring the cells shows the mirror. */
+   ⚠ **The reader is a student looking for his group, and a partition means nothing to him.** It is
+   scolarité's internal division for building the rotation; his question is "where am I in janvier",
+   and what he navigates by is the stage. So the colour names the stage block and the partition is
+   not printed at all (it is still shown on the planning screens, where it is actionable).
 
-.repartition-doc__cell--band-0 { background-color: #fdeee4; }
-.repartition-doc__cell--band-1 { background-color: #e6f0e2; }
-.repartition-doc__cell--band-2 { background-color: #e3edf7; }
-.repartition-doc__cell--band-3 { background-color: #fdf4dc; }
-.repartition-doc__cell--band-4 { background-color: #eee9f6; }
-.repartition-doc__cell--band-5 { background-color: #fbe8e8; }
+   ⚠ **This is not the old per-row partition band returning.** That one claimed a row belonged to one
+   partition, which is false — a row visits every partition over the year, and that is exactly what
+   the crossover is. A row belongs to exactly one *stage*, so this states something true, and it
+   states the same thing the first column already says in words. Which is also why the palette may
+   cycle: blocks are contiguous, separated by a heavy rule, and each names itself. A partition
+   palette that wrapped printed A and G identically under a legend swearing they differed. */
 
-/* The identity columns carry no partition — nothing about a service is a partition — so they stay on
-   the paper colour and the grid is the only thing wearing the key. */
-.repartition-doc__stage,
-.repartition-doc__service { background-color: var(--paper); }
+/* Named `--tint-N`, not `--stage-N`: `--stage-start` already means "this row opens a block", and two
+   classes one hyphen apart meaning different things is a trap for whoever greps next. */
+.repartition-doc__row--tint-0 td { background-color: #e3edf7; }
+.repartition-doc__row--tint-1 td { background-color: #e6f0e2; }
+.repartition-doc__row--tint-2 td { background-color: #fdf4dc; }
+.repartition-doc__row--tint-3 td { background-color: #eee9f6; }
+.repartition-doc__row--tint-4 td { background-color: #fdeee4; }
 
 /* Alternate rows a shade deeper: over ten monthly columns, tracking one service across the page is
-   the hard part, and a banded row is far easier to follow than a flat one. Applied as an image so it
-   layers *over* the band's colour instead of replacing it. */
+   the hard part, and a striped row is far easier to follow than a flat one. Applied as an image so
+   it layers *over* the stage tint instead of replacing it. */
 .repartition-doc tbody tr:nth-child(even) td {
   background-image: linear-gradient(rgba(20, 32, 43, 0.035), rgba(20, 32, 43, 0.035));
 }
@@ -288,23 +309,8 @@
   border: 1px solid var(--rule-hair);
 }
 
-.repartition-doc__swatch--band-0 { background-color: #fdeee4; }
-.repartition-doc__swatch--band-1 { background-color: #e6f0e2; }
-.repartition-doc__swatch--band-2 { background-color: #e3edf7; }
-.repartition-doc__swatch--band-3 { background-color: #fdf4dc; }
-.repartition-doc__swatch--band-4 { background-color: #eee9f6; }
-.repartition-doc__swatch--band-5 { background-color: #fbe8e8; }
-.repartition-doc__swatch--mixed {
-  background-color: var(--paper);
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 3px,
-    rgba(20, 32, 43, 0.18) 3px,
-    rgba(20, 32, 43, 0.18) 6px
-  );
-}
-
+/* The stage tint needs no swatch — every row names its stage in the first column. The hatch is the
+   only mark the document makes that is not also written out, so it is the only key left. */
 .repartition-doc__swatch--empty {
   background-image: repeating-linear-gradient(
     45deg,
@@ -368,6 +374,13 @@
 
   .repartition-doc__header { padding: 0 0 8px; background: none; }
   .repartition-doc__scroll { overflow-x: visible; padding: 10px 0 0; }
+
+  /* ⚠ The min-width is a *screen* affordance — it buys wider columns at the cost of a horizontal
+     scrollbar, and there is no scrolling on paper. A4 landscape at 8mm margins is about 1060px, so a
+     table held to 1,477 simply ran off the right edge of the sheet and the last périodes printed
+     clipped. On paper the table takes the page and the cells take another line; the column *shares*
+     are unchanged, so the printed geometry still matches the preview. */
+  .repartition-doc table { min-width: 0 !important; }
   .repartition-doc__legend,
   .repartition-doc__footnote { margin-left: 0; margin-right: 0; }
 
@@ -380,8 +393,8 @@
     break-inside: avoid;
   }
 
-  /* Browsers drop background colours by default when printing, which would erase the partition
-     banding — the one piece of information carried by colour alone. */
+  /* Browsers drop background colours by default when printing, which would erase the stage tints
+     and the hatching on the unplanned périodes. */
   .repartition-doc * {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;

@@ -129,12 +129,21 @@ export interface CreateServiceRequest {
 
 // ─── Stages ─────────────────────────────────────────────────────────────────
 
+/**
+ * How a stage spends the several périodes it occupies on the rotation axis.
+ * `PerPeriod` — one service per période, one evaluation each (S1 → S2 → …).
+ * `SingleService` — one service for the whole run, one evaluation.
+ * The axis is identical either way; only the service assignment and the number of marks differ.
+ */
+export type StageRotationMode = 'PerPeriod' | 'SingleService';
+
 export interface StageSummaryResponse {
   id: number;
   name: string;
   coefficient: number;
   durationInDays: number;
   levelLabel: string | null;
+  rotationMode: StageRotationMode;
 }
 
 export interface StageObjectiveResponse {
@@ -156,6 +165,7 @@ export interface StageDetailResponse {
   coefficient: number;
   description: string | null;
   durationInDays: number;
+  rotationMode: StageRotationMode;
   levelResponse: AdminLevelResponse | null;
   stageObjectiveResponse: StageObjectiveResponse[];
   allowedServices: AllowedServiceSummary[];
@@ -175,6 +185,7 @@ export interface CreateStageRequest {
   durationInDays: number;
   levelId: number;
   objectives: StageObjectiveRequest[];
+  rotationMode: StageRotationMode;
 }
 
 export interface UpdateStageRequest {
@@ -184,6 +195,15 @@ export interface UpdateStageRequest {
   durationInDays: number;
   levelId: number;
   objectives: StageObjectiveRequest[];
+  rotationMode: StageRotationMode;
+}
+
+export interface UnpublishScheduleResult {
+  periodsRemoved: number;
+  evaluationsLost: number;
+  attendanceDaysLost: number;
+  /** Periods no cell produced — imported history, délocalisations, revalidations. Never removed. */
+  adHocPeriodsKept: number;
 }
 
 export interface GetStagesParams {
@@ -489,13 +509,18 @@ export interface RepartitionCell {
   groups: string;
   groupNumbers: number[];
   /**
-   * The partition sitting in this cell — the colour band — or null when its cohorts disagree.
+   * The partition sitting in this cell, or null when its cohorts disagree.
    *
-   * ⚠ A partition is a fact about the *cell* and nothing larger. This used to sit on the row, where
-   * it could only mean "the partition the row opens on": with two partitions every Médecine row
-   * opens on A and every Chirurgie row on B, so the document printed one colour per **stage** under
-   * a legend reading « Partition A / Partition B ». A row visits every partition over the year —
-   * that is what the crossover is.
+   * ⚠ **Not printed.** A partition is scolarité's internal division for building the rotation; the
+   * reader of the published document is a student looking for his own group, to whom it explains
+   * nothing he can act on. The document colours by *stage*, which is what he navigates by. The
+   * partition is still shown where it is actionable — `ScheduleGridModal`, `AssignmentsPage`.
+   *
+   * ⚠ It is a fact about the *cell* and nothing larger, which is why it is sent per cell. It used
+   * to sit on the row, where it could only mean "the partition the row opens on": with two
+   * partitions every Médecine row opens on A and every Chirurgie row on B, so the document printed
+   * one colour per **stage** under a legend reading « Partition A / Partition B ». A row visits
+   * every partition over the year — that is what the crossover is.
    */
   rotationGroup: string | null;
 }
@@ -1049,6 +1074,132 @@ export interface ServiceDetailResponse {
   serviceChef: ServiceChefSummary | null;
   levelCapacities: ServiceLevelCapacityResponse[];
   staff: StaffMemberResponse[];
+  /** Every tenure, newest first. The only *dated* answer to "who led this service" — which is what
+   *  lets a répartition reprinted years later name the chef it was published under. */
+  chefHistory: ChefTenureResponse[];
+  /** The name in the legacy « Responsable (source) » note, when there is one — 140 of 148 services
+   *  have only this. ⚠ Undated: it says who the Access base last recorded, not who led the service
+   *  on any given date, so it must never be presented as a configured chef. */
+  chefFromSourceNote: string | null;
+}
+
+export interface ChefTenureResponse {
+  employeeId: string;
+  firstName: string;
+  lastName: string;
+  grade: string;
+  startDate: string;
+  /** Null while this is the sitting tenure. */
+  endDate: string | null;
+}
+
+// ── Service occupancy ─────────────────────────────────────────────────────────────────────────────
+// What a service actually holds, day by day, across every stage and promotion at once.
+//
+// ⚠ The timeline is *segmented*, not one row per période. Nothing ties two stages' periods together —
+// StageSlot is keyed (stage, year, number) — so Chirurgie P1 and ANES REA P1 have independent dates
+// and legitimately different lengths. One row per slot shows each slot's own cohorts, while the
+// students standing in the service on a given morning are the union of every window covering that
+// day: the peak lives in the overlap and a per-slot list never shows it.
+
+/** How the service states its limit. See the backend's `Service.CapacityFor`. */
+export type CapacityRule =
+  /** No quota authored: one ceiling, counted across every promotion at once. */
+  | 'Total'
+  /** Quotas authored: each promotion against its own, and `capacity` is not consulted at all. */
+  | 'PerLevel';
+
+export interface ServiceOccupancyResponse {
+  serviceId: number;
+  serviceName: string;
+  hospitalName: string;
+  academicYearId: number;
+  academicYearLabel: string;
+  rule: CapacityRule;
+  /** ⚠ Dead data when `rule` is 'PerLevel' — quotas replace it rather than sitting under it. */
+  totalCapacity: number;
+  quotas: LevelQuotaResponse[];
+  segments: OccupancySegmentResponse[];
+  summary: OccupancySummaryResponse;
+}
+
+export interface LevelQuotaResponse {
+  levelId: number;
+  levelLabel: string;
+  capacity: number;
+}
+
+export interface OccupancySegmentResponse {
+  startDate: string;
+  endDate: string;
+  days: number;
+  students: number;
+  /** Null on a restricted service: there is no single ceiling then, only one per promotion. */
+  capacity: number | null;
+  /** Students over the limit, summed over whichever limits are in force. 0 when within. */
+  overflow: number;
+  levels: SegmentLevelLoadResponse[];
+  occupants: SegmentOccupantResponse[];
+}
+
+export interface SegmentLevelLoadResponse {
+  levelId: number;
+  levelLabel: string;
+  students: number;
+  capacity: number | null;
+  overflow: number;
+  /** The service has quotas and none names this promotion — they may not be here at all, which is a
+   *  different fault from being over a quota and needs a different fix. */
+  notAdmitted: boolean;
+}
+
+export interface SegmentOccupantResponse {
+  stageId: number;
+  stageName: string;
+  levelId: number;
+  levelLabel: string;
+  periodNumber: number;
+  /** Collapsed the way the répartition prints them: "47-50", "47-48, 50". */
+  groupNumbers: string;
+  cohortCount: number;
+  students: number;
+}
+
+export interface OccupancySummaryResponse {
+  segmentCount: number;
+  overCapacitySegments: number;
+  peakStudents: number;
+  peakStart: string | null;
+  peakEnd: string | null;
+  distinctStages: number;
+  distinctLevels: number;
+  daysOverCapacity: number;
+}
+
+export interface ServiceStageResponse {
+  stageId: number;
+  stageName: string;
+  levelId: number;
+  levelLabel: string;
+  capacity: number;
+  /** The stage lists this service, but the service's quotas do not admit the stage's promotion — so
+   *  auto-arrange drops it and publish would refuse. A contradiction invisible from either side. */
+  notAdmitted: boolean;
+}
+
+export interface ServiceOccupantResponse {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  cne: string | null;
+  stageId: number;
+  stageName: string;
+  levelLabel: string;
+  groupNumber: number;
+  groupLabel: string;
+  periodNumber: number;
+  startDate: string;
+  endDate: string;
 }
 
 // ── Rotation cycle ────────────────────────────────────────────────────────────────────────────────
@@ -1194,6 +1345,20 @@ export interface ClearRotationGroupsResult {
   cleared: number;
   totalGroups: number;
   plannedCellsAffected: number;
+}
+
+/**
+ * How one promotion is currently divided — counted over the whole promotion, not over a page of it.
+ * ⚠ Every field here was previously derived in the browser from a 200-row page of `/groups`.
+ */
+export interface PromotionPartitioning {
+  academicYearId: number;
+  totalGroups: number;
+  labelledGroups: number;
+  unlabelledGroups: number;
+  /** Collapsed the way the répartition prints a cell: `3, 12, 21` or `41-60`. */
+  unlabelledGroupNumbers: string;
+  partitions: PartitionMembership[];
 }
 
 // ── Calendar ──────────────────────────────────────────────────────────────────────────────────────
