@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Anchor,
   Badge,
   Button,
   Card,
@@ -25,6 +26,7 @@ import {
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { IconBuildingFactory2, IconBuildingHospital, IconPencil, IconPlus, IconStarFilled, IconStethoscope, IconTrash, IconUsers } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   useGetCentersQuery, useCreateCenterMutation, useUpdateCenterMutation, useDeleteCenterMutation,
   useGetHospitalsQuery, useCreateHospitalMutation, useUpdateHospitalMutation, useDeleteHospitalMutation,
@@ -44,6 +46,7 @@ import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import { ServiceFormModal } from '../components/ServiceFormModal';
 import { LocalizationFields } from '../components/LocalizationFields';
 import { coordinatePayload, EMPTY_COORDINATES } from '../components/localization';
+import { PATHS } from '../../../routes/paths';
 
 const PAGE_SIZE = 15;
 
@@ -514,7 +517,20 @@ function ServicesTab() {
               <Table.Tr><Table.Td colSpan={8}><Text c="dimmed" size="sm" ta="center" py="xl">Aucun service trouvé</Text></Table.Td></Table.Tr>
             ) : (data?.items ?? []).map((s) => (
               <Table.Tr key={s.id}>
-                <Table.Td><Text size="sm" fw={500}>{s.name}</Text></Table.Td>
+                {/* The name is the way in to the service's own page — where its real occupancy
+                    lives. Capacity is felt at the service, but until now it was only readable from
+                    the plan's side: a bare count of "services saturés" and a publish refusal one
+                    service at a time. */}
+                <Table.Td>
+                  <Anchor
+                    component={Link}
+                    to={`${PATHS.ADMIN.ROOT}/services/${s.id}`}
+                    size="sm"
+                    fw={500}
+                  >
+                    {s.name}
+                  </Anchor>
+                </Table.Td>
                 <Table.Td><Text size="sm" c="dimmed">{s.hospitalName}</Text></Table.Td>
                 <Table.Td><Badge variant="light" color={TYPE_COLOR[s.serviceType] ?? 'gray'} radius="xl" size="sm">{s.serviceType}</Badge></Table.Td>
                 <Table.Td><Text size="sm" c={s.specialty ? undefined : 'dimmed'}>{s.specialty ?? '—'}</Text></Table.Td>

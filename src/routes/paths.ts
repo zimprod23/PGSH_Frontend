@@ -31,6 +31,7 @@ export const PATHS = {
     STAGES:          'stages',
     STAGE_DETAIL:    'stages/:id',
     HOSPITALS:       'hospitals',
+    SERVICE_DETAIL:  'services/:id',
     EMPLOYEES:       'employees',
     ATTENDANCE:      'attendance',
     ASSIGNMENTS:     'assignments',
