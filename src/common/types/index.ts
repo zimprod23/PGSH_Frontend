@@ -2,7 +2,35 @@
 
 export type AcademicProgram = 'Medecine' | 'Pharmacie' | 'Master' | 'Doctorat';
 
-export type RegistrationStatus = 'Pending' | 'Active' | 'Validated' | 'Failed' | 'Withdrawn';
+/**
+ * Where a student's academic year stands. The first two are positions the year passes through; the
+ * rest are *verdicts* the faculty pronounced in deliberation.
+ *
+ * ⚠ `Graduated` and `Excluded` are not `Validated` and `Failed`. One ends the cursus, the other
+ * repeats or advances, and the réinscription is the consumer that has to tell them apart. They were
+ * added to the backend with the déliberation canvas and this union never followed, so a graduate
+ * arrived typed as something he is not.
+ */
+export type RegistrationStatus =
+  | 'Pending'
+  | 'Active'
+  | 'Validated'
+  | 'Failed'
+  | 'Withdrawn'
+  | 'Graduated'
+  | 'Excluded';
+
+/** Whether a verdict was declared by the faculty or deduced by PGSH. Null while the year runs. */
+export type RegistrationOutcomeSource = 'Declared' | 'Inferred';
+
+/** The five verdicts a déliberation can pronounce, in the order a PV lists them. */
+export const YEAR_OUTCOMES: { value: RegistrationStatus; label: string }[] = [
+  { value: 'Validated', label: 'Admis'      },
+  { value: 'Failed',    label: 'Redoublant' },
+  { value: 'Excluded',  label: 'Exclu'      },
+  { value: 'Graduated', label: 'Diplômé'    },
+  { value: 'Withdrawn', label: 'Abandon'    },
+];
 
 export type InternshipStatus =
   | 'Planned'

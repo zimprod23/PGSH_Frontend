@@ -4,9 +4,11 @@ import type { RegistrationStatus } from '../../../common/types';
 const CONFIG: Record<RegistrationStatus, { color: string; label: string }> = {
   Pending:   { color: 'warning', label: 'En attente'  },
   Active:    { color: 'sky',     label: 'En cours'    },
-  Validated: { color: 'success', label: 'Validée'     },
-  Failed:    { color: 'danger',  label: 'Échouée'     },
+  Validated: { color: 'success', label: 'Admise'      },
+  Failed:    { color: 'danger',  label: 'Redoublée'   },
   Withdrawn: { color: 'gray',    label: 'Abandonnée'  },
+  Graduated: { color: 'grape',   label: 'Diplômée'    },
+  Excluded:  { color: 'dark',    label: 'Exclue'      },
 };
 
 interface Props {

@@ -43,9 +43,13 @@ const PROGRAM_SHORT: Record<AcademicProgram, string> = {
 const STATUS_CFG: Record<RegistrationStatus, { label: string; color: string }> = {
   Pending:   { label: 'En attente', color: 'gray'    },
   Active:    { label: 'Active',     color: 'blue'    },
-  Validated: { label: 'Validée',    color: 'teal'    },
-  Failed:    { label: 'Échouée',    color: 'red'     },
-  Withdrawn: { label: 'Retirée',    color: 'orange'  },
+  Validated: { label: 'Admise',     color: 'teal'    },
+  Failed:    { label: 'Redoublée',  color: 'red'     },
+  Withdrawn: { label: 'Abandon',    color: 'orange'  },
+  // Neither is the pair above it: one ends the cursus by success, the other by exclusion, and the
+  // réinscription is the consumer that has to tell all four apart.
+  Graduated: { label: 'Diplômée',   color: 'grape'   },
+  Excluded:  { label: 'Exclue',     color: 'dark'    },
 };
 
 const PROGRAM_FILTER: { value: string; label: string }[] = [
