@@ -234,6 +234,36 @@ There is one academic-year selector, in `AdminLayout`, exposed by `useAcademicYe
   omitted year to the *current* one, so a page left on 2024-2025 that forgets the field does not
   widen — it silently acts on the wrong promotion, which is worse.
 
+### 1d ⚠ Never dispatch before `next(action)` in a middleware
+
+`loadingMiddleware` did, for the whole life of the file, and it silently staled data across the app:
+
+```ts
+if (action.type.endsWith("/fulfilled")) api.dispatch(fulfilled());   // ⚠ WRONG — before next()
+return next(action);
+```
+
+`api.dispatch` runs the entire reducer chain and **notifies every subscriber while the action in
+flight has not yet been reduced**. For `api/executeQuery/fulfilled` that means components re-render
+reading the query as still `pending` with `data: undefined`, and `useSyncExternalStore` caches that
+snapshot.
+
+⚠ **It self-corrects almost everywhere, which is exactly what made it so hard to see.** Any *later*
+dispatch notifies again and everyone catches up — so only the query that settles **last on a page**
+stays stale, forever. Diagnosed 2026-08-18 on the CNPN page: the effectivity table rendered
+« 0 règle(s) » and a permanent "Actualisation…" while `state.api.queries[…]` held the same query as
+`fulfilled`, 3 rows, 1 subscriber. The versions table directly above it — same slice, same
+invalidating mutation — refreshed correctly throughout, which sent the investigation into the panel
+for hours. Nothing was wrong with the panel.
+
+Rules:
+- **Always `const result = next(action)` first, dispatch after, return `result`.**
+- A component stuck on stale data while the store is correct is *never* an RTK cache problem. Read
+  `store.getState().api.queries` and the component's own hook state before touching the component —
+  if they disagree, the bug is in the store pipeline, not in the query.
+- Suspect this class first when one screen is stale and others are not: it is a race about ordering,
+  so it looks arbitrary and per-component when it is neither.
+
 ### 2. Debounce every search / free-text-filtered query input
 
 Typing into a field that drives a server query must **not** fire a request per keystroke — it causes the
