@@ -23,6 +23,33 @@ export interface CreateAcademicYearRequest {
   isCurrent: boolean;
 }
 
+export interface UpdateAcademicYearRequest {
+  id: number;
+  label: string;
+  startDate: string;   // YYYY-MM-DD
+  endDate: string;     // YYYY-MM-DD
+}
+
+export interface UpdatedAcademicYearReport {
+  academicYearId: number;
+  label: string;
+  /** Périodes de stage that now fall outside the year's own span. Reported, never refused. */
+  slotsOutsideSpan: number;
+}
+
+export interface CurrentAcademicYearReport {
+  academicYearId: number;
+  label: string;
+  /** The year that stood down. Null when none was current. */
+  previousLabel: string | null;
+}
+
+export interface DeletedAcademicYearReport {
+  label: string;
+  /** Empty rosters the cascade took with the year — the only thing destroyed. */
+  rostersRemoved: number;
+}
+
 export interface CreateLevelRequest {
   label: string;
   year: number;
@@ -322,6 +349,74 @@ export interface CnpnTargetPreview {
   /** Only the rows needing a decision, capped. The counts above are always the whole truth. */
   needsAttention: CnpnTargetRow[];
   needsAttentionTotal: number;
+}
+
+/**
+ * « Ce texte régit tel niveau à partir de telle année » — the second half of who a CNPN binds,
+ * alongside the intake year on the text itself.
+ *
+ * Intake governs the promotion arriving; these govern the promotions already in the building, which
+ * is what « la 3ᵉ année de 2026-2027 et en dessous » actually means. « et en dessous » is authored as
+ * one row per level, not as a comparison: stored as a comparison it would have to be re-evaluated to
+ * be read, and a level added later would silently change which promotions a published text binds.
+ */
+export interface CnpnEffectivityResponse {
+  id: number;
+  cnpnVersionId: number;
+  cnpnVersionCode: string;
+  cnpnVersionLabel: string;
+  academicProgram: string;
+  levelId: number;
+  levelLabel: string;
+  levelYear: number;
+  fromAcademicYearId: number;
+  fromAcademicYearLabel: string;
+  note: string | null;
+  recordedOn: string;
+  /**
+   * How many registrations already carry this text at this level from this year on. Zero right after
+   * authoring is normal — the rule fires as registrations are created, not retroactively.
+   */
+  registrationsGoverned: number;
+}
+
+export interface CreateCnpnEffectivityRequest {
+  levelId: number;
+  fromAcademicYearId: number;
+  note?: string;
+}
+
+export type CnpnEffectivityRowStatus = 'WillMove' | 'AlreadyGoverned' | 'FrozenByOutcome';
+
+export interface CnpnEffectivityRow {
+  registrationId: string;
+  studentId: string;
+  studentFullName: string;
+  cne: string | null;
+  academicYearLabel: string;
+  currentCnpnCode: string | null;
+  status: CnpnEffectivityRowStatus;
+  message: string;
+}
+
+/**
+ * What re-stamping the registrations that *already exist* would do — only ever needed when the rule
+ * was authored after the réinscription had run. `frozenByOutcome` cannot be forced: the verdict was
+ * recorded against a requirement set, and moving that set afterwards makes it unreadable.
+ */
+export interface CnpnEffectivityApplyPreview {
+  effectivityId: number;
+  cnpnVersionCode: string;
+  levelLabel: string;
+  fromAcademicYearLabel: string;
+  inScope: number;
+  alreadyGoverned: number;
+  willMove: number;
+  frozenByOutcome: number;
+  studentsMoved: number;
+  canApply: boolean;
+  sample: CnpnEffectivityRow[];
+  sampleTotal: number;
 }
 
 export interface CurriculumResponse {
@@ -1274,6 +1369,11 @@ export interface RotationCyclePreview {
   layout: RotationCycleLayout;
   existingSlots: number;
   publishedCells: number;
+  /**
+   * Planned, unpublished cells hanging off those slots. Not an obstacle — but they cascade with the
+   * slots, so applying destroys them and the number belongs on screen before the click.
+   */
+  plannedCells: number;
   canApply: boolean;
   durationChecks: StageDurationCheck[];
   /** No holiday recorded across the axis, so every count is calendar days minus weekends. */
@@ -1283,8 +1383,50 @@ export interface RotationCyclePreview {
 export interface RotationCycleResult {
   slotsCreated: number;
   slotsReplaced: number;
+  /** Planned cells the replaced slots took with them. An arrange rebuilds them from `matrix`. */
+  plannedCellsRemoved: number;
   layout: RotationCycleLayout;
   matrix: PartitionStagePlan[];
+}
+
+/** Removing a block is its own act: replacing an axis is not undoing one. */
+export interface DeleteRotationCycleResult {
+  slotsRemoved: number;
+  /** Unlike a replacement's, these cells have no matrix left to be rebuilt from. */
+  plannedCellsRemoved: number;
+}
+
+// ── Reading a block back ──────────────────────────────────────────────────────────────────────────
+// Reopening the screen has to show the block that is actually in force. It is read from the axis on
+// disk — stages whose slots carry the same windows *are* a block — rather than from the last request,
+// so a date corrected afterwards on a stage's own grid shows through instead of being papered over.
+
+/** How `periods` was learned. « 1 période » deduced from an empty grid is not « 1 période » authored. */
+export type RotationPeriodsSource = 'Authored' | 'Derived' | 'Unknown';
+
+export interface RotationBlockStage {
+  stageId: number;
+  name: string;
+  periods: number;
+  periodsSource: RotationPeriodsSource;
+}
+
+export interface RotationBlockConfiguration {
+  /** In the order they were authored — the order partition A walks the block in. */
+  stages: RotationBlockStage[];
+  windows: DateWindowInput[];
+  columns: number;
+  /** Null when no apply is on record: an axis built stage by stage, or laid before this was kept. */
+  appliedAt: string | null;
+  /** Non-zero means the block can no longer be redefined. */
+  publishedCells: number;
+}
+
+export interface RotationCycleConfiguration {
+  levelId: number;
+  levelLabel: string;
+  academicYearId: number;
+  blocks: RotationBlockConfiguration[];
 }
 
 // ── Axis generation ───────────────────────────────────────────────────────────────────────────────

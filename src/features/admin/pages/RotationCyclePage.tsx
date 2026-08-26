@@ -29,9 +29,11 @@ import {
 import { useMemo, useRef, useState } from 'react';
 import {
   useGetPromotionLevelsQuery,
+  useGetRotationCycleQuery,
   useGetStagesQuery,
   usePreviewRotationCycleMutation,
   useApplyRotationCycleMutation,
+  useDeleteRotationCycleMutation,
   useGenerateMacroPlanMutation,
   useLazyGenerateAxisWindowsQuery,
 } from '../api/adminApi';
@@ -39,12 +41,14 @@ import type {
   AxisColumnUnit,
   DateWindowInput,
   GeneratedAxisResponse,
+  RotationBlockConfiguration,
   RotationCycleLayout,
   StageDurationCheck,
 } from '../types/admin.types';
 import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { useListParams } from '../../../common/hooks/useListParams';
+import { ConfirmModal } from '../../../common/components/ConfirmModal';
 
 /** Module-level so its identity is stable — useListParams memoises on it. */
 const CYCLE_FILTERS = { level: null as string | null };
@@ -81,6 +85,8 @@ export default function RotationCyclePage() {
   /** What the server made of the axis: working-day counts, holidays hit, warnings. */
   const [axis, setAxis] = useState<GeneratedAxisResponse | null>(null);
   const [durationChecks, setDurationChecks] = useState<StageDurationCheck[]>([]);
+  /** The block that was read back for this promotion, if any — shown so the form says where it came from. */
+  const [restored, setRestored] = useState<RotationBlockConfiguration | null>(null);
 
   // The result card renders below the fold on a laptop, so clicking Simuler looked like nothing had
   // happened. Bring it into view rather than leaving the user to guess.
@@ -92,8 +98,57 @@ export default function RotationCyclePage() {
     { skip: levelId == null },
   );
 
+  /**
+   * What this promotion is already laid out on. Reloading the page, or coming back to it in September,
+   * used to give an empty form whatever was on disk — so the only way to see the block in force was to
+   * retype it and compare, and the only way to change one number was to re-enter all of it.
+   */
+  const { data: configuration, isFetching: loadingConfiguration } = useGetRotationCycleQuery(
+    { levelId: levelId ?? 0, academicYearId: currentYearId ?? undefined },
+    { skip: levelId == null || currentYearId == null },
+  );
+
+  /**
+   * Restores it into the form, once per (promotion, année).
+   *
+   * ⚠ Adjusted during render rather than in an effect — React's own pattern for seeding editable state
+   * from something that changed. An effect would paint the empty form first and overwrite it a frame
+   * later, and it is one dependency away from reasserting itself over the edit being made, which is
+   * precisely what restoring exists to allow.
+   *
+   * The guard is the (promotion, année) pair *and* the response's own `levelId`: RTK hands back the
+   * previous promotion's cached block for a render or two after the picker moves, and prefilling from
+   * that would put another level's stages in the form.
+   */
+  const [restoredKey, setRestoredKey] = useState<string | null>(null);
+  const configurationKey = `${levelId}:${currentYearId}`;
+
+  if (
+    levelId != null &&
+    currentYearId != null &&
+    configuration != null &&
+    configuration.levelId === levelId &&
+    !loadingConfiguration &&
+    restoredKey !== configurationKey
+  ) {
+    const block = configuration.blocks[0] ?? null;
+
+    setRestoredKey(configurationKey);
+    setRestored(block);
+
+    if (block) {
+      setStages(block.stages.map((st) => ({ stageId: String(st.stageId), periods: st.periods })));
+      setWindows(block.windows.map((w) => [w.startDate, w.endDate]));
+      setAxis(null);
+      setLayout(null);
+      setApplied(false);
+    }
+  }
+
   const [preview, { isLoading: previewing }] = usePreviewRotationCycleMutation();
   const [apply, { isLoading: applying }] = useApplyRotationCycleMutation();
+  const [removeBlock, { isLoading: removing }] = useDeleteRotationCycleMutation();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [macroPlan, { isLoading: planning }] = useGenerateMacroPlanMutation();
   const [fetchAxis, { isFetching: generatingAxis }] = useLazyGenerateAxisWindowsQuery();
 
@@ -207,7 +262,12 @@ export default function RotationCyclePage() {
       if (!res.canApply)
         notify.error(`${res.publishedCells} créneau(x) déjà publiés — le bloc ne peut plus être redéfini.`);
       else if (res.existingSlots > 0)
-        notify.info(`${res.existingSlots} créneau(x) existants seront remplacés.`);
+        notify.info(
+          `${res.existingSlots} créneau(x) existants seront remplacés` +
+            (res.plannedCells > 0
+              ? ` — et ${res.plannedCells} cellule(s) déjà répartie(s) seront à refaire.`
+              : '.'),
+        );
     } catch {
       // The error middleware toasts the API's own message, which carries the arithmetic.
       setLayout(null);
@@ -220,8 +280,43 @@ export default function RotationCyclePage() {
       setLayout(res.layout);
       setApplied(true);
       notify.success(
-        `${res.slotsCreated} créneau(x) écrits${res.slotsReplaced > 0 ? `, ${res.slotsReplaced} remplacés` : ''}.`,
+        `${res.slotsCreated} créneau(x) écrits${res.slotsReplaced > 0 ? `, ${res.slotsReplaced} remplacés` : ''}` +
+          (res.plannedCellsRemoved > 0
+            ? `, ${res.plannedCellsRemoved} cellule(s) répartie(s) à refaire.`
+            : '.'),
       );
+    } catch {
+      /* toasted */
+    }
+  };
+
+  /**
+   * Removing the block, which the apply cannot do: applying *replaces* an axis, so a block entered by
+   * mistake could only be written over, never taken back. Scoped to the stages on screen — a promotion
+   * may hold several blocks, and the other semester is not this one's to remove.
+   */
+  const handleDelete = async () => {
+    if (!restored || levelId == null) return;
+    try {
+      const res = await removeBlock({
+        levelId,
+        stageIds: restored.stages.map((st) => st.stageId),
+        academicYearId: currentYearId ?? undefined,
+      }).unwrap();
+
+      notify.success(
+        `${res.slotsRemoved} créneau(x) supprimés` +
+          (res.plannedCellsRemoved > 0
+            ? `, avec ${res.plannedCellsRemoved} cellule(s) répartie(s).`
+            : '.'),
+      );
+
+      setConfirmingDelete(false);
+      setRestored(null);
+      setLayout(null);
+      setApplied(false);
+      setWindows([]);
+      setAxis(null);
     } catch {
       /* toasted */
     }
@@ -297,14 +392,87 @@ export default function RotationCyclePage() {
               value={filters.level}
               onChange={(v) => {
                 setFilter('level', v);
+                // Cleared rather than left standing: the previous promotion's block would otherwise sit
+                // in the form until the new one's arrives, and be applied to the wrong level meanwhile.
+                setRestoredKey(null);
+                setRestored(null);
                 setStages([emptyStage(), emptyStage()]);
                 setWindows([]);
+                setAxis(null);
                 setLayout(null);
+                setApplied(false);
               }}
               radius="md"
               searchable
               w={320}
             />
+
+            {restored && (
+              <Alert
+                variant="light"
+                color={restored.publishedCells > 0 ? 'orange' : 'blue'}
+                icon={<IconInfoCircle size={18} />}
+                radius="md"
+              >
+                <Text size="sm">
+                  Bloc en vigueur restauré : {restored.stages.length} stage(s) sur{' '}
+                  {restored.columns} colonne(s)
+                  {restored.appliedAt
+                    ? `, appliqué le ${new Date(restored.appliedAt).toLocaleDateString('fr-FR')}`
+                    : ''}
+                  .
+                </Text>
+
+                {/* ⚠ A duration deduced from the cells is not one somebody entered. Saying so is the
+                    difference between « voici votre configuration » and « voici ce qu'on a pu en
+                    déduire » — and the second is the one you check before applying. */}
+                {restored.stages.some((st) => st.periodsSource === 'Derived') && (
+                  <Text size="sm" c="dimmed" mt={4}>
+                    Les durées ont été déduites de la répartition existante — vérifiez-les avant
+                    d’appliquer.
+                  </Text>
+                )}
+
+                {restored.stages.some((st) => st.periodsSource === 'Unknown') && (
+                  <Text size="sm" c="dimmed" mt={4}>
+                    L’axe existe mais aucune durée n’a pu être retrouvée : les périodes affichées sont
+                    à ressaisir.
+                  </Text>
+                )}
+
+                {restored.publishedCells > 0 && (
+                  <Text size="sm" mt={4}>
+                    {restored.publishedCells} créneau(x) déjà publiés — ce bloc ne peut plus être
+                    redéfini.
+                  </Text>
+                )}
+
+                {/* Editing the form above and réappliquant is the update; this is the other half.
+                    Without it a block entered by mistake can only be written over, never taken back —
+                    the same reason « Supprimer les partitions » sits beside « Redécouper ». */}
+                <Group gap="xs" mt="sm">
+                  <Tooltip
+                    label="Dépubliez d’abord le planning de ce bloc"
+                    disabled={restored.publishedCells === 0}
+                  >
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="red"
+                      leftSection={<IconTrash size={14} />}
+                      disabled={restored.publishedCells > 0}
+                      onClick={() => setConfirmingDelete(true)}
+                    >
+                      Supprimer le bloc
+                    </Button>
+                  </Tooltip>
+                  <Text size="xs" c="dimmed">
+                    Modifier le bloc : corrigez les stages ou les dates ci-dessous, puis réappliquez
+                    l’axe.
+                  </Text>
+                </Group>
+              </Alert>
+            )}
 
             <Divider label="Stages du bloc" labelPosition="left" />
 
@@ -725,6 +893,29 @@ export default function RotationCyclePage() {
           </Card>
         )}
       </Stack>
+
+      <ConfirmModal
+        opened={confirmingDelete}
+        onClose={() => setConfirmingDelete(false)}
+        title="Supprimer le bloc de rotation"
+        message={
+          restored
+            ? `Retirer l’axe de ${restored.stages.length} stage(s) — ${restored.columns} colonne(s) ` +
+              'par stage ? La promotion se retrouvera sans périodes déclarées pour ces stages.'
+            : ''
+        }
+        confirmLabel="Supprimer"
+        confirmColor="red"
+        onConfirm={handleDelete}
+        loading={removing}
+      >
+        {/* The cells cascade with the slots, and unlike a replacement there is no matrix left to
+            rebuild them from — so the number is stated before the click, not after it. */}
+        <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}>
+          Les cellules déjà réparties sur ces créneaux seront supprimées avec eux. Il faudra
+          réauthorer un axe et relancer une répartition.
+        </Alert>
+      </ConfirmModal>
     </Container>
   );
 }

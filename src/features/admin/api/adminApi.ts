@@ -1,5 +1,18 @@
 import { apiSlice } from '../../../app/apiSlice';
 import type { PaginatedResponse, BulkResponse, RegistrationStatus, AcademicProgram } from '../../../common/types';
+import type {
+  AssignStudentToGroupRequest,
+  DeliberationReport,
+  DeliberationScopeRequest,
+  DeliberationTemplateRequest,
+  DeliberationUploadRequest,
+  GroupJoinReport,
+  RecordOutcomeRequest,
+  ReinscriptionReport,
+  ReinscriptionRequest,
+  ReopenYearReport,
+  ReopenYearRequest,
+} from '../types/yearClosure.types';
 import type { StudentSummaryResponse, GetStudentsQuery, UpdateStudentRequest } from '../../student/types/student.types';
 import type {
   CohortDetailResponse,
@@ -14,6 +27,10 @@ import type {
   DelocalizeStudentRequest,
   AdminLevelResponse,
   CreateAcademicYearRequest,
+  UpdateAcademicYearRequest,
+  UpdatedAcademicYearReport,
+  CurrentAcademicYearReport,
+  DeletedAcademicYearReport,
   CreateLevelRequest,
   UpdateLevelRequest,
   AutoArrangeRequest,
@@ -41,6 +58,9 @@ import type {
   UpdateCnpnVersionRequest,
   CnpnCloneResult,
   CnpnTargetPreview,
+  CnpnEffectivityResponse,
+  CreateCnpnEffectivityRequest,
+  CnpnEffectivityApplyPreview,
   CurriculumResponse,
   CurriculumComparisonResponse,
   CurriculumSeedReport,
@@ -68,6 +88,8 @@ import type {
   RotationCycleRequest,
   RotationCyclePreview,
   RotationCycleResult,
+  DeleteRotationCycleResult,
+  RotationCycleConfiguration,
   YearTimelineResponse,
   PauseKind,
   LevelRepartitionResponse,
@@ -123,6 +145,24 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     createAcademicYear: builder.mutation<number, CreateAcademicYearRequest>({
       query: (body) => ({ url: '/academic-years', method: 'POST', body }),
+      invalidatesTags: [{ type: 'Level', id: 'ACADEMIC_YEARS' }],
+    }),
+
+    updateAcademicYear: builder.mutation<UpdatedAcademicYearReport, UpdateAcademicYearRequest>({
+      query: ({ id, ...body }) => ({ url: `/academic-years/${id}`, method: 'PUT', body }),
+      invalidatesTags: [{ type: 'Level', id: 'ACADEMIC_YEARS' }],
+    }),
+
+    // Moving the current year moves what every unscoped screen shows, so this invalidates broadly
+    // rather than just the year list — a stale Stage or Group list after it is a screen quietly
+    // showing another promotion.
+    setCurrentAcademicYear: builder.mutation<CurrentAcademicYearReport, number>({
+      query: (id) => ({ url: `/academic-years/${id}/current`, method: 'POST' }),
+      invalidatesTags: [{ type: 'Level', id: 'ACADEMIC_YEARS' }, 'Level', 'Stage', 'Registration', 'Assignment'],
+    }),
+
+    deleteAcademicYear: builder.mutation<DeletedAcademicYearReport, number>({
+      query: (id) => ({ url: `/academic-years/${id}`, method: 'DELETE' }),
       invalidatesTags: [{ type: 'Level', id: 'ACADEMIC_YEARS' }],
     }),
 
@@ -398,6 +438,65 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
       // Stamping students changes the per-text counts and every student read.
       invalidatesTags: [
+        { type: 'Level' as const, id: 'CNPN_VERSIONS' },
+        { type: 'Student' as const, id: 'LIST' },
+      ],
+    }),
+
+    // ─── CNPN effectivity ────────────────────────────────────────────────────
+    // Unpaginated and bounded by construction: one row per (text, level), so a seven-year programme
+    // with five recorded texts tops out at thirty-five.
+    getCnpnEffectivities: builder.query<
+      CnpnEffectivityResponse[],
+      { cnpnVersionId?: number; program?: string } | void
+    >({
+      query: (arg) => ({
+        url: '/cnpn-effectivity',
+        params: {
+          ...(arg?.cnpnVersionId ? { cnpnVersionId: arg.cnpnVersionId } : {}),
+          ...(arg?.program ? { program: arg.program } : {}),
+        },
+      }),
+      providesTags: [{ type: 'Level' as const, id: 'CNPN_EFFECTIVITY' }],
+    }),
+
+    createCnpnEffectivity: builder.mutation<
+      number,
+      { cnpnVersionId: number } & CreateCnpnEffectivityRequest
+    >({
+      query: ({ cnpnVersionId, ...body }) => ({
+        url: `/cnpn-versions/${cnpnVersionId}/effectivity`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'CNPN_EFFECTIVITY' }],
+    }),
+
+    // Prospective only: the registrations the rule already stamped keep their text, and the response
+    // says how many there were so the confirmation can name the number.
+    deleteCnpnEffectivity: builder.mutation<{ registrationsGoverned: number }, number>({
+      query: (id) => ({ url: `/cnpn-effectivity/${id}`, method: 'DELETE' }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'CNPN_EFFECTIVITY' }],
+    }),
+
+    // A rule authored *before* the réinscription needs neither of these — it is read as each
+    // registration is created. These are for the other order.
+    previewCnpnEffectivity: builder.query<CnpnEffectivityApplyPreview, number>({
+      query: (id) => `/cnpn-effectivity/${id}/apply/preview`,
+    }),
+
+    applyCnpnEffectivity: builder.mutation<
+      CnpnEffectivityApplyPreview,
+      { id: number; confirmedMoveCount: number }
+    >({
+      query: ({ id, confirmedMoveCount }) => ({
+        url: `/cnpn-effectivity/${id}/apply`,
+        method: 'POST',
+        body: { confirmedMoveCount },
+      }),
+      // Re-stamping moves students between texts, so the per-text counts and every student read change.
+      invalidatesTags: [
+        { type: 'Level' as const, id: 'CNPN_EFFECTIVITY' },
         { type: 'Level' as const, id: 'CNPN_VERSIONS' },
         { type: 'Student' as const, id: 'LIST' },
       ],
@@ -714,6 +813,22 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       providesTags: [{ type: 'Calendar' as const, id: 'AXIS' }],
     }),
 
+    /**
+     * The block this promotion is laid out on right now, so reopening the screen restores the
+     * configuration instead of an empty form. Read from the axis on disk rather than from the last
+     * request, so a window corrected afterwards shows through.
+     */
+    getRotationCycle: builder.query<
+      RotationCycleConfiguration,
+      { levelId: number; academicYearId?: number }
+    >({
+      query: ({ levelId, academicYearId }) => ({
+        url: `/levels/${levelId}/rotation-cycle`,
+        params: academicYearId != null ? { academicYearId } : undefined,
+      }),
+      providesTags: (_r, _e, { levelId }) => [{ type: 'Stage' as const, id: `cycle-${levelId}` }],
+    }),
+
     previewRotationCycle: builder.mutation<
       RotationCyclePreview,
       { levelId: number } & RotationCycleRequest
@@ -726,6 +841,31 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       // A dry run writes nothing, so it invalidates nothing.
     }),
 
+    /**
+     * Removing the block, scoped to the stages that make it up — a promotion can hold several (the new
+     * CNPN's 3rd year is two semesters), so a removal keyed on the level alone would take the other
+     * one with it.
+     */
+    deleteRotationCycle: builder.mutation<
+      DeleteRotationCycleResult,
+      { levelId: number; stageIds: number[]; academicYearId?: number }
+    >({
+      query: ({ levelId, stageIds, academicYearId }) => ({
+        url: `/levels/${levelId}/rotation-cycle`,
+        method: 'DELETE',
+        params: { stageIds, ...(academicYearId != null ? { academicYearId } : {}) },
+      }),
+      invalidatesTags: (_r, _e, { levelId, stageIds }) => [
+        { type: 'Stage' as const, id: 'TIMELINE' },
+        { type: 'Stage' as const, id: `cycle-${levelId}` },
+        { type: 'Level' as const, id: 'REPARTITION' },
+        ...stageIds.flatMap((id) => [
+          { type: 'Stage' as const, id: `schedule-${id}` },
+          { type: 'Stage' as const, id: `cohorts-${id}` },
+        ]),
+      ],
+    }),
+
     applyRotationCycle: builder.mutation<
       RotationCycleResult,
       { levelId: number } & RotationCycleRequest
@@ -736,8 +876,9 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         body,
       }),
       // Rewrites every slot of the block, so the grids, the timeline and the répartition all move.
-      invalidatesTags: (_r, _e, { stages }) => [
+      invalidatesTags: (_r, _e, { levelId, stages }) => [
         { type: 'Stage' as const, id: 'TIMELINE' },
+        { type: 'Stage' as const, id: `cycle-${levelId}` },
         { type: 'Level' as const, id: 'REPARTITION' },
         ...stages.flatMap((s) => [
           { type: 'Stage' as const, id: `schedule-${s.stageId}` },
@@ -1137,8 +1278,112 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (_r, _e, { studentId }) => [{ type: 'Registration' as const, id: studentId }],
     }),
+
+    // ─── Clôture de l'année ───────────────────────────────────────────────────
+    // Three routes in the order they are used: download a canvas, upload it for a dry run, upload it
+    // again to apply. The scope is the *year*; `levelId` narrows it to one promotion.
+
+    getDeliberationTemplate: builder.query<Blob, DeliberationTemplateRequest>({
+      query: ({ levelId, academicYearId, mode }) => ({
+        url: '/deliberation/template',
+        params: { levelId, academicYearId, mode },
+        responseHandler: (response) => response.blob(),
+        cache: 'no-cache',
+      }),
+    }),
+
+    // A dry run writes nothing, so it must invalidate nothing.
+    previewDeliberation: builder.mutation<DeliberationReport, DeliberationUploadRequest>({
+      query: (arg) => ({
+        url: '/deliberation/preview',
+        method: 'POST',
+        params: deliberationParams(arg),
+        body: fileBody(arg.file),
+      }),
+    }),
+
+    applyDeliberation: builder.mutation<DeliberationReport, DeliberationUploadRequest>({
+      query: (arg) => ({
+        url: '/deliberation',
+        method: 'POST',
+        params: { ...deliberationParams(arg), confirmedDefaultCount: arg.confirmedDefaultCount },
+        body: fileBody(arg.file),
+      }),
+      // A verdict lands on every registration of the year: every student card, every registration
+      // list and the assignment views that read the status are stale at once.
+      invalidatesTags: [
+        { type: 'Registration' as const, id: 'LIST' },
+        { type: 'Student' as const, id: 'LIST' },
+        { type: 'Assignment' as const, id: 'LIST' },
+      ],
+    }),
+
+    previewReinscription: builder.query<ReinscriptionReport, ReinscriptionRequest>({
+      query: (params) => ({ url: '/reinscription/preview', params }),
+    }),
+
+    applyReinscription: builder.mutation<ReinscriptionReport, ReinscriptionRequest>({
+      query: (body) => ({ url: '/reinscription', method: 'POST', body }),
+      invalidatesTags: [
+        { type: 'Registration' as const, id: 'LIST' },
+        { type: 'Student' as const, id: 'LIST' },
+        { type: 'Level' as const, id: 'GROUPS' },
+      ],
+    }),
+
+    // ─── One student at a time ────────────────────────────────────────────────
+
+    recordRegistrationOutcome: builder.mutation<void, RecordOutcomeRequest>({
+      query: ({ registrationId, outcome, motif }) => ({
+        url: `/registrations/${registrationId}/outcome`,
+        method: 'POST',
+        body: { outcome, motif },
+      }),
+      invalidatesTags: (_r, _e, { studentId }) => [
+        { type: 'Registration' as const, id: studentId },
+        { type: 'History' as const, id: studentId },
+      ],
+    }),
+
+    reopenRegistrationYear: builder.mutation<ReopenYearReport, ReopenYearRequest>({
+      query: ({ registrationId, reason }) => ({
+        url: `/registrations/${registrationId}/outcome/reopen`,
+        method: 'POST',
+        body: { reason },
+      }),
+      invalidatesTags: (_r, _e, { studentId }) => [
+        { type: 'Registration' as const, id: studentId },
+        { type: 'History' as const, id: studentId },
+      ],
+    }),
+
+    // Joining is not transferring: this is the registration that has no roster at all, and it also
+    // creates the cohorts and the rotations still ahead of the group.
+    assignStudentToGroup: builder.mutation<GroupJoinReport, AssignStudentToGroupRequest>({
+      query: ({ registrationId, academicGroupId, reason }) => ({
+        url: '/groups/assign-student',
+        method: 'POST',
+        body: { registrationId, academicGroupId, reason },
+      }),
+      invalidatesTags: (_r, _e, { registrationId, studentId }) => [
+        { type: 'Registration' as const, id: registrationId },
+        ...(studentId ? [{ type: 'Registration' as const, id: studentId }] : []),
+        { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Assignment' as const, id: 'LIST' },
+      ],
+    }),
   }),
 });
+
+function deliberationParams({ levelId, academicYearId, defaultUnlistedToAdmis }: DeliberationScopeRequest) {
+  return { levelId, academicYearId, defaultUnlistedToAdmis };
+}
+
+function fileBody(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return form;
+}
 
 export const {
   useGetCentersQuery,
@@ -1157,6 +1402,9 @@ export const {
   useDeleteStudentMutation,
   useGetAcademicYearsQuery,
   useCreateAcademicYearMutation,
+  useUpdateAcademicYearMutation,
+  useSetCurrentAcademicYearMutation,
+  useDeleteAcademicYearMutation,
   useGetLevelsQuery,
   useGetPromotionLevelsQuery,
   useGetLevelRepartitionQuery,
@@ -1169,6 +1417,11 @@ export const {
   useDeleteCnpnVersionMutation,
   usePreviewCnpnTargetMutation,
   useApplyCnpnTargetMutation,
+  useGetCnpnEffectivitiesQuery,
+  useCreateCnpnEffectivityMutation,
+  useDeleteCnpnEffectivityMutation,
+  useLazyPreviewCnpnEffectivityQuery,
+  useApplyCnpnEffectivityMutation,
   useGetCurriculumQuery,
   useCompareCurriculaQuery,
   useSaveCurriculumMutation,
@@ -1223,8 +1476,10 @@ export const {
   useAutoArrangeStageScheduleMutation,
   usePublishStageScheduleMutation,
   useGenerateMacroPlanMutation,
+  useGetRotationCycleQuery,
   usePreviewRotationCycleMutation,
   useApplyRotationCycleMutation,
+  useDeleteRotationCycleMutation,
   useGenerateAxisWindowsQuery,
   useLazyGenerateAxisWindowsQuery,
   useClearRotationGroupsMutation,
@@ -1261,4 +1516,12 @@ export const {
   useRemoveStaffMutation,
   useAssignChefMutation,
   useRemoveChefMutation,
+  useLazyGetDeliberationTemplateQuery,
+  usePreviewDeliberationMutation,
+  useApplyDeliberationMutation,
+  useLazyPreviewReinscriptionQuery,
+  useApplyReinscriptionMutation,
+  useRecordRegistrationOutcomeMutation,
+  useReopenRegistrationYearMutation,
+  useAssignStudentToGroupMutation,
 } = adminApiSlice;
