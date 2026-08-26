@@ -30,6 +30,7 @@ import {
   useGetPromotionLevelsQuery,
 } from '../api/adminApi';
 import { CurriculumEditor } from '../components/CurriculumEditor';
+import { CnpnEffectivityPanel } from '../components/CnpnEffectivityPanel';
 import { CnpnTargetingPanel } from '../components/CnpnTargetingPanel';
 import { CnpnVersionsPanel } from '../components/CnpnVersionsPanel';
 import type { CurriculumChange, CurriculumDiffEntry } from '../types/admin.types';
@@ -299,7 +300,13 @@ export default function CurriculumPage() {
         )}
 
         {/* Who the compared text binds. Deliberately below the requirements: you settle what a CNPN
-            demands before deciding whom it demands it of. */}
+            demands before deciding whom it demands it of.
+
+            Two panels because there are two mechanisms, and they answer different questions. The
+            effectivity rules are standing — read as each registration is created, so they keep
+            catching repeaters and returners year after year. Targeting is a one-shot sweep over the
+            students who exist today. Effectivity first: it is the one that should normally be used. */}
+        {targetVersion && <CnpnEffectivityPanel version={targetVersion} />}
         {targetVersion && <CnpnTargetingPanel version={targetVersion} />}
       </Stack>
     </Container>
