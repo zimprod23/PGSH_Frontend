@@ -98,6 +98,29 @@ export interface StudentRegistrationResponse {
   status: RegistrationStatus;
   hasFailures: boolean;
   failureDescription: string | null;
+  /**
+   * How `status` was learned. Null while the year is still running — and null on every year imported
+   * from the legacy base, which is why they all read « en cours ». Without it the dossier cannot tell
+   * a verdict the jury pronounced from a status somebody typed into a form.
+   */
+  outcomeSource: import('../../../common/types').RegistrationOutcomeSource | null;
+  outcomeRecordedOn: string | null;
+  /** Null for a student nobody has placed yet — which is what makes joining a group possible. */
+  academicGroupId: number | null;
+  academicGroupLabel: string | null;
+  /**
+   * The CNPN that governed *this year*, which is not necessarily the one the student follows today.
+   * It is what he was required to do then, so it is what an outstanding stage from that year is
+   * still measured against — and it is the only thing that explains two years of one student owing
+   * different sets. Falls back to his own stamp for the imported years; null when nothing is known.
+   */
+  cnpnVersionId: number | null;
+  cnpnCode: string | null;
+  /**
+   * How that text was decided. `Effectivity` is the one value that says an authored rule moved him
+   * mid-cursus rather than the text being carried from his intake.
+   */
+  cnpnSource: 'Effectivity' | 'StudentStamp' | 'CarriedForward' | 'ResolvedFromEntry' | 'Backfilled' | null;
 }
 
 // ─── GET /internship-assignments ─────────────────────────────────────────────

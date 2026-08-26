@@ -42,12 +42,24 @@ import {
   IconTrophy,
   IconPlus,
   IconPencil,
+  IconArrowBackUp,
+  IconUsersGroup,
 } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useGetStudentByIdQuery, useGetStudentRegistrationsQuery } from '../../../student/api/studentApi';
-import { useUpdateRegistrationMutation, useCreateRegistrationMutation, useGetAcademicYearsQuery, useGetLevelsQuery, useUpdateStudentMutation } from '../../api/adminApi';
+import {
+  useCreateRegistrationMutation,
+  useGetAcademicYearsQuery,
+  useGetLevelsQuery,
+  useUpdateStudentMutation,
+  useRecordRegistrationOutcomeMutation,
+  useReopenRegistrationYearMutation,
+  useAssignStudentToGroupMutation,
+  useGetAcademicGroupOptionsQuery,
+} from '../../api/adminApi';
 import type { AcademicProgram, RegistrationStatus } from '../../../../common/types';
+import { YEAR_OUTCOMES } from '../../../../common/types';
 import type { StudentResponse } from '../../../student/types/student.types';
 import { ProfileFieldCell } from '../../../student/components/ProfileFieldCell';
 import { RegistrationBadge } from '../../../student/components/RegistrationBadge';
@@ -59,18 +71,17 @@ import {
   formatDate, initials,
 } from '../../../student/utils/format';
 
-// ─── Status select options ────────────────────────────────────────────────────
+// ─── Registration card: the year's verdict, and the roster ────────────────────
 
-const STATUS_OPTIONS: { value: RegistrationStatus; label: string }[] = [
-  { value: 'Pending',   label: 'En attente'  },
-  { value: 'Active',    label: 'En cours'    },
-  { value: 'Validated', label: 'Validée'     },
-  { value: 'Failed',    label: 'Échouée'     },
-  { value: 'Withdrawn', label: 'Abandonnée'  },
-];
-
-// ─── Registration card with inline status edit ────────────────────────────────
-
+/**
+ * One year of the dossier, with the two acts scolarité performs on it one student at a time.
+ *
+ * ⚠ **A verdict is recorded, never assigned.** This card used to carry a plain status `Select` writing
+ * straight through `PUT /registrations/{id}`, which left `OutcomeSource` null: the card showed
+ * « Admis » while the réinscription reported « aucune décision enregistrée » and refused to carry the
+ * student over. The five verdicts now go through `POST /registrations/{id}/outcome`, and taking one
+ * back is `…/reopen` — a distinct act, because it is one.
+ */
 function RegistrationCard({
   reg,
   studentId,
@@ -79,22 +90,41 @@ function RegistrationCard({
   studentId: string;
 }) {
   const notify = useNotify();
-  const [updateRegistration, { isLoading }] = useUpdateRegistrationMutation();
+  const [recordOutcome, { isLoading: recording }] = useRecordRegistrationOutcomeMutation();
+  const [reopenYear,    { isLoading: reopening }] = useReopenRegistrationYearMutation();
+  const [joinOpen, setJoinOpen] = useState(false);
 
-  const handleStatusChange = async (newStatus: string | null) => {
-    if (!newStatus || newStatus === reg.status) return;
+  const isLoading = recording || reopening;
+  const declared = reg.outcomeSource !== null;
+
+  const handleOutcome = async (outcome: string | null) => {
+    if (!outcome || outcome === reg.status) return;
     try {
-      await updateRegistration({
+      await recordOutcome({
         registrationId: reg.id,
         studentId,
-        status:         newStatus as RegistrationStatus,
-        academicYearId: reg.academicYearId,
-        levelId:        reg.levelId,
-        failureDescription: reg.failureDescription ?? undefined,
+        outcome: outcome as RegistrationStatus,
       }).unwrap();
-      notify.success(`Statut mis à jour : ${STATUS_OPTIONS.find(o => o.value === newStatus)?.label}`);
-    } catch {
-      notify.error('Impossible de mettre à jour le statut.');
+      notify.success(
+        `Décision enregistrée : ${YEAR_OUTCOMES.find((o) => o.value === outcome)?.label}`,
+      );
+    } catch (err: unknown) {
+      notify.error(detailOf(err) ?? "Impossible d'enregistrer la décision.");
+    }
+  };
+
+  const handleReopen = async () => {
+    try {
+      const result = await reopenYear({ registrationId: reg.id, studentId }).unwrap();
+      // The next year's registration is left alone on purpose — it may already carry a group,
+      // cohorts and published périodes — so say so rather than let the user assume it was undone.
+      notify.success(
+        result.laterRegistrationExists
+          ? "Décision retirée. L'inscription de l'année suivante existe toujours : supprimez-la si elle n'a plus lieu d'être."
+          : 'Décision retirée, année remise en cours.',
+      );
+    } catch (err: unknown) {
+      notify.error(detailOf(err) ?? 'Impossible de rouvrir cette année.');
     }
   };
 
@@ -122,25 +152,94 @@ function RegistrationCard({
             )}
           </Group>
           <Text size="xs" c="dimmed">{reg.levelLabel ?? `Niveau ID: ${reg.levelId}`}</Text>
+
+          {/* The text that governed THIS year, not the one the student follows today. It is what an
+              outstanding stage from this year is still measured against, and — when it differs from
+              the year above or below — the only thing on screen that explains why. */}
+          {reg.cnpnCode && (
+            <Tooltip
+              label={
+                reg.cnpnSource === 'Effectivity'
+                  ? `CNPN ${reg.cnpnCode} — appliqué à ce niveau par une règle d'entrée en vigueur. Ce que cette année exige est figé dessus.`
+                  : reg.cnpnSource === 'Backfilled'
+                    ? `CNPN ${reg.cnpnCode} — repris du rattachement de l'étudiant lors de la reprise de l'historique ; personne ne l'a prononcé à l'époque.`
+                    : `CNPN ${reg.cnpnCode} — texte sous lequel cette année a été faite.`
+              }
+              multiline
+              w={280}
+              position="bottom-start"
+              withArrow
+            >
+              <Badge
+                size="xs"
+                radius="sm"
+                variant={reg.cnpnSource === 'Effectivity' ? 'filled' : 'light'}
+                color={reg.cnpnSource === 'Backfilled' ? 'gray' : 'navy'}
+                w="fit-content"
+              >
+                CNPN {reg.cnpnCode}
+              </Badge>
+            </Tooltip>
+          )}
+
           <Text size="xs" c="dimmed" ff="monospace" style={{ opacity: 0.6 }}>
             {reg.id.slice(0, 8)}…
           </Text>
         </Stack>
 
-        {/* Right: status select */}
-        <Group gap="xs" align="center">
-          <RegistrationBadge status={reg.status} />
-          <Select
-            value={reg.status}
-            onChange={handleStatusChange}
-            data={STATUS_OPTIONS}
-            size="xs"
-            radius="md"
-            w={130}
-            disabled={isLoading}
-            styles={{ input: { fontSize: rem(12) } }}
-          />
-        </Group>
+        {/* Right: the year's verdict, and the roster */}
+        <Stack gap={6} align="flex-end">
+          <Group gap="xs" align="center">
+            <RegistrationBadge status={reg.status} />
+            <Select
+              value={declared ? reg.status : null}
+              onChange={handleOutcome}
+              data={YEAR_OUTCOMES}
+              placeholder="Décision…"
+              size="xs"
+              radius="md"
+              w={140}
+              disabled={isLoading}
+              styles={{ input: { fontSize: rem(12) } }}
+            />
+            {declared && (
+              <Tooltip label="Retirer la décision et remettre l'année en cours" position="top" withArrow>
+                <ActionIcon
+                  variant="subtle" color="gray" radius="md" size="md"
+                  loading={reopening}
+                  onClick={handleReopen}
+                >
+                  <IconArrowBackUp size={15} stroke={1.5} />
+                </ActionIcon>
+              </Tooltip>
+            )}
+          </Group>
+
+          <Group gap="xs">
+            {declared ? (
+              <Text size="xs" c="dimmed">
+                {reg.outcomeSource === 'Inferred' ? 'Déduite par PGSH' : 'Prononcée par la faculté'}
+                {reg.outcomeRecordedOn && ` · ${formatDate(reg.outcomeRecordedOn)}`}
+              </Text>
+            ) : (
+              <Text size="xs" c="dimmed">Année en cours — aucune décision</Text>
+            )}
+          </Group>
+
+          {reg.academicGroupId === null ? (
+            <Button
+              size="compact-xs" variant="light" color="navy" radius="md"
+              leftSection={<IconUsersGroup size={13} stroke={1.5} />}
+              onClick={() => setJoinOpen(true)}
+            >
+              Affecter à un groupe
+            </Button>
+          ) : (
+            <Badge size="xs" variant="light" color="navy" radius="sm">
+              {reg.academicGroupLabel ?? `Groupe ${reg.academicGroupId}`}
+            </Badge>
+          )}
+        </Stack>
       </Group>
 
       {reg.failureDescription && (
@@ -148,7 +247,106 @@ function RegistrationCard({
           Motif : {reg.failureDescription}
         </Text>
       )}
+
+      <JoinGroupModal
+        opened={joinOpen}
+        onClose={() => setJoinOpen(false)}
+        registrationId={reg.id}
+        studentId={studentId}
+        academicYearId={reg.academicYearId}
+        levelId={reg.levelId}
+        levelLabel={reg.levelLabel}
+      />
     </Box>
+  );
+}
+
+// ─── Joining a roster after the fact ──────────────────────────────────────────
+
+/**
+ * The ordinary September case: the déliberation is applied, the groups are cut, the schedule is
+ * published — and then somebody registers.
+ *
+ * ⚠ Not a transfer. A transfer moves a student who is already somewhere and has a running rotation to
+ * carry across; this one has none, and running him through the transfer path silently did nothing at
+ * all — he landed on the roster with no cohorte and no période, looking exactly like a student who had
+ * been planned. The server creates the cohortes and materialises the rotations **still ahead** of the
+ * group; a stage the roster already finished is owed and unserved, never invented.
+ */
+function JoinGroupModal({
+  opened, onClose, registrationId, studentId, academicYearId, levelId, levelLabel,
+}: {
+  opened: boolean;
+  onClose: () => void;
+  registrationId: string;
+  studentId: string;
+  academicYearId: number;
+  levelId: number;
+  levelLabel: string | null;
+}) {
+  const notify = useNotify();
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [assign, { isLoading }] = useAssignStudentToGroupMutation();
+
+  // Scoped to the registration's own year *and* promotion: a roster of another one is refused by the
+  // server, and offering it here would be offering a click that cannot work.
+  const { data: groups } = useGetAcademicGroupOptionsQuery(
+    { academicYearId, levelId },
+    { skip: !opened },
+  );
+
+  const handleSubmit = async () => {
+    if (!groupId) return;
+    try {
+      const result = await assign({
+        registrationId,
+        studentId,
+        academicGroupId: Number(groupId),
+      }).unwrap();
+
+      notify.success(
+        result.stagesAlreadyOver > 0
+          ? `Affecté à ${result.groupLabel} — ${result.periodsCreated} rotation(s) à venir, `
+            + `${result.stagesAlreadyOver} stage(s) déjà terminé(s) restent dus.`
+          : `Affecté à ${result.groupLabel} — ${result.periodsCreated} rotation(s) créée(s).`,
+      );
+      setGroupId(null);
+      onClose();
+    } catch (err: unknown) {
+      notify.error(detailOf(err) ?? "Impossible d'affecter cet étudiant.");
+    }
+  };
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="Affecter à un groupe" radius="lg" size="sm">
+      <Stack gap="md">
+        <Text size="xs" c="dimmed">
+          Groupes de {levelLabel ?? `niveau ${levelId}`} pour cette année. L'étudiant reprend les
+          cohortes du groupe et les rotations qui restent à venir ; un stage déjà terminé lui reste dû.
+        </Text>
+        <Select
+          label="Groupe"
+          placeholder="Sélectionner un groupe"
+          data={(groups ?? []).map((g) => ({ value: String(g.id), label: g.label ?? `Groupe ${g.groupNumber}` }))}
+          value={groupId}
+          onChange={setGroupId}
+          searchable
+          radius="md"
+          required
+        />
+        <Group justify="flex-end" mt="sm">
+          <Button variant="default" onClick={onClose} radius="md">Annuler</Button>
+          <Button
+            color="navy" radius="md"
+            loading={isLoading}
+            disabled={!groupId}
+            onClick={handleSubmit}
+          >
+            Affecter
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
   );
 }
 
@@ -679,3 +877,5 @@ export default function AdminStudentDetailPage() {
     </Container>
   );
 }
+
+const detailOf = (err: unknown) => (err as { data?: { detail?: string } })?.data?.detail;
