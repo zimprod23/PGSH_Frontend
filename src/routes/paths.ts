@@ -20,6 +20,7 @@ export const PATHS = {
     STUDENT_DETAIL:  'students/:id',
     REGISTRATIONS:   'registrations',
     ACADEMIC_YEARS:  'academic-years',
+    YEAR_CLOSURE:    'year-closure',
     GROUPS:          'groups',
     GROUP_DETAIL:    'groups/:id',
     TIMELINE:        'timeline',
