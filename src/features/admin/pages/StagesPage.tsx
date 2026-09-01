@@ -128,9 +128,16 @@ function StageFormDrawer({
       durationInDays: form.durationInDays,
       levelId: Number(form.levelId),
       rotationMode: form.rotationMode,
+      // Mapped field by field rather than spread-minus-`_key`: `_key` is a local row identity for
+      // React, and stating the request's own shape is what proves it never reaches the wire.
       objectives: form.objectives
         .filter((o) => o.label.trim())
-        .map(({ _key: _k, ...o }) => ({ ...o, description: o.description || undefined })),
+        .map((o): StageObjectiveRequest => ({
+          label: o.label,
+          description: o.description || undefined,
+          weight: o.weight,
+          isMandatory: o.isMandatory,
+        })),
     };
     try {
       if (editId !== null) {
