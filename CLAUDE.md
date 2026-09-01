@@ -262,6 +262,19 @@ row count had since outgrown it.
   the whole grid mounted while it plays, so « Fermer » stays slow even after the rows are paged.
 
 
+### 1b-quater ⚠ A lookup query must respect the server's own page cap
+
+`RevalidateStageModal` asked `getStages` for `pageSize: 200`. `GetStagesQueryValidator` caps it at
+**100**, so every call was a 400 — and a rejected *lookup* has no empty state to show: the select
+simply never opened. It looked like a dead control, not a failed request.
+
+- **Read the backend validator before choosing a page size.** The server is the source of truth for
+  the ceiling, and it is not the same number everywhere.
+- ⚠ **This class is invisible to the backend suite** — the validator runs in the pipeline, so a
+  handler test passes the malformed request straight through — *and* to type-checking. It is only
+  visible by driving the screen. Same family as the `Objectives.NotEmpty()` and CNE-regex incidents.
+- **If one page cannot cover the set, the answer is a server-side search, not a bigger page.**
+
 ### 1c. The navbar year is the only year, and it must be in the query key
 
 There is one academic-year selector, in `AdminLayout`, exposed by `useAcademicYear()`. Two rules:

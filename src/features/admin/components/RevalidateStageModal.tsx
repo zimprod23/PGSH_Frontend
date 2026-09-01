@@ -53,8 +53,12 @@ export function RevalidateStageModal({ opened, onClose, registrationId, levelLab
   const [startOverride, setStartOverride] = useState<string | null>(null);
   const [endOverride,   setEndOverride]   = useState<string | null>(null);
 
+  // pageSize 100 is the server's own ceiling (GetStagesQueryValidator caps it there); 200 is a 400,
+  // and a rejected lookup shows up only as a select that will not open. The catalogue holds 33
+  // stages and grows by a handful per arrêté, so one page covers it — if it ever stops covering it,
+  // this needs a server-side search, not a bigger page.
   const { data: stages } = useGetStagesQuery(
-    { pageNumber: 1, pageSize: 200 },
+    { pageNumber: 1, pageSize: 100 },
     { skip: !opened },
   );
 
@@ -106,7 +110,10 @@ export function RevalidateStageModal({ opened, onClose, registrationId, levelLab
   // Pre-flight (frontend CLAUDE.md §1): placement is all-or-nothing server-side, so a half-filled
   // window can only be refused. Disable and say why rather than spend the round-trip.
   const placementIncomplete = place && (!start || !end);
-  const blocked = !ctx?.canOpen || placementIncomplete;
+  // No cohorte named and none to fall back on: the command answers NoGroupForRevalidation. Caught
+  // in the browser — the button was offered on exactly the student this dialog exists for.
+  const cohorteMissing = !!ctx && !cohortId && ctx.fallbackCohortId == null;
+  const blocked = !ctx?.canOpen || placementIncomplete || cohorteMissing;
 
   const text = ctx?.governingText;
   const disagrees =
@@ -257,7 +264,9 @@ export function RevalidateStageModal({ opened, onClose, registrationId, levelLab
 
             <Select
               label="Cohorte d'accueil"
-              description="Obligatoire quand l'étudiant n'a pas de groupe cette année : il n'y a alors aucune cohorte à déduire."
+              description={ctx.fallbackCohortId == null
+                ? "Obligatoire : son inscription ne relève d'aucune cohorte de ce stage cette année."
+                : "Facultatif : sans choix, la cohorte de son propre groupe est utilisée."}
               placeholder={ctx.cohorts.length ? 'Choisir une cohorte…' : 'Aucune cohorte pour ce stage cette année'}
               value={cohortId}
               onChange={setCohortId}
@@ -282,6 +291,13 @@ export function RevalidateStageModal({ opened, onClose, registrationId, levelLab
         <Group justify="flex-end" mt="xs">
           {placementIncomplete && (
             <Text size="xs" c="dimmed">Renseignez les deux dates, ou choisissez « planifier plus tard ».</Text>
+          )}
+          {cohorteMissing && !placementIncomplete && (
+            <Text size="xs" c="dimmed">
+              {ctx!.cohorts.length === 0
+                ? "Aucune cohorte ne fait tourner ce stage cette année : la promotion doit d'abord être planifiée."
+                : "Choisissez une cohorte d'accueil."}
+            </Text>
           )}
           <Button variant="subtle" color="gray" radius="md" onClick={close}>Annuler</Button>
           <Button

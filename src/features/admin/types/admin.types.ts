@@ -1676,6 +1676,13 @@ export interface RevalidationContextResponse {
   lastFailure: RevalidationPriorAttempt | null;
   proposedWindow: RevalidationWindow | null;
   cohorts: RevalidationCohortOption[];
+  /**
+   * The cohorte the command falls back to when none is named. Null means naming one is **required**
+   * — the ordinary case for a revalidation, since a 6ᵉ année student redoing a 3ᵉ année stage holds
+   * no roster that runs it. Without this the dialog cannot tell « leave it empty » from « this can
+   * only fail », and it offered the act anyway.
+   */
+  fallbackCohortId: number | null;
 }
 
 export interface RevalidationText {
