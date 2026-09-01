@@ -20,8 +20,9 @@ import {
   rem,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
+import { usePagedFilters } from '../../../common/hooks/usePagedFilters';
 import { IconPencil, IconPlus, IconTrash } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   useGetEmployeesQuery,
   useGetEmployeeByIdQuery,
@@ -29,7 +30,7 @@ import {
   useUpdateEmployeeMutation,
   useDeleteEmployeeMutation,
 } from '../api/adminApi';
-import type { EmployeeSummaryResponse, Grade, Position, WorkPlace } from '../types/admin.types';
+import type { EmployeeDetailResponse, EmployeeSummaryResponse, Grade, Position, WorkPlace } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 
@@ -74,6 +75,24 @@ const emptyForm = (): FormValues => ({
   gender: 'Male', dateOfBirth: '', placeOfBirth: '', fullAddress: '', pvSignatureDate: '',
 });
 
+/** The edit form's values for an employee the server has just returned. */
+const formFrom = (e: EmployeeDetailResponse): FormValues => ({
+  email:           e.email,
+  firstName:       e.firstName,
+  lastName:        e.lastName,
+  cin:             e.cin           ?? '',
+  ppr:             e.ppr           ?? '',
+  label:           e.label         ?? '',
+  grade:           e.grade,
+  position:        e.position      ?? '',
+  workPlace:       e.workPlace     ?? '',
+  gender:          e.gender        ?? 'Male',
+  dateOfBirth:     e.dateOfBirth   ?? '',
+  placeOfBirth:    e.placeOfBirth  ?? '',
+  fullAddress:     e.fullAddress   ?? '',
+  pvSignatureDate: e.pvSignatureDate ?? '',
+});
+
 function validate(form: FormValues): Partial<Record<keyof FormValues, string>> {
   const errs: Partial<Record<keyof FormValues, string>> = {};
   if (!form.email.trim()) {
@@ -104,9 +123,8 @@ export default function EmployeesPage() {
   const notify = useNotify();
   const [search, setSearch] = useState('');
   const [gradeFilter, setGradeFilter] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
   const [debouncedSearch] = useDebouncedValue(search, 350);
-  useEffect(() => setPage(1), [debouncedSearch, gradeFilter]);
+  const [page, setPage] = usePagedFilters(debouncedSearch, gradeFilter);
 
   const { data, isLoading, isFetching } = useGetEmployeesQuery({
     searchTerm: debouncedSearch || undefined,
@@ -133,35 +151,25 @@ export default function EmployeesPage() {
     { skip: !editEmployeeId }
   );
 
-  useEffect(() => {
-    if (fullEmployee && editEmployeeId) {
-      setForm({
-        email:          fullEmployee.email,
-        firstName:      fullEmployee.firstName,
-        lastName:       fullEmployee.lastName,
-        cin:            fullEmployee.cin          ?? '',
-        ppr:            fullEmployee.ppr          ?? '',
-        label:          fullEmployee.label        ?? '',
-        grade:          fullEmployee.grade,
-        position:       fullEmployee.position     ?? '',
-        workPlace:      fullEmployee.workPlace    ?? '',
-        gender:         fullEmployee.gender       ?? 'Male',
-        dateOfBirth:    fullEmployee.dateOfBirth  ?? '',
-        placeOfBirth:   fullEmployee.placeOfBirth ?? '',
-        fullAddress:    fullEmployee.fullAddress  ?? '',
-        pvSignatureDate: fullEmployee.pvSignatureDate ?? '',
-      });
-    }
-  }, [fullEmployee, editEmployeeId]);
+  // Populated the moment the fetch lands, during render rather than in an effect: an effect commits
+  // one render first, so the form briefly showed the values it was opened with. `loadedFor` is what
+  // makes it happen once per employee instead of on every render.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  if (fullEmployee && editEmployeeId === fullEmployee.id && loadedFor !== fullEmployee.id) {
+    setLoadedFor(fullEmployee.id);
+    setForm(formFrom(fullEmployee));
+  }
 
   const openCreate = () => {
     setEditEmployeeId(null);
+    setLoadedFor(null);
     setForm(emptyForm());
     setErrors({});
     open();
   };
   const openEdit = (e: EmployeeSummaryResponse) => {
     setEditEmployeeId(e.id);
+    setLoadedFor(null);
     setForm(emptyForm()); // reset while full data loads
     setErrors({});
     open();

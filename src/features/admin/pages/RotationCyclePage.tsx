@@ -46,7 +46,7 @@ import type {
   RotationCycleLayout,
   StageDurationCheck,
 } from '../types/admin.types';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { useListParams } from '../../../common/hooks/useListParams';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';

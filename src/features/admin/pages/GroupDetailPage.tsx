@@ -22,6 +22,7 @@ import {
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
+import { usePagedFilters } from '../../../common/hooks/usePagedFilters';
 import { skipToken } from '@reduxjs/toolkit/query';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import {
@@ -31,7 +32,7 @@ import {
   IconTrash,
   IconUsers,
 } from '@tabler/icons-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useGetGroupByIdQuery,
@@ -389,10 +390,9 @@ export default function GroupDetailPage() {
   // The roster is paged: "Non réparti" holds 4,725 students for 2025-2026, and rendering that in one
   // table is what took the browser down. Search is debounced per the project rule — the input stays
   // instant while only the settled term reaches the server.
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebouncedValue(search, 350);
-  useEffect(() => setPage(1), [debouncedSearch]);
+  const [page, setPage] = usePagedFilters(debouncedSearch);
 
   const { data: group, isLoading, isFetching } = useGetGroupByIdQuery({
     id: groupId,

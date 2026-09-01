@@ -65,7 +65,7 @@ import type { AllowedServiceSummary } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import { PATHS } from '../../../routes/paths';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 
 export default function StageDetailPage() {
   const { id } = useParams<{ id: string }>();

@@ -14,7 +14,7 @@ import {
   useGetServiceOccupancyQuery,
   useGetServiceStagesQuery,
 } from '../api/adminApi';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 import { ServiceFormModal } from '../components/ServiceFormModal';
 import { ServiceOccupancyTimeline } from '../components/service/ServiceOccupancyTimeline';
 import { PATHS } from '../../../routes/paths';

@@ -20,7 +20,7 @@ import {
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { useGetStudentsQuery, useGetStagesQuery, useGetAcademicGroupsQuery } from '../api/adminApi';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 import { StatCard } from '../../student/components/StatCard';
 import { PATHS } from '../../../routes/paths';
 

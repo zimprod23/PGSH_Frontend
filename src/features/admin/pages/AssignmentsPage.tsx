@@ -69,7 +69,7 @@ import type {
 } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { useListParams } from '../../../common/hooks/useListParams';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import { StudentRecordModal } from '../components/StudentRecordModal';
 import { EvaluationImportModal } from '../../evaluations/components/EvaluationImportModal';

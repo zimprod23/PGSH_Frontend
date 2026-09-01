@@ -42,7 +42,8 @@ import { useAuth } from '../common/hooks/useAuth';
 import { Roles } from '../common/constants/roles';
 import { ErrorBoundary } from '../common/components/ErrorBoundary';
 import { PATHS } from '../routes/paths';
-import { AcademicYearProvider, useAcademicYear } from '../features/admin/contexts/AcademicYearContext';
+import { AcademicYearProvider } from '../features/admin/contexts/AcademicYearContext';
+import { useAcademicYear } from '../features/admin/contexts/useAcademicYear';
 
 type Icon = React.ComponentType<{ size?: number; stroke?: number; color?: string }>;
 

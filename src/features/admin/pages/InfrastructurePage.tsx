@@ -24,8 +24,9 @@ import {
   rem,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
+import { usePagedFilters } from '../../../common/hooks/usePagedFilters';
 import { IconBuildingFactory2, IconBuildingHospital, IconPencil, IconPlus, IconStarFilled, IconStethoscope, IconTrash, IconUsers } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   useGetCentersQuery, useCreateCenterMutation, useUpdateCenterMutation, useDeleteCenterMutation,
@@ -81,9 +82,8 @@ function SkeletonRows({ cols }: { cols: number }) {
 function CentersTab() {
   const notify = useNotify();
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
   const [debouncedSearch] = useDebouncedValue(search, 350);
-  useEffect(() => setPage(1), [debouncedSearch]);
+  const [page, setPage] = usePagedFilters(debouncedSearch);
 
   const { data, isLoading, isFetching } = useGetCentersQuery({ searchTerm: debouncedSearch || undefined, pageNumber: page, pageSize: PAGE_SIZE });
   const [createCenter, { isLoading: creating }] = useCreateCenterMutation();
@@ -193,9 +193,8 @@ function HospitalsTab() {
   const notify = useNotify();
   const [search, setSearch] = useState('');
   const [centerFilter, setCenterFilter] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
   const [debouncedSearch] = useDebouncedValue(search, 350);
-  useEffect(() => setPage(1), [debouncedSearch, centerFilter]);
+  const [page, setPage] = usePagedFilters(debouncedSearch, centerFilter);
 
   const { data: allCenters = { items: [] } } = useAllCenters({ pageSize: 100 });
   const { data, isLoading, isFetching } = useGetHospitalsQuery({ centerId: centerFilter ? Number(centerFilter) : undefined, searchTerm: debouncedSearch || undefined, pageNumber: page, pageSize: PAGE_SIZE });
@@ -335,7 +334,13 @@ function StaffDrawer({ serviceId, onClose }: { serviceId: number | null; onClose
 
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
 
-  useEffect(() => { if (!opened) { setEmployeeSearch(''); setSelectedEmployee(null); } }, [opened]);
+  // Reset where the drawer is dismissed rather than in an effect watching `opened`: the effect ran
+  // a render after the close and existed only to undo state the close had already made unreachable.
+  const close = () => {
+    setEmployeeSearch('');
+    setSelectedEmployee(null);
+    onClose();
+  };
 
   const currentStaffIds = new Set((service?.staff ?? []).map((s) => s.id));
   const employeeOptions = (employees?.items ?? [])
@@ -371,7 +376,7 @@ function StaffDrawer({ serviceId, onClose }: { serviceId: number | null; onClose
   return (
     <Drawer
       opened={opened}
-      onClose={onClose}
+      onClose={close}
       title={service ? `Personnel — ${service.name}` : 'Personnel'}
       position="right"
       size="md"
@@ -460,9 +465,8 @@ function ServicesTab() {
   const notify = useNotify();
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
   const [debouncedSearch] = useDebouncedValue(search, 350);
-  useEffect(() => setPage(1), [debouncedSearch, hospitalFilter]);
+  const [page, setPage] = usePagedFilters(debouncedSearch, hospitalFilter);
 
   const { data: allHospitals = { items: [] } } = useAllHospitals({ pageSize: 200 });
   const { data, isLoading, isFetching } = useGetServicesQuery({ hospitalId: hospitalFilter ? Number(hospitalFilter) : undefined, searchTerm: debouncedSearch || undefined, pageNumber: page, pageSize: PAGE_SIZE });

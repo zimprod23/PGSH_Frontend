@@ -27,7 +27,7 @@ import {
   useLazyGetStudentsExportQuery,
 } from '../../api/adminApi';
 import { ExportButton } from '../../../../common/components/ExportButton';
-import { useAcademicYear } from '../../contexts/AcademicYearContext';
+import { useAcademicYear } from '../../contexts/useAcademicYear';
 import type { AcademicProgram, RegistrationStatus } from '../../../../common/types';
 import { PATHS } from '../../../../routes/paths';
 

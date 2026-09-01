@@ -14,7 +14,7 @@ import {
 } from '@mantine/core';
 import { IconAlertTriangle, IconDownload, IconPrinter } from '@tabler/icons-react';
 import { useGetPromotionLevelsQuery, useGetLevelRepartitionQuery } from '../api/adminApi';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 import { RepartitionDocument } from '../components/repartition/RepartitionDocument';
 import { levelTitle } from '../components/repartition/repartitionLabels';
 import { downloadRepartition, printRepartition } from '../components/repartition/buildRepartitionFile';

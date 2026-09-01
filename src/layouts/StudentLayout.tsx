@@ -230,7 +230,7 @@ export function StudentLayout() {
                   active={active}
                   onClick={() => {
                     if (item.path !== '#') navigate(item.path);
-                    if (opened) toggle(); // eslint-disable-line
+                    if (opened) toggle();
                   }}
                   styles={{
                     root: {

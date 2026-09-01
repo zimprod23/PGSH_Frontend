@@ -46,7 +46,7 @@ import {
   IconRefresh,
   IconUsersGroup,
 } from '@tabler/icons-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useGetStudentByIdQuery, useGetStudentRegistrationsQuery } from '../../../student/api/studentApi';
 import { RevalidateStageModal } from '../../components/RevalidateStageModal';
@@ -568,7 +568,20 @@ function validateStudent(form: StudentForm): Partial<Record<keyof StudentForm, s
   return errs;
 }
 
+/**
+ * Shell only. The form is mounted afresh on each opening, which is what lets its initial values come
+ * from `student` directly instead of being re-synced by an effect — the effect held a second copy of
+ * the same object literal, and the two had to be kept in step by hand.
+ *
+ * The trade-off is the exit transition: closing unmounts rather than fading. Preferred to animating
+ * a form whose fields have just been reset, and consistent with the project already dropping modal
+ * exit transitions on heavy trees.
+ */
 function EditStudentModal({ opened, onClose, student }: { opened: boolean; onClose: () => void; student: StudentResponse }) {
+  return opened ? <EditStudentForm onClose={onClose} student={student} /> : null;
+}
+
+function EditStudentForm({ onClose, student }: { onClose: () => void; student: StudentResponse }) {
   const notify = useNotify();
   const [updateStudent, { isLoading }] = useUpdateStudentMutation();
   const [errors, setErrors] = useState<Partial<Record<keyof StudentForm, string>>>({});
@@ -586,25 +599,6 @@ function EditStudentModal({ opened, onClose, student }: { opened: boolean; onClo
     dateOfBirth: student.dateOfBirth ?? '', placeOfBirth: student.placeOfBirth ?? '',
     fullAddress: student.fullAddress ?? '',
   });
-
-  useEffect(() => {
-    if (opened) {
-      setErrors({});
-      setForm({
-        firstName: student.firstName, lastName: student.lastName,
-        email: student.email, cin: student.cin ?? '',
-        cne: student.cne, appogee: student.appogee,
-        accessGrade: student.accessGrade, ranking: student.ranking ?? '',
-        academicProgram: student.academicProgram as AcademicProgram,
-        bacSeries: student.bacSeries, bacYear: student.bacYear,
-        gender: student.gender as string,
-        civilStatus: student.civilStatus,
-        nationalityStatus: student.nationalityStatus,
-        dateOfBirth: student.dateOfBirth ?? '', placeOfBirth: student.placeOfBirth ?? '',
-        fullAddress: student.fullAddress ?? '',
-      });
-    }
-  }, [opened, student]);
 
   const field = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm((p) => ({ ...p, [k]: v }));
 
@@ -641,7 +635,7 @@ function EditStudentModal({ opened, onClose, student }: { opened: boolean; onClo
   };
 
   return (
-    <Modal opened={opened} onClose={onClose} title="Modifier l'étudiant" radius="lg" size="lg">
+    <Modal opened onClose={onClose} title="Modifier l'étudiant" radius="lg" size="lg">
       <Stack gap="md">
         <Group grow>
           <TextInput label="Prénom" value={form.firstName} onChange={(e) => field('firstName', e.target.value)} radius="md" required error={errors.firstName} />

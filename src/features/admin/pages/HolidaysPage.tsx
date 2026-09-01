@@ -38,7 +38,7 @@ import {
   useSeedNationalHolidaysMutation,
 } from '../api/adminApi';
 import type { Holiday, HolidayKind } from '../types/admin.types';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 

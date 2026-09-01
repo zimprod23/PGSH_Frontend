@@ -22,7 +22,7 @@ import {
   useRecordAttendanceMutation,
 } from '../api/adminApi';
 import type { AttendanceStatus, ServicePeriodResponse } from '../types/admin.types';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useNotify } from '../../../common/hooks/useNotify';
 
 const STATUS_OPTIONS: { value: AttendanceStatus; label: string; color: string }[] = [

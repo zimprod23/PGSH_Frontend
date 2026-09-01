@@ -41,7 +41,7 @@ import {
   IconArrowRight,
 } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useNavigate } from 'react-router-dom';
 import {
   useGetLevelsQuery,
@@ -959,11 +959,17 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
 
   const matches = studentMatches?.items ?? [];
 
-  // A single hit needs no disambiguation; anything else waits for the user to choose. Reset on every
-  // new term so a stale pick from the previous search can't linger.
-  useEffect(() => {
+  // A single hit needs no disambiguation; anything else waits for the user to choose, and a stale
+  // pick from the previous search must not linger.
+  //
+  // Resolved once per settled term, during render rather than in an effect: the effect listed
+  // `matches` — a fresh array on every render — so it re-ran continuously and would overwrite a
+  // choice the user had just made whenever anything else on the page re-rendered.
+  const [resolvedFor, setResolvedFor] = useState<string | null>(null);
+  if (!searchingStudents && resolvedFor !== debouncedStudentSearch) {
+    setResolvedFor(debouncedStudentSearch);
     setPickedStudentId(matches.length === 1 ? matches[0].id : null);
-  }, [debouncedStudentSearch, matches.length, matches]);
+  }
 
   const { data: studentGroups = [], isFetching: loadingStudentGroups } = useGetAcademicGroupOptionsQuery(
     { academicYearId: selectedYear ? Number(selectedYear) : undefined, studentId: pickedStudentId ?? undefined },

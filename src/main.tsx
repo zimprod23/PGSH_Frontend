@@ -11,6 +11,7 @@ import { DatesProvider } from "@mantine/dates";
 import "dayjs/locale/fr";
 import { Provider } from "react-redux";
 
+import type Keycloak from "keycloak-js";
 import keycloak from "./services/keycloak";
 import { store } from "./app/store";
 import App from "./App";
@@ -25,7 +26,14 @@ const initOptions = {
   // silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
 };
 
-const onKeycloakTokens = (tokens: any) => {
+/**
+ * What `ReactKeycloakProvider` hands its `onTokens` callback. Expressed from `keycloak-js` — a
+ * direct dependency — rather than imported from @react-keycloak/core, which is only transitive:
+ * this is the same shape its `AuthClientTokens` declares.
+ */
+type KeycloakTokens = Pick<Keycloak, 'idToken' | 'refreshToken' | 'token'>;
+
+const onKeycloakTokens = (tokens: KeycloakTokens) => {
   // We can log this during dev, but in prod it stays silent
   if (CONFIG.isDevelopment) {
     console.debug("Keycloak: Token Refreshed", tokens);

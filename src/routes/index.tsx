@@ -1,6 +1,5 @@
 import { createBrowserRouter, Outlet } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
-import { Loader, Center } from '@mantine/core';
 import { PATHS } from './paths';
 import { Roles } from '../common/constants/roles';
 
@@ -9,6 +8,7 @@ import { AdminLayout }      from '../layouts/AdminLayout';
 import { EmployeeLayout }   from '../layouts/EmployeeLayout';
 import { SimpleLayout }     from '../layouts/SimpleLayout';
 import { AuthGuard }        from '../common/components/AuthGuard';
+import { PageLoader }       from '../common/components/PageLoader';
 
 import { ErrorPage }        from '../features/errors/ErrorPage';
 import { LandingPage }      from '../features/public/pages/LandingPage';
@@ -52,12 +52,6 @@ const EmployeeDashboardPage  = lazy(() => import('../features/employee/pages/Emp
 const EmployeeProfilePage    = lazy(() => import('../features/employee/pages/EmployeeProfilePage'));
 const EmployeeServicesPage   = lazy(() => import('../features/employee/pages/EmployeeServicesPage'));
 
-// ─── Suspense fallback ────────────────────────────────────────────────────────
-const PageLoader = () => (
-  <Center h="100vh">
-    <Loader color="navy" size="md" />
-  </Center>
-);
 
 const wrap = (el: React.ReactNode) => <Suspense fallback={<PageLoader />}>{el}</Suspense>;
 

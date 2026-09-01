@@ -407,8 +407,8 @@ Standard pattern (already used in `EmployeesPage`, `GroupsPage`, `Infrastructure
 ```ts
 const [search, setSearch] = useState('');
 const [debouncedSearch] = useDebouncedValue(search, 350);      // @mantine/hooks, 300–350ms
-// reset pagination when the term changes
-useEffect(() => setPage(1), [debouncedSearch]);
+// Page returns to 1 when the term or a filter changes — see usePagedFilters, NOT a useEffect.
+const [page, setPage] = usePagedFilters(debouncedSearch, someFilter);
 const { data, isFetching } = useGetXxxQuery(
   { searchTerm: debouncedSearch || undefined, pageNumber: page },
   { skip: debouncedSearch.length < 2 },                        // don't query on 0–1 chars
@@ -416,6 +416,15 @@ const { data, isFetching } = useGetXxxQuery(
 ```
 
 Rules:
+⚠ **Never reset the page in a `useEffect`.** This guide used to prescribe
+`useEffect(() => setPage(1), [debouncedSearch])`, and five screens carried it. An effect runs *after*
+the render that changed the filter, so that render commits with the **old** page still in the query
+arguments — RTK fires a request for page 3 of the new filter which is immediately superseded.
+`usePagedFilters` (`common/hooks/usePagedFilters.ts`) adjusts the page *during* render, which React
+documents for exactly this case and which `react-hooks/set-state-in-effect` is right to demand.
+A list whose search and filters belong in the URL should use `useListParams` instead — it does this
+and makes the view shareable.
+
 - Bind the **input** to the raw `search` state (so typing stays instant); feed only the **debounced** value
   to the query.
 - `skip` the query until the term is meaningful (`length < 2`) to avoid a full-table fetch on the first

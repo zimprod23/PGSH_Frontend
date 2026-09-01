@@ -61,7 +61,7 @@ import {
 import type { SlotCellResponse, StageSlotResponse, StageScheduleSummary } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 
 /**
  * Cohortes per page. Ten columns of ~8 Mantine components each is ~2 000 nodes at this size — enough

@@ -48,7 +48,7 @@ import {
   type ReinscriptionReport,
 } from '../types/yearClosure.types';
 import { InscriptionSection } from '../components/InscriptionSection';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { problemMessage } from '../../../common/utils/problemMessage';
 

@@ -28,7 +28,7 @@ import {
 } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import { useGetYearTimelineQuery } from '../api/adminApi';
-import { useAcademicYear } from '../contexts/AcademicYearContext';
+import { useAcademicYear } from '../contexts/useAcademicYear';
 import type { TimelineStage, TimelineLevel, TimelinePartition } from '../types/admin.types';
 
 // ─── Date axis helpers ──────────────────────────────────────────────────────
