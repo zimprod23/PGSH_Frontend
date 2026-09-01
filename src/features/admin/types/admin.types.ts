@@ -1650,3 +1650,89 @@ export interface UpdateHolidayResult {
   /** Slots over the span it left *or* the span it arrived at, counted once. 0 when `datesMoved` is false. */
   slotsSpanning: number;
 }
+
+/**
+ * What re-opening a stage for one registration would mean.
+ *
+ * ⚠ `proposedWindow` is laid from `governingText.durationInDays` — the requirement set of the text
+ * governing **this registration** — and is null when no text states one. It is never taken from
+ * `catalogueDurationInDays`: every student who reaches this dialog is on an older text by
+ * construction, so the catalogue is wrong for precisely this population. Both figures travel so the
+ * screen can show the disagreement instead of picking a winner.
+ */
+export interface RevalidationContextResponse {
+  registrationId: string;
+  stageId: number;
+  stageName: string;
+  stageLevelId: number;
+  stageLevelLabel: string | null;
+  /** Decided by the same rules the command applies, so the dialog cannot offer a refused act. */
+  canOpen: boolean;
+  refusalCode: string | null;
+  refusalMessage: string | null;
+  governingText: RevalidationText | null;
+  catalogueDurationInDays: number;
+  catalogueCoefficient: number;
+  lastFailure: RevalidationPriorAttempt | null;
+  proposedWindow: RevalidationWindow | null;
+  cohorts: RevalidationCohortOption[];
+}
+
+export interface RevalidationText {
+  cnpnVersionId: number;
+  code: string;
+  label: string;
+  source: string | null;
+  /** True when the stamp was read off the registration rather than the student's current one. */
+  fromRegistration: boolean;
+  /** False when the text records no requirement for this stage — ordinary, and not the same as zero. */
+  statesThisStage: boolean;
+  durationInDays: number | null;
+  coefficient: number | null;
+}
+
+export interface RevalidationPriorAttempt {
+  registrationId: string;
+  academicYearId: number;
+  academicYearLabel: string;
+  serviceId: number | null;
+  serviceName: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  /** The only figure here that is neither a catalogue value nor a text value. */
+  workingDaysServed: number | null;
+}
+
+export interface RevalidationWindow {
+  start: string;
+  end: string;
+  workingDays: number;
+  calendarDays: number;
+  hasProvisionalDates: boolean;
+  holidaysHit: string[];
+}
+
+export interface RevalidationCohortOption {
+  cohortId: number;
+  academicGroupId: number;
+  groupLabel: string | null;
+  groupNumber: number;
+  rotationGroup: string | null;
+}
+
+export interface RevalidationContextParams {
+  registrationId: string;
+  stageId: number;
+  from?: string;
+}
+
+export interface RevalidateStageRequest {
+  registrationId: string;
+  stageId: number;
+  cohortId?: number;
+  serviceId?: number;
+  startDate?: string;
+  endDate?: string;
+  reason?: string;
+}
+

@@ -43,11 +43,13 @@ import {
   IconPlus,
   IconPencil,
   IconArrowBackUp,
+  IconRefresh,
   IconUsersGroup,
 } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useGetStudentByIdQuery, useGetStudentRegistrationsQuery } from '../../../student/api/studentApi';
+import { RevalidateStageModal } from '../../components/RevalidateStageModal';
 import {
   useCreateRegistrationMutation,
   useGetAcademicYearsQuery,
@@ -94,6 +96,7 @@ function RegistrationCard({
   const [recordOutcome, { isLoading: recording }] = useRecordRegistrationOutcomeMutation();
   const [reopenYear,    { isLoading: reopening }] = useReopenRegistrationYearMutation();
   const [joinOpen, setJoinOpen] = useState(false);
+  const [revalOpen, setRevalOpen] = useState(false);
 
   const isLoading = recording || reopening;
   const declared = reg.outcomeSource !== null;
@@ -227,19 +230,31 @@ function RegistrationCard({
             )}
           </Group>
 
-          {reg.academicGroupId === null ? (
+          <Group gap="xs">
+            {reg.academicGroupId === null ? (
+              <Button
+                size="compact-xs" variant="light" color="navy" radius="md"
+                leftSection={<IconUsersGroup size={13} stroke={1.5} />}
+                onClick={() => setJoinOpen(true)}
+              >
+                Affecter à un groupe
+              </Button>
+            ) : (
+              <Badge size="xs" variant="light" color="navy" radius="sm">
+                {reg.academicGroupLabel ?? `Groupe ${reg.academicGroupId}`}
+              </Badge>
+            )}
+
+            {/* The retake always hangs off the registration the student holds now, never off the
+                year he failed in — so the control belongs on this card and nowhere else. */}
             <Button
-              size="compact-xs" variant="light" color="navy" radius="md"
-              leftSection={<IconUsersGroup size={13} stroke={1.5} />}
-              onClick={() => setJoinOpen(true)}
+              size="compact-xs" variant="subtle" color="gray" radius="md"
+              leftSection={<IconRefresh size={13} stroke={1.5} />}
+              onClick={() => setRevalOpen(true)}
             >
-              Affecter à un groupe
+              Revalider un stage
             </Button>
-          ) : (
-            <Badge size="xs" variant="light" color="navy" radius="sm">
-              {reg.academicGroupLabel ?? `Groupe ${reg.academicGroupId}`}
-            </Badge>
-          )}
+          </Group>
         </Stack>
       </Group>
 
@@ -248,6 +263,13 @@ function RegistrationCard({
           Motif : {reg.failureDescription}
         </Text>
       )}
+
+      <RevalidateStageModal
+        opened={revalOpen}
+        onClose={() => setRevalOpen(false)}
+        registrationId={reg.id}
+        levelLabel={reg.levelLabel}
+      />
 
       <JoinGroupModal
         opened={joinOpen}

@@ -36,6 +36,9 @@ import type {
   AcademicGroupResponse,
   GroupDetailResponse,
   TransferStudentRequest,
+  RevalidationContextResponse,
+  RevalidationContextParams,
+  RevalidateStageRequest,
   DelocalizeStudentRequest,
   AdminLevelResponse,
   CreateAcademicYearRequest,
@@ -994,6 +997,37 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    /**
+     * What re-opening a stage would mean, before anything is written.
+     *
+     * ⚠ The duration it proposes comes from the text governing **this registration**, never from the
+     * catalogue. MED3 Chirurgie reads 30 jours ouvrables in the catalogue since it was aligned on
+     * arrêté 1650.25, while the students still owing it are governed by 2174.18, which states 66 —
+     * and a revalidation is by construction a student on an older text, so the catalogue is wrong
+     * for exactly this population.
+     *
+     * `canOpen` is decided by the same rules the command applies, so the dialog cannot offer an act
+     * that would then be refused.
+     */
+    getRevalidationContext: builder.query<RevalidationContextResponse, RevalidationContextParams>({
+      query: ({ registrationId, stageId, from }) => ({
+        url: `/registrations/${registrationId}/revalidation-context`,
+        params: from ? { stageId, from } : { stageId },
+      }),
+      providesTags: (_r, _e, { registrationId }) => [
+        { type: 'Registration' as const, id: `reval-${registrationId}` },
+      ],
+    }),
+
+    revalidateStage: builder.mutation<string, RevalidateStageRequest>({
+      query: (body) => ({ url: '/stages/revalidate', method: 'POST', body }),
+      invalidatesTags: (_r, _e, { registrationId }) => [
+        { type: 'Registration' as const, id: registrationId },
+        { type: 'Registration' as const, id: `reval-${registrationId}` },
+        { type: 'Assignment' as const, id: 'LIST' },
+      ],
+    }),
+
     transferStudent: builder.mutation<void, TransferStudentRequest>({
       query: (body) => ({ url: '/groups/transfer-student', method: 'POST', body }),
       invalidatesTags: (_r, _e, { registrationId }) => [
@@ -1525,6 +1559,8 @@ function fileBody(file: File) {
 }
 
 export const {
+  useGetRevalidationContextQuery,
+  useRevalidateStageMutation,
   useLazyGetInscriptionTemplateQuery,
   usePreviewInscriptionMutation,
   useApplyInscriptionMutation,

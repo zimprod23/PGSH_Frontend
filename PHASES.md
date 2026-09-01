@@ -519,3 +519,39 @@ texte dit autre chose.
 `Stage.LevelId` devienne indicatif, puisqu'un stage rattaché à deux niveaux n'a plus une ligne de
 catalogue unique pour en porter un. Backend `PHASES.md` §15.1.
 
+## La revalidation avait un acte et aucune porte — session 36
+
+`RevalidateStageModal`, ouvert par « Revalider un stage » sur **chaque carte d'inscription** de la
+page étudiant (admin).
+
+`POST stages/revalidate` existait depuis le début, gardé et testé, et **aucun composant de cette
+application ne l'appelait** : il n'était atteignable que par Scalar, par quelqu'un détenant un id
+d'inscription, un id de stage et un id de cohorte. C'est cette porte.
+
+- **Sur chaque carte, et c'est voulu** : le rattrapage se raccroche toujours à l'inscription que
+  l'étudiant détient *aujourd'hui*, jamais à l'année de l'échec.
+- ⚠ **La fenêtre proposée vient du texte qui le régit, jamais du catalogue.** MED3 Chirurgie annonce
+  30 j.o. au catalogue depuis l'alignement sur 1650.25 ; les étudiants qui la doivent encore sont
+  régis par 2174.18, qui en dit **66** — et la seule fenêtre de ce type au dossier a duré 65 j.o. Une
+  revalidation est par construction un étudiant sur un texte plus ancien : le catalogue est faux pour
+  exactement la population qui atteint cet écran. Les deux chiffres sont affichés côte à côte quand
+  ils divergent — le but est de rendre le désaccord visible, pas de trancher en silence.
+- **Rien n'est déduit quand le texte ne dit rien** : aucune fenêtre proposée, et la boîte le dit.
+  Une valeur inventée depuis le catalogue serait indiscernable d'une valeur saisie.
+- **`canOpen` vient du serveur**, décidé par les règles mêmes que la commande applique
+  (`RevalidationPlanner`, partagé). Une boîte qui propose un acte que la commande refusera ensuite
+  est pire que pas de boîte.
+- ⚠ **Pas de `notify.error` dans le `catch`** (CLAUDE.md §1e) : `errorMiddleware` toaste déjà tout
+  refus dans les mots du serveur. Le `catch` est du contrôle de flux — garder la boîte ouverte sur ce
+  qui a été saisi — pas un second message.
+- ⚠ **Les dates sont *dérivées* de la proposition, avec un override**, pas synchronisées par un
+  `useEffect`. Synchronisées, elles gardaient la fenêtre du stage précédent pendant un rendu après un
+  changement de stage — et la fenêtre est tout l'objet de cette boîte. (`react-hooks/set-state-in-effect`
+  le refusait aussi, à juste titre.)
+- **Garde pré-vol** : le placement est tout-ou-rien côté serveur, donc une fenêtre à moitié remplie
+  est désactivée avec sa raison plutôt que de dépenser l'aller-retour.
+
+⚠ **Nécessite un redémarrage de l'API** : l'écran lit `GET registrations/{id}/revalidation-context`,
+ajouté en même temps. Un processus antérieur répond 404 — à distinguer d'un 401, qui dit seulement
+que l'appel n'était pas authentifié.
+
