@@ -42,15 +42,18 @@ import {
   DELIBERATION_ROW_OK,
   DELIBERATION_STATUS_LABEL,
   REINSCRIPTION_ACTION_LABEL,
+  REINSCRIPTION_NEEDS_ATTENTION,
   type DeliberationReport,
   type DeliberationTemplateMode,
   type ReinscriptionReport,
 } from '../types/yearClosure.types';
+import { InscriptionSection } from '../components/InscriptionSection';
 import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { useNotify } from '../../../common/hooks/useNotify';
+import { problemMessage } from '../../../common/utils/problemMessage';
 
 /**
- * Closing an academic year, in the two acts it really has.
+ * The academic year, in the three acts it really has.
  *
  * **1 · Déliberation (juillet).** PGSH covers stages — no exam, no TP, no jury — so it cannot compute
  * who cleared the year; the faculty states it. The canvas is a list of *exceptions*: only the students
@@ -63,10 +66,16 @@ import { useNotify } from '../../../common/hooks/useNotify';
  * `AcademicYear` row does not exist in July. It is also idempotent, so it is re-run after the odd
  * verdicts are corrected — while the déliberation is all-or-nothing, its file not being stored.
  *
+ * **3 · Inscription (septembre).** The two acts above both *start from a registration the student
+ * already holds* — which is exactly why neither can see the September intake, a transfer arriving from
+ * another faculty, a returner, or a réorientation. They hold no registration to be read. This is the
+ * act for them, and it is the only one in PGSH that creates **people**.
+ *
  * ⚠ The whole risk of an exceptions file is the student nobody named, so the apply will not run until
  * the number admitted by silence has been confirmed — and it is sent back to the server, which refuses
  * if it has since changed. A late registration between the simulation and the apply is exactly the case
- * a checkbox would wave through.
+ * a checkbox would wave through. The inscription confirms a number for the same reason, on a harder
+ * stake: a student row is an identity, and nothing puts a wrongly-created promotion back.
  */
 export default function YearClosurePage() {
   const notify = useNotify();
@@ -130,7 +139,7 @@ export default function YearClosurePage() {
       link.click();
       URL.revokeObjectURL(url);
     } catch (err: unknown) {
-      notify.error(detailOf(err) ?? 'Impossible de générer le canevas.');
+      notify.error(problemMessage(err) ?? 'Impossible de générer le canevas.');
     }
   };
 
@@ -141,7 +150,7 @@ export default function YearClosurePage() {
     try {
       setReport(await preview({ ...scope, file: picked }).unwrap());
     } catch (err: unknown) {
-      notify.error(detailOf(err) ?? 'Fichier illisible.');
+      notify.error(problemMessage(err) ?? 'Fichier illisible.');
     }
   };
 
@@ -160,7 +169,7 @@ export default function YearClosurePage() {
         `${result.willRecord + result.willReplace + result.defaultedCount} décision(s) enregistrée(s).`,
       );
     } catch (err: unknown) {
-      notify.error(detailOf(err) ?? 'La clôture a été refusée.');
+      notify.error(problemMessage(err) ?? 'La clôture a été refusée.');
     }
   };
 
@@ -175,7 +184,7 @@ export default function YearClosurePage() {
       setRolloverApplied(false);
       setRollover(await previewRollover(rolloverRequest).unwrap());
     } catch (err: unknown) {
-      notify.error(detailOf(err) ?? 'Simulation impossible.');
+      notify.error(problemMessage(err) ?? 'Simulation impossible.');
     }
   };
 
@@ -186,7 +195,7 @@ export default function YearClosurePage() {
       setRolloverApplied(true);
       notify.success(`${result.willRegister} inscription(s) créée(s) pour ${result.toYearLabel}.`);
     } catch (err: unknown) {
-      notify.error(detailOf(err) ?? 'La réinscription a été refusée.');
+      notify.error(problemMessage(err) ?? 'La réinscription a été refusée.');
     }
   };
 
@@ -199,10 +208,10 @@ export default function YearClosurePage() {
     <Container size="xl" py="md">
       <Stack gap="lg">
         <Stack gap={4}>
-          <Title order={2}>Clôture de l'année</Title>
+          <Title order={2}>L'année universitaire</Title>
           <Text size="sm" c="dimmed">
-            Enregistrer les décisions du jury pour {closingYear?.label ?? '…'}, puis créer les
-            inscriptions de l'année suivante.
+            Enregistrer les décisions du jury pour {closingYear?.label ?? '…'}, créer les inscriptions
+            de l'année suivante, et inscrire ceux que la réinscription ne reporte pas.
           </Text>
         </Stack>
 
@@ -412,6 +421,13 @@ export default function YearClosurePage() {
             {rollover && <ReinscriptionSummary report={rollover} applied={rolloverApplied} />}
           </Stack>
         </Card>
+
+        {/* ── 3 · Inscription ────────────────────────────────────────────── */}
+        <InscriptionSection
+          levels={levels}
+          academicYearId={currentYearId}
+          yearLabel={closingYear?.label}
+        />
       </Stack>
     </Container>
   );
@@ -562,9 +578,11 @@ function applyReason(report: DeliberationReport, confirmed: boolean) {
 // ─── Réinscription report ─────────────────────────────────────────────────────
 
 function ReinscriptionSummary({ report, applied }: { report: ReinscriptionReport; applied: boolean }) {
-  const attention = report.rows.filter(
-    (r) => r.action === 'NoOutcome' || r.action === 'NextLevelMissing',
-  );
+  // ⚠ Read from the shared list, never re-written here. Held as a literal pair, this filter silently
+  // dropped every `FinalYearBlocked` row when the final-year gate was added: the « à traiter » badge
+  // counted them and the table below showed nothing. Measured on the live base, 60 of the 686 6ᵉ année
+  // Médecine are refused entry to the 7ᵉ — the ordinary case, invisible.
+  const attention = report.rows.filter((r) => REINSCRIPTION_NEEDS_ATTENTION.includes(r.action));
 
   return (
     <Stack gap="sm">
@@ -580,6 +598,17 @@ function ReinscriptionSummary({ report, applied }: { report: ReinscriptionReport
         {report.needsAttention > 0 && (
           <Badge color="orange" variant="light" radius="sm">
             {report.needsAttention} à traiter
+          </Badge>
+        )}
+        {report.finalYearBlocked > 0 && (
+          <Badge color="red" variant="light" radius="sm">
+            {report.finalYearBlocked} bloqué(s) en dernière année
+          </Badge>
+        )}
+        {/* An override nobody sees is an override nobody reviews. */}
+        {report.finalYearWaived > 0 && (
+          <Badge color="grape" variant="light" radius="sm">
+            {report.finalYearWaived} par dérogation
           </Badge>
         )}
       </Group>
@@ -598,7 +627,13 @@ function ReinscriptionSummary({ report, applied }: { report: ReinscriptionReport
         <>
           <Alert color="orange" variant="light" radius="md" icon={<IconInfoCircle size={16} />}>
             Ces étudiants ne sont pas bloquants — la réinscription est <b>idempotente</b> : corrigez
-            leur décision, puis relancez. Rien ne sera créé deux fois.
+            leur situation, puis relancez. Rien ne sera créé deux fois.
+            {report.finalYearBlocked > 0 && (
+              <>
+                {' '}Pour un <b>stage antérieur non validé</b>, la dernière année ne peut pas commencer :
+                faites revalider le stage, ou accordez une dérogation nominative.
+              </>
+            )}
           </Alert>
           <ScrollArea.Autosize mah={260}>
             <Table striped highlightOnHover fz="xs">
@@ -640,5 +675,3 @@ function ReinscriptionSummary({ report, applied }: { report: ReinscriptionReport
     </Stack>
   );
 }
-
-const detailOf = (err: unknown) => (err as { data?: { detail?: string } })?.data?.detail;

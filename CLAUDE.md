@@ -216,6 +216,52 @@ Rules:
 - **Anything year-scoped passes `academicYearId` to the server.** `AttendancePage` fetched every
   year's cohorts and filtered client-side; `StageDetailPage` did the same. Both now scope the query.
 
+### 1b-bis ⚠ A list of containers must show how full each one is
+
+`GroupsPage` listed 90 rosters for the 4ᵉ année Médecine 2026-2027 — N°, Libellé, Niveau, Rotation,
+Année — and **every one of them was empty**. Nothing on the screen said so; the only way to find out
+was to open them one at a time. So « la 4ᵉ année a des groupes » looked true, and the roll export
+showing a blank `Groupe` column was reported as a broken export instead of as an unpopulated
+promotion. **The server had been sending `studentCount` all along**, with a comment saying it was
+there « so the list can show it without loading any student ». The list simply never rendered it.
+
+- **If a row stands for a container — a roster, a cohorte, a service, a partition — the list shows
+  its population.** A container list without a count cannot distinguish « découpé et rempli » from
+  « découpé et vide », and those call for opposite next acts.
+- **Take the count from the server's aggregate**, never by fetching the members (`CLAUDE.md` §1b) and
+  never from a page of them.
+- **Zero is a state, not an error.** An empty roster between the cut and the répartition is ordinary:
+  colour it as a warning (orange), not a failure — but never leave it looking like the others.
+
+### 1b-ter ⚠ A grid is a list too — and paging one moves every number on the screen
+
+`ScheduleGridModal` rendered **every** cohorte of a stage: 105 rows × 10 columns on the current year's
+biggest promotion, each cell a `Box` + `Group` + `Stack` + two `Text` + `ActionIcon` + `Badge`. It took
+seconds to open **and seconds to close**, and closing issues no request — which is what proved the cost
+was the mount, not the query (the SQL behind it measures ~40 ms). Somebody had already replaced the
+cells' Mantine `Tooltip` with a native `title` for exactly this reason; the remedy was right and the
+row count had since outgrown it.
+
+- **A matrix is not exempt from §1b.** If the number of rows grows with the promotion, it pages.
+  `GET stages/{id}/schedule` now takes `pageNumber` / `pageSize` / `rotationGroup`.
+- ⚠ **Filter on the server, not on the rows you hold.** Client-side partition filtering answers
+  « aucune cohorte » for anyone sitting on page 3, and nothing on the screen distinguishes that from a
+  promotion nobody has cut. Reset to page 1 whenever the filter changes, or the first click after
+  paging lands past the end of the new selection.
+- ⚠ **Every number beside a paged list must come from the server, because the buttons act on the
+  selection.** « Publier tout (N) » fires one stage-wide call: an N counted from the visible rows
+  promises 25 and publishes 90. Same for the saturation report, and for anything derived —
+  « nouveaux créneaux uniquement » read off the page calls a column empty because *this page's*
+  cohortes are not in it, and then rewrites a rotation already arranged.
+- ⚠ **Some questions are about the rows the filter removed.** « La partition B occupe-t-elle déjà ces
+  colonnes ? » cannot be answered from rows filtered to A. That is `summary.partitionUsage`, read
+  unfiltered by the server.
+- **Say what the page is not showing** — « 1–25 sur 105 cohorte(s) — partition A ». A bounded list has
+  a failure mode the unbounded one did not: its last page looks exactly like an empty selection.
+- **Kill the modal's exit transition on a heavy tree** (`transitionProps={{ duration: 0 }}`). It keeps
+  the whole grid mounted while it plays, so « Fermer » stays slow even after the rows are paged.
+
+
 ### 1c. The navbar year is the only year, and it must be in the query key
 
 There is one academic-year selector, in `AdminLayout`, exposed by `useAcademicYear()`. Two rules:
@@ -233,6 +279,12 @@ There is one academic-year selector, in `AdminLayout`, exposed by `useAcademicYe
   `publish` / `auto-arrange` / `assign-all` / the évaluation import) sends it. The server resolves an
   omitted year to the *current* one, so a page left on 2024-2025 that forgets the field does not
   widen — it silently acts on the wrong promotion, which is worse.
+
+- **A filter *inside* the year has to be sent to the server, not applied to the page.** The students
+  list filters by promotion (`levelId`), and the pair (level, year) must be resolved on one
+  registration row — which only the server can do. Measured on the live base 2026-08-29: « 5ᵉ année
+  Médecine, 2026-2027 » is **833** students, while « inscrit en 2026-2027 » ∧ « a été en 5ᵉ année »
+  is **2 127**. Filtering the fetched page client-side is worse still: it narrows 15 rows, not 5 930.
 
 ### 1d ⚠ Never dispatch before `next(action)` in a middleware
 
@@ -263,6 +315,74 @@ Rules:
   if they disagree, the bug is in the store pipeline, not in the query.
 - Suspect this class first when one screen is stale and others are not: it is a race about ordering,
   so it looks arbitrary and per-component when it is neither.
+
+### 1e ⚠ Never toast a rejected request from a component — `errorMiddleware` already did
+
+`errorMiddleware` shows **every** rejected request, queries included: connexion, 401, 403, 400/422,
+409, and a catch-all for the rest, each in the server's own words. A component that also calls
+`notify.error` prints the same sentence **twice** — one orange « Données invalides », one red
+« Erreur », stacked. It is the easiest defect in this codebase to reintroduce: reproduced on the new
+export button 2026-08-31, and the same one session 31b removed from four teardown handlers.
+
+- **Default: do not catch to notify.** `await trigger(...).unwrap()` inside a `try` is for the
+  *control flow* (stop the spinner, keep the modal open), not for the message.
+- **The one gap is a 404 on a query**, which the middleware deliberately swallows — « ceci n'existe
+  pas encore » is a state a screen renders itself. A control with **no empty state to render** — a
+  download button — must speak there, and only there:
+  `if (!isReportedByErrorMiddleware(err)) notify.error(problemMessage(err) ?? '…')`.
+- **Read the message with `problemMessage`** (`common/utils/problemMessage.ts`), never
+  `err.data.detail` by hand. A *business* refusal puts its sentence in `detail`; a
+  **validation-pipeline** failure puts the generic « One or more validation errors occurred » there
+  and the real messages in `errors[]`. Four files had each rolled their own `detailOf` reading only
+  `detail`, so they showed the useless half of every validation refusal.
+
+### 1f. A download comes from the server named, and goes out through one helper
+
+`common/utils/downloadBlob.ts` + `common/components/ExportButton.tsx`.
+
+- ⚠ **The file name comes from `Content-Disposition`, never rebuilt on the client.** The server names
+  the file after the scope it actually *resolved* — an omitted year resolves to the current one — and
+  a name rebuilt here is a second opinion that drifts the first time a filter is added on one side
+  only. `fileNameFromDisposition` prefers the RFC 5987 `filename*` form, or accented names mojibake.
+- ⚠ **`responseHandler` must branch on `response.ok`.** RTK runs it for failures too, so
+  `responseHandler: r => r.blob()` turns a problem-details refusal into an opaque Blob and every
+  message is lost. Return `response.json()` on a failure and `{ blob, fileName }` on success. The
+  older template endpoints (déliberation, inscription, évaluations) still have the unguarded shape —
+  fix it when they are next touched.
+- **The anchor is appended to the document before clicking and the object URL is revoked on a later
+  tick.** A detached anchor does not reliably honour `download`, and revoking synchronously races the
+  browser's read of the blob.
+- **An export button carries the page's own scope** — the same filters as the list above it, minus
+  pagination. A file covering a different population from the table it sits under is worse than no
+  file. And a disabled one says *why* through a tooltip: an unresolved scope is a normal state.
+
+### 1g ⚠ Never loop a mutation over a collection — ask for the bulk command
+
+`StageDetailPage.handlePublishAll` fired one publish per cohorte, sequentially. On an over-capacity
+plan that produced **one red toast per cohorte** — dozens, arriving one at a time as the loop ground
+on — because `errorMiddleware` toasts every rejected mutation (§1e), and each one named a different
+service while none named the scale. It also re-did the server's whole occupancy computation N times.
+
+- **If the server has a bulk endpoint, use it.** `publishStageSchedule` existed and the grid modal was
+  already using it; only this page looped.
+- **If it does not, ask for one** rather than looping — a loop is a client-side transaction with no
+  rollback, and it is what turns one refusal into a storm.
+- ⚠ **A loop that is deliberate must not toast per iteration.** « Dépublier toutes » still loops
+  on purpose (each refusal names what *that* cohorte would lose) and it has the same symptom; it is
+  `HANDOFF.md` item 19, not a pattern to copy.
+
+### 1h. A write that takes minutes says so, and says what leaving costs
+
+« Générer le plan » writes cohortes, affectations and cells for a whole promotion. A `loading` spinner
+on a button reads as a frozen screen after ten seconds, and a user who reloads out of doubt loses the
+run for nothing.
+
+- **A panel, not a spinner:** what is being written, roughly how long, and « ne fermez pas l'onglet ».
+- **`beforeunload` while the request is in flight.** It is the only thing that catches a closed tab.
+- ⚠ **Only promise safety the server actually provides.** « L'opération est écrite d'un seul bloc »
+  is true because `GenerateMacroPlanCommandHandler` runs inside one transaction
+  (`ExecuteAtomicallyAsync`). Without that, interrupting leaves a plan built for the first three
+  stages and nothing for the rest — and the panel would be lying.
 
 ### 2. Debounce every search / free-text-filtered query input
 

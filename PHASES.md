@@ -227,6 +227,137 @@ Separate layouts and pages per admin role. All behind `AuthGuard`.
 
 ---
 
+## ✅ Phase 3.5 — L'inscription : le troisième acte de l'année
+
+**Status: Complete (session 30, 2026-08-30).** `tsc` clean, `npm run build` clean, no new lint error.
+
+`YearClosurePage.tsx` already carries the year's other two acts — déliberation and réinscription. This
+is the third, and the three belong on one screen: **a tab, not a page.**
+
+Why it exists: both existing acts start from a registration the student already holds, so neither can
+see the September intake, a transfer arriving from another faculty, a returner, or a réorientation.
+They hold no registration to be read. See the backend `CLAUDE.md`, « The third act — inscription ».
+
+### Routes
+
+| | |
+|---|---|
+| `GET /inscription/template?levelId=&academicYearId=` | downloads the .xlsx canvas (a blob, like the déliberation template) |
+| `POST /inscription/preview?levelId=&academicYearId=` | multipart `file`; returns `InscriptionReport` |
+| `POST /inscription?levelId=&academicYearId=&confirmedStudentCount=` | multipart `file`; same report |
+| `POST /inscription/student` | JSON body, one person, no preview; returns one `InscriptionRowReport` |
+
+`levelId` is **required** on all four — nobody on the sheet holds a registration it could be read from.
+
+### What the screen must get right
+
+- ⚠ **This is the only act in PGSH that creates *people*, and there is no undo.** The preview is
+  mandatory, and `confirmedStudentCount` must be the number the preview returned in
+  `willCreateStudents`, echoed back. Send it wrong or omit it and the apply is refused with
+  **409 `Inscription.CreationsNotConfirmed`** — which is the guard working, not a bug. Say the number
+  out loud in the confirmation: « 712 étudiants seront créés ».
+- ⚠ **Show `generatedEmails` prominently.** An address PGSH manufactured is a *login*
+  (`SyncUserMiddleware` matches a Keycloak subject on e-mail). Each row carries its own
+  `generatedEmail`; the count belongs in the summary, not buried in a table.
+- **`alreadyRegistered` is a skip, not an error** — the file is meant to be re-sent with the late
+  arrivals appended. Do not colour it red.
+- **Order rows refusals-first** (the server already does) and respect `rowsTruncated`: the counts stay
+  exact, the row list is capped at 1 000.
+- **Above the first year the provenance is required.** The single-student form should reveal the
+  équivalence fields when the chosen level's `year > 1`, and all three of establishment / last year /
+  reference go together — two of three is refused.
+- **The single-row refusal names the field**, with the code `Inscription.<Action>` in `title` and the
+  sentence in `detail` — surface `detail`, not a generic message. (`StagesPage`'s bare `catch` losing
+  the server's sentence is the mistake to avoid; see `GroupsPage` for the pattern.)
+
+### What shipped
+
+- `types/inscription.types.ts` — the action union, its labels, and the report/request shapes.
+- `api/adminApi.ts` — `getInscriptionTemplate` (blob), `previewInscription`, `applyInscription`,
+  `inscribeStudent`. The two writing ones invalidate `Student:LIST`, `Registration:LIST` and
+  `Level:GROUPS`: newcomers land in « Non réparti », so the roster lists are stale too.
+- `components/InscriptionSection.tsx` — the third card on `YearClosurePage`, keyed on a **required**
+  promotion select, with the amber warning above the first year and the generated-address panel.
+- `components/InscribeStudentModal.tsx` — the one-student form, its pre-flight blocker mirroring the
+  server's rules, and the refusal shown *inline* (the middleware already toasts; a second
+  `notify.error` is the double-toast the other panels still carry).
+
+⚠ **A found bug, fixed while here.** `ReinscriptionAction` was missing `FinalYearBlocked` — added to
+the backend with the final-year gate and never mirrored. Its badge rendered blank, and the « à
+traiter » table filtered on a literal pair (`NoOutcome`, `NextLevelMissing`) so those rows **never
+appeared at all**: the count said N and the list showed nothing. Measured on the live base, 60 of the
+686 6ᵉ année Médecine are refused entry to the 7ᵉ — the ordinary case, invisible. The filter now reads
+`REINSCRIPTION_NEEDS_ATTENTION`, kept beside the union so a new action cannot be added without
+deciding whether it belongs there. `finalYearBlocked` and `finalYearWaived` are surfaced as badges.
+
+### Verified in the running app, 2026-08-30
+
+`SMOKE-TEST.md` §28, driven through this screen against the live base. Every conditional behaved:
+the promotion select gates both buttons and says why; choosing a 3ᵉ année raises the amber warning and
+clears the previous report; a file without its provenance comes back `0 à créer` · `2 erreurs` with
+**no apply button at all**; the generated-address panel listed `nour_zaimi@` and `nour_zaimi2@` for two
+homonyms; the confirmation checkbox gated the apply, and after it the badge flipped to
+« 2 étudiant(s) créé(s) ». Re-uploading the same file gave « 2 déjà inscrit(s), ignoré(s) » in grey.
+
+The modal opens with **Inscrire** disabled and flips its divider to « Provenance — obligatoire » with
+the required markers when the chosen level is above the first year.
+
+⚠ **The `FinalYearBlocked` fix is confirmed on real data**: the réinscription's table holds 1000 rows —
+942 « Aucune décision » and **58 « Stage antérieur non validé »** — where before the 58 were counted in
+the badge and absent from the list.
+
+### Polish left over (none blocking)
+
+- The « Cas » badge truncates to `PROVENANCE REQU…`; the column needs more width or the badge needs to
+  wrap. The message column carries the meaning, so this is cosmetic.
+- The errors table shows the **Apogée** under a column headed « CNE » when the row has no CNE. Head it
+  « Identifiant », or show both.
+- On a file where every row is skipped, the apply button is **enabled** and reads « Inscrire 0
+  étudiant(s) ». Harmless — the server does nothing — but it should be disabled.
+- Changing the navbar year leaves the previous report on screen, labelled with the year it was run
+  for. Both this card and the réinscription card do it. The report carries `academicYearLabel`;
+  either display it or clear on year change.
+
+---
+
+## ✅ Phase 3.6 — Les exports Excel
+
+**Built 2026-08-31, verified against the live base the same day.**
+
+- **`ExportButton`** (`common/components/`) and **`downloadBlob` / `fileNameFromDisposition`**
+  (`common/utils/`) — one place that knows what happens between a click and a saved file.
+- **`StageRecordExportMenu`** (`features/admin/components/`) — two named items rather than a
+  checkbox, because the difference between « état des lieux » and « PV » is what the document *is*.
+- Wired into three screens, each passing **its own scope**:
+  - `StudentListPage` → « Exporter (.xlsx) », with the year, the programme, la promotion and the
+    search term already selected.
+  - `RepartitionPage` → « Dossier de stages (.xlsx) » for the promotion. ⚠ Enabled even when
+    « Imprimer / PDF » is not: a promotion can have stages served with no grid authored at all —
+    which is exactly the state of every imported year.
+  - `AssignmentsPage` → beside « Importer les notes », scoped to the stage in view. One puts the
+    verdicts in, the other takes the record out.
+- **`problemMessage`** replaced four private copies of `detailOf`, none of which read `errors[]` —
+  so every validation refusal had been showing its useless half.
+
+**Found and fixed during the smoke test:** the new button toasted every refusal **twice**
+(`errorMiddleware` + the component). Now `isReportedByErrorMiddleware` gates it — see `CLAUDE.md`
+§1e, which is the rule the rest of the app should be swept against (root `HANDOFF.md` item 4).
+
+---
+
+## ✅ Phase 3.7 — « Étudiants » sur la liste des groupes
+
+**2026-08-31.** One column, and it closes the report that produced Phase 3.6's notes.
+
+`GroupsPage` showed 90 rosters for 4MED 2026-2027 with no indication that all 90 were empty — the
+count had to be discovered by opening each one. `AcademicGroupResponse.studentCount` had always
+carried it. The column is now rendered, orange at 0 and teal above it.
+
+Verified against the live base: 2026-2027 → every row **0** (orange); 2025-2026 → 12, 15, 13, 3, 7…
+and « Non réparti » at **4 725** (teal). The contrast is the point.
+
+---
+
 ## 🔲 Phase 4 — Real-Time: Notifications & Messaging
 
 **Status: Not started — backend SignalR hub required first**
@@ -283,6 +414,18 @@ Known issues identified during design review.
 
 - **GlobalLoader fires on all RTK Query requests**: The loading middleware increments `activeRequests` for every RTK Query action including background cache refreshes triggered by `invalidatesTags`. This causes the full-page overlay to flicker on every mutation. Fix: add a `skipGlobalLoader` metadata flag to the RTK Query base and only increment the counter for requests tagged with it (navigation-level fetches), not for silent background refetches.
 
+- ✅ **The planning grid rendered every cohorte of a stage** — 105 rows × 10 columns on the
+  current year’s biggest promotion, ~1 000 cell components mounted at once. It took seconds to
+  open **and to close**, and closing issues no request, which is what proved the cost was the
+  mount rather than the query. Fixed in session 33: `GET stages/{id}/schedule` is paged
+  (`pageNumber` / `pageSize` / `rotationGroup`) and carries a `summary` so every number on the
+  screen still describes the whole selection. ⚠ The general rule is `CLAUDE.md` §1b-ter — a grid
+  is a list too, and paging one moves every count on the screen to the server.
+
+- ✅ **« Publier toutes » looped one mutation per cohorte**, so `errorMiddleware` printed one red
+  toast per cohorte on an over-capacity plan. One stage-wide call now (`CLAUDE.md` §1g).
+  ⚠ « Dépublier toutes » still loops on purpose — see `HANDOFF.md` item 19.
+
 ### Medium (unnecessary network traffic)
 
 - **`useGetLevelsQuery` fetches `pageSize: 100` unconditionally**: All level selects fetch up to 100 levels at once on every component mount. At current scale (~13 levels) this is fine. When the level catalogue grows, replace with a single `GET /levels?pageSize=200` call cached at the app level (RTK Query `keepUnusedDataFor: Infinity`) rather than per-component fetches.
@@ -336,3 +479,43 @@ Optional deepest level (Partition → rotation micro par service) reuses the exi
   macro window setup with **Mantine `DatePickerInput type="range"`** (or inline `DatePicker type="range"`):
   one visual range selection, presets ("ce mois", "4 semaines"), `minDate`/`maxDate` guards bound to the
   academic year. Smallest item here; do it first as a quick UX win.
+
+### Parcours — « Année redoublée » (2026-09-01)
+
+`ParcoursRecord`'s `YearPanel` states, above the stage list, that a failed year is redone in full and
+that the stages under it — **including the validated ones** — do not count as acquired.
+
+⚠ Without it the page is actively misleading: « Chirurgie — Validé » nested under a « Redoublant »
+badge reads as a stage the student is done with, and the server stopped counting it that day
+(`RegistrationStatus.AnnulsItsStages`, backend `NOTES.md`). The year badge alone was not enough —
+it says what happened to the *year*, not what that does to the *stages*.
+
+The API also carries the fact explicitly on the level-dossier read (`DossierAttempt.YearOutcome` and
+`AnnulledByFailedYear`), but that endpoint has no consumer in this app yet.
+
+## La page Stages nomme le texte, au lieu d'affirmer le chiffre du catalogue — session 36
+
+`StageCatalogueFigure`, dans les colonnes Durée et Coefficient de `StagesPage`.
+
+`Stage.coefficient` / `Stage.durationInDays` sont **dupliqués** par le `CurriculumStage` de chaque
+texte. Ils ne coïncidaient que tant qu'aucun texte n'avait repondéré un stage ; l'arrêté 1650.25 est
+le premier à le faire, et il est appliqué depuis le 01/09/2026. La page affichait le chiffre du
+catalogue seul — donc une valeur qu'aucun CNPN n'énonce forcément, sans rien à l'écran disant qu'un
+texte dit autre chose.
+
+- Les en-têtes disent « (catalogue) », et la cellule montre toujours cette valeur : c'est elle que le
+  formulaire d'édition réécrit. Rien n'a été déplacé.
+- ⚠ **Le marqueur ne s'allume que si un texte est en désaccord.** Muet quand ils concordent, muet
+  quand aucun texte ne mentionne le stage — « aucun texte ne le mentionne » n'est pas « un texte dit
+  0 ». Un indicateur qui s'allume quoi que disent les données est du bruit, et le bruit se fait
+  ignorer : c'est alors le vrai cas qu'on ne voit plus. Même règle que les notes d'export.
+- L'infobulle nomme chaque texte et son chiffre, et dit qu'aucun des deux n'est faux — un étudiant qui
+  revalide un crédit sous l'ancien texte reste régi par ses chiffres.
+- `StageSummaryResponse.textFigures` arrive par une **seconde requête plate** côté serveur, jamais
+  comme une collection dans la projection de ligne. Le champ peut être absent d'une réponse mise en
+  cache : la page lit `stage.textFigures ?? []`.
+
+⚠ **La moitié de fond n'est pas faite** : décider lequel des deux chiffres fait foi suppose que
+`Stage.LevelId` devienne indicatif, puisqu'un stage rattaché à deux niveaux n'a plus une ligne de
+catalogue unique pour en porter un. Backend `PHASES.md` §15.1.
+

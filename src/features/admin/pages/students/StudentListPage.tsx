@@ -18,10 +18,15 @@ import {
   rem,
 } from '@mantine/core';
 import { IconSearch, IconUsers } from '@tabler/icons-react';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useListParams } from '../../../../common/hooks/useListParams';
 import { useNavigate } from 'react-router-dom';
-import { useGetStudentsQuery } from '../../api/adminApi';
+import {
+  useGetLevelsQuery,
+  useGetStudentsQuery,
+  useLazyGetStudentsExportQuery,
+} from '../../api/adminApi';
+import { ExportButton } from '../../../../common/components/ExportButton';
 import { useAcademicYear } from '../../contexts/AcademicYearContext';
 import type { AcademicProgram, RegistrationStatus } from '../../../../common/types';
 import { PATHS } from '../../../../routes/paths';
@@ -76,19 +81,25 @@ function SkeletonRows({ count }: { count: number }) {
   );
 }
 
-type StudentFilters = { program: string | null; size: string | null };
+type StudentFilters = { program: string | null; level: string | null; size: string | null };
 /** Module-level so its identity is stable — useListParams memoises on it. */
-const STUDENT_FILTERS: StudentFilters = { program: '', size: '15' };
+const STUDENT_FILTERS: StudentFilters = { program: '', level: '', size: '15' };
 
 export default function StudentListPage() {
   const navigate = useNavigate();
 
   // In the URL so opening a student and coming back keeps the search, the programme and the page.
-  const { search, setSearch, debouncedSearch, filters, setFilter, page, setPage } =
+  const { search, setSearch, debouncedSearch, filters, setFilter, setFilters, page, setPage } =
     useListParams<StudentFilters>(STUDENT_FILTERS);
   const program = filters.program ?? '';
+  const level = filters.level ?? '';
   const pageSize = Number(filters.size) || 15;
-  const setProgram = (v: string) => setFilter('program', v);
+
+  // Changing the programme clears the promotion in the *same* patch: « Sixième Année Pharmacie »
+  // under « Médecine » selects nobody, and a filter that silently empties the list reads as a bug in
+  // the data. One call, not two — consecutive setFilter calls both start from the pre-render params
+  // and the second discards the first (see useListParams).
+  const setProgram = (v: string) => setFilters({ program: v, level: '' });
 
 
   // The navbar's globally-selected year drives the Niveau/Groupe/Statut columns: they reflect
@@ -98,9 +109,23 @@ export default function StudentListPage() {
   // Search and programme reset the page through useListParams' setters; a navbar year change does not.
   useEffect(() => { setPage(1); }, [currentYearId, setPage]);
 
+  // The whole catalogue, not `getPromotionLevels`: this is a browse filter over registrations that
+  // already exist, and a withdrawn student's « Retrait » registration still has to be reachable.
+  // Promotions-only belongs to the screens that *plan* — see the note on getPromotionLevels.
+  const { data: levels = [] } = useGetLevelsQuery((program || undefined) as AcademicProgram | undefined);
+
+  const levelOptions = useMemo(
+    () =>
+      [...levels]
+        .sort((a, b) => a.academicProgram.localeCompare(b.academicProgram) || a.year - b.year)
+        .map((l) => ({ value: String(l.id), label: l.label ?? `Année ${l.year}` })),
+    [levels],
+  );
+
   const { data, isLoading, isFetching } = useGetStudentsQuery({
     searchTerm: debouncedSearch.trim() || undefined,
     program: (program || undefined) as AcademicProgram | undefined,
+    levelId: level ? Number(level) : undefined,
     academicYearId: currentYearId ?? undefined,
     pageNumber: page,
     pageSize,
@@ -108,6 +133,18 @@ export default function StudentListPage() {
 
   const students   = data?.items ?? [];
   const totalPages = data?.totalPages ?? 1;
+
+  // ⚠ The export takes the **same** scope as the list above it, pagination excepted — a file
+  // covering a different population from the table it sits under is worse than no file at all.
+  // The year is the navbar's, explicitly: omitted, the server resolves the current one, which is
+  // not necessarily the one being looked at.
+  const [exportStudents] = useLazyGetStudentsExportQuery();
+  const exportScope = {
+    academicYearId: currentYearId ?? undefined,
+    program: (program || undefined) as AcademicProgram | undefined,
+    levelId: level ? Number(level) : undefined,
+    searchTerm: debouncedSearch.trim() || undefined,
+  };
 
   return (
     <Container fluid>
@@ -119,6 +156,13 @@ export default function StudentListPage() {
               {data ? `${data.totalCount} étudiant${data.totalCount > 1 ? 's' : ''} au total` : 'Chargement…'}
             </Text>
           </Stack>
+
+          {/* Nom · Prénom · CNE · Apogée · Groupe, plus the promotion and the statut as columns —
+              so a row still says where it came from once the file has left the app. */}
+          <ExportButton
+            fetch={() => exportStudents(exportScope).unwrap()}
+            disabledReason={currentYearId ? undefined : "Choisissez une année universitaire dans la barre du haut."}
+          />
         </Group>
 
         <Card padding="lg" radius="lg" withBorder shadow="sm">
@@ -141,16 +185,32 @@ export default function StudentListPage() {
               />
             </Group>
 
-            <ScrollArea type="never">
-              <SegmentedControl
-                value={program}
-                onChange={setProgram}
-                data={PROGRAM_FILTER}
+            <Group gap="sm" wrap="wrap" align="center">
+              <ScrollArea type="never">
+                <SegmentedControl
+                  value={program}
+                  onChange={setProgram}
+                  data={PROGRAM_FILTER}
+                  radius="md"
+                  size="sm"
+                  color="navy"
+                />
+              </ScrollArea>
+
+              {/* The promotion of the year in view, never a promotion the student was once in. */}
+              <Select
+                placeholder="Toutes les promotions"
+                value={level || null}
+                onChange={(v) => setFilter('level', v ?? '')}
+                data={levelOptions}
+                clearable
+                searchable
+                nothingFoundMessage="Aucun niveau"
                 radius="md"
                 size="sm"
-                color="navy"
+                w={rem(220)}
               />
-            </ScrollArea>
+            </Group>
 
             <ScrollArea>
               <Table

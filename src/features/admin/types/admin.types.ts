@@ -164,6 +164,23 @@ export interface CreateServiceRequest {
  */
 export type StageRotationMode = 'PerPeriod' | 'SingleService';
 
+/**
+ * What one CNPN's requirement set states of a stage, beside what the catalogue states.
+ *
+ * ⚠ The catalogue's `coefficient` / `durationInDays` are duplicated by every text's requirement
+ * set, and since arrêté 1650.25 landed they no longer agree: MED3 Chirurgie reads coefficient 3 in
+ * the catalogue and 1 in 1650.25, 30 j.o. in the catalogue and 66 in 2174.18's. Neither is wrong —
+ * a 5ᵉ année student revalidating a 3ᵉ année credit is still under the older text — so the page
+ * names where each number comes from instead of presenting the catalogue's as the answer.
+ */
+export interface StageTextFigure {
+  cnpnVersionId: number;
+  cnpnCode: string;
+  levelLabel: string;
+  coefficient: number;
+  durationInDays: number;
+}
+
 export interface StageSummaryResponse {
   id: number;
   name: string;
@@ -171,6 +188,8 @@ export interface StageSummaryResponse {
   durationInDays: number;
   levelLabel: string | null;
   rotationMode: StageRotationMode;
+  /** Empty when no CNPN mentions the stage — which is not the same as a text stating zero. */
+  textFigures: StageTextFigure[];
 }
 
 export interface StageObjectiveResponse {
@@ -513,6 +532,11 @@ export interface CohortResponse {
   academicYearId: number;
   academicYearLabel: string;
   rotationGroup: string | null;
+  /**
+   * The columns of the axis this cohorte stands in. Read here rather than folded out of the planning
+   * grid, which only carried it while it shipped every cohorte and every cell.
+   */
+  periodNumbers: number[];
 }
 
 export interface CohortSlotDetail {
@@ -580,10 +604,70 @@ export interface CohortScheduleRow {
   cells: (SlotCellResponse | null)[];
 }
 
+/** One rotation partition of the promotion, and how many of this stage's cohorts carry it. */
+export interface PartitionSummary {
+  label: string;
+  cohortCount: number;
+}
+
+/**
+ * Why a (créneau × service) will refuse the publish. Named by the server rather than inferred from
+ * the numbers, because the three are fixed in different places: move groups, raise the promotion's
+ * quota, or raise the service's own capacity.
+ */
+export type SaturationReason = 'Total' | 'Quota' | 'Refused';
+
+/**
+ * One (créneau × service) the publish would refuse — deduplicated, because it is a fact about the
+ * pair and not about each cohorte standing in it.
+ */
+export interface SaturatedCellResponse {
+  stageSlotId: number;
+  periodNumber: number;
+  serviceId: number;
+  serviceName: string;
+  hospitalName: string;
+  occupiedSeats: number;
+  capacity: number;
+  reason: SaturationReason;
+}
+
+/**
+ * What is true of the whole selection, whichever page is on screen.
+ *
+ * ⚠ Every number here is the server's. Counting the rows the client holds was correct only while it
+ * held all of them; against a page of 25 it would report "3 configurées" on a stage with 90, and the
+ * publish button beside it would promise to publish 3. `partitions` is deliberately NOT narrowed by
+ * the active partition filter — they are the chips the user filters *with*.
+ */
+export interface StageScheduleSummary {
+  totalCohorts: number;
+  publishedCohorts: number;
+  configuredUnpublishedCohorts: number;
+  partitions: PartitionSummary[];
+  /** Exact, even when `saturations` below is capped. */
+  saturatedCellCount: number;
+  saturations: SaturatedCellResponse[];
+  /** The columns the current selection already occupies — what separates a new column from an arranged one. */
+  occupiedSlotIds: number[];
+  /**
+   * Which partition stands in which column, across the WHOLE stage — never narrowed by the active
+   * filter, because « la partition A est-elle seule sur P4-P6 ? » is a question about the partitions
+   * the filter has just removed.
+   */
+  partitionUsage: PartitionSlotUse[];
+}
+
+export interface PartitionSlotUse {
+  rotationGroup: string | null;
+  stageSlotId: number;
+}
+
 export interface StageScheduleResponse {
   stageId: number;
   slots: StageSlotResponse[];
-  cohorts: CohortScheduleRow[];
+  cohorts: PaginatedResponse<CohortScheduleRow>;
+  summary: StageScheduleSummary;
 }
 
 // ─── Répartition annuelle des stages ──────────────────────────────────────────

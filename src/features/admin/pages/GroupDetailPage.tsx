@@ -382,6 +382,9 @@ export default function GroupDetailPage() {
   const [modalOpen,   { open: openModal,  close: closeModal  }] = useDisclosure(false);
   const [delocOpen,   { open: openDeloc,  close: closeDeloc  }] = useDisclosure(false);
   const [emptyOpen,   { open: openEmpty,  close: closeEmpty  }] = useDisclosure(false);
+  // What emptying would strand, when the server refuses because the roster still holds affectations.
+  // Confirming a second time re-sends with dropAffectations.
+  const [emptyWarning, setEmptyWarning] = useState<string | null>(null);
 
   // The roster is paged: "Non réparti" holds 4,725 students for 2025-2026, and rendering that in one
   // table is what took the browser down. Search is debounced per the project rule — the input stays
@@ -401,13 +404,31 @@ export default function GroupDetailPage() {
   const [emptyGroup, { isLoading: emptying }] = useEmptyGroupMutation();
 
   const handleEmpty = async () => {
+    const dropAffectations = emptyWarning !== null;
     try {
-      const res = await emptyGroup(groupId).unwrap();
-      notify.success(`${res.unassigned} étudiant(s) désassigné(s)`);
-    } catch {
-      notify.error('Impossible de vider ce groupe');
+      const res = await emptyGroup({ id: groupId, dropAffectations }).unwrap();
+      notify.success(
+        `${res.unassigned} étudiant(s) désassigné(s)`
+        + (res.affectationsRemoved > 0
+          ? ` — ${res.affectationsRemoved} affectation(s) et ${res.periodsRemoved} période(s) supprimée(s)`
+          : ''),
+      );
+    } catch (error) {
+      const problem = error as { data?: { detail?: string; title?: string } };
+      const detail = problem.data?.detail;
+      if (!dropAffectations && problem.data?.title === 'AcademicGroups.RosterHasAffectations' && detail) {
+        setEmptyWarning(detail);
+        return;   // modal stays open, now naming what would be left behind
+      }
+      // No notify.error here: errorMiddleware already toasts every rejected mutation in the server's
+      // own words. Adding one printed the identical sentence twice — verified on the running stack.
     }
+    closeEmptyDialog();
+  };
+
+  const closeEmptyDialog = () => {
     closeEmpty();
+    setEmptyWarning(null);
   };
 
   return (
@@ -629,10 +650,13 @@ export default function GroupDetailPage() {
 
       <ConfirmModal
         opened={emptyOpen}
-        onClose={closeEmpty}
+        onClose={closeEmptyDialog}
         title="Vider le groupe"
-        message={`Vider le groupe "${group?.label}" ? Tous les étudiants seront désassignés et pourront être répartis à nouveau.`}
-        confirmLabel="Vider"
+        message={
+          emptyWarning
+            ?? `Vider le groupe "${group?.label}" ? Tous les étudiants seront désassignés et pourront être répartis à nouveau.`
+        }
+        confirmLabel={emptyWarning ? 'Vider et supprimer les affectations' : 'Vider'}
         confirmColor="red"
         onConfirm={handleEmpty}
         loading={emptying}

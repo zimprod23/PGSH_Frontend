@@ -233,6 +233,9 @@ export interface GetStudentsQuery {
   appogee?: string;
   cin?: string;
   program?: AcademicProgram;
+  // One promotion. Read together with academicYearId on the same registration server-side, so a
+  // student who was in this level in an *earlier* year is not returned for the year in view.
+  levelId?: number;
   // When set, the level/group/status columns reflect this year's registration.
   academicYearId?: number;
   pageNumber?: number;

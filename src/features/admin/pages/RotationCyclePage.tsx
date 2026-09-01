@@ -6,6 +6,7 @@ import {
   Container,
   Divider,
   Group,
+  Loader,
   NumberInput,
   ScrollArea,
   Select,
@@ -26,7 +27,7 @@ import {
   IconPlayerPlay,
   IconTrash,
 } from '@tabler/icons-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   useGetPromotionLevelsQuery,
   useGetRotationCycleQuery,
@@ -327,6 +328,21 @@ export default function RotationCyclePage() {
    * backend returns the matrix rather than executing it, for the same reason déliberation and
    * réinscription are separate.
    */
+  /**
+   * ⚠ « Générer le plan » writes for a whole promotion — cohortes, affectations and cells, stage by
+   * stage — and on a promotion of a hundred rosters that is tens of thousands of rows. Two things
+   * follow, and only one of them is speed.
+   *
+   * The server now runs the whole matrix inside **one transaction**, so closing the tab or losing
+   * the connection cancels the request and leaves the base exactly as it was — where it used to
+   * leave a plan built for the first three stages and nothing for the rest, which looks like a plan
+   * somebody meant. That is what makes the warning below truthful rather than hopeful: leaving is
+   * safe, it simply undoes the work.
+   *
+   * What remains is telling the user the wait is expected. A `loading` spinner on a button is read
+   * as « ça rame » after ten seconds; a panel saying what is being written, and that nothing is
+   * half-written, is read as « attends ».
+   */
   const handlePlan = async () => {
     if (!layout || currentYearId == null) return;
     try {
@@ -364,6 +380,18 @@ export default function RotationCyclePage() {
       /* toasted */
     }
   };
+
+  /**
+   * The browser's own « quitter le site ? » while the plan is in flight. It cannot be styled and it
+   * cannot say much, which is why the panel above says it properly — but it is the only thing that
+   * catches a closed tab, and it is worth catching: leaving costs the user the whole run.
+   */
+  useEffect(() => {
+    if (!planning) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [planning]);
 
   const partitionsUsed = layout
     ? new Set(layout.matrix.map((m) => m.rotationGroup)).size
@@ -764,6 +792,23 @@ export default function RotationCyclePage() {
                   </Tooltip>
                 </Group>
               </Group>
+
+              {/* ⚠ Says what is happening and what leaving costs. The run writes for a whole
+                  promotion and takes as long as that takes; a bare spinner on a button reads as a
+                  frozen screen, and a user who reloads out of doubt loses the run for nothing. The
+                  « rien ne sera écrit à moitié » sentence is a statement about the server, which
+                  runs the whole matrix in one transaction — not reassurance. */}
+              {planning && (
+                <Alert variant="light" color="navy" radius="md" icon={<Loader size={16} />}>
+                  <Text size="sm" fw={600}>Génération du plan en cours…</Text>
+                  <Text size="xs" c="dimmed">
+                    Cohortes, affectations des étudiants et cellules de répartition sont écrites pour
+                    toute la promotion — comptez plusieurs dizaines de secondes sur une promotion de
+                    cent groupes. Ne fermez pas l'onglet : l'opération est écrite d'un seul bloc, donc
+                    l'interrompre n'abîme rien, mais tout serait à refaire.
+                  </Text>
+                </Alert>
+              )}
 
               {layout.warnings.map((w, i) => (
                 <Alert key={i} variant="light" color="orange" icon={<IconAlertTriangle size={16} />} radius="md">

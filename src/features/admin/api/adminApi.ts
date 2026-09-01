@@ -13,6 +13,18 @@ import type {
   ReopenYearReport,
   ReopenYearRequest,
 } from '../types/yearClosure.types';
+import { fileNameFromDisposition, type DownloadedFile } from '../../../common/utils/downloadBlob';
+import type {
+  StudentsExportRequest,
+  StageAssignmentsExportRequest,
+} from '../types/export.types';
+import type {
+  InscribeStudentRequest,
+  InscriptionReport,
+  InscriptionRowReport,
+  InscriptionScopeRequest,
+  InscriptionUploadRequest,
+} from '../types/inscription.types';
 import type { StudentSummaryResponse, GetStudentsQuery, UpdateStudentRequest } from '../../student/types/student.types';
 import type {
   CohortDetailResponse,
@@ -585,7 +597,12 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
     }),
 
-    deleteCohort: builder.mutation<void, { cohortId: number; stageId: number }>({
+    // Returns what it took away rather than 204: a destructive act nobody is shown a number for is
+    // one nobody agreed to. Refused outright once the rotation has begun.
+    deleteCohort: builder.mutation<
+      { affectationsRemoved: number; periodsRemoved: number },
+      { cohortId: number; stageId: number }
+    >({
       query: ({ cohortId }) => ({ url: `/cohorts/${cohortId}`, method: 'DELETE' }),
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
     }),
@@ -657,10 +674,23 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }, { type: 'Stage' as const, id: 'TIMELINE' }],
     }),
 
-    getStageSchedule: builder.query<StageScheduleResponse, { stageId: number; academicYearId?: number }>({
-      query: ({ stageId, academicYearId }) => ({
+    // ⚠ Paged, and the partition is filtered server-side. A promotion is ~105 cohortes over ten
+    // columns: a thousand cells in one payload and a thousand cell components mounted at once, which
+    // is what made the grid take seconds to open *and* seconds to close — closing does no server work
+    // at all, so that half of the cost was never on the wire. Filtering client-side would answer
+    // « aucune cohorte » for anyone sitting on page 3.
+    getStageSchedule: builder.query<
+      StageScheduleResponse,
+      { stageId: number; academicYearId?: number; rotationGroup?: string | null; pageNumber?: number; pageSize?: number }
+    >({
+      query: ({ stageId, academicYearId, rotationGroup, pageNumber, pageSize }) => ({
         url: `/stages/${stageId}/schedule`,
-        params: academicYearId ? { academicYearId } : undefined,
+        params: {
+          ...(academicYearId ? { academicYearId } : {}),
+          ...(rotationGroup ? { rotationGroup } : {}),
+          ...(pageNumber ? { pageNumber } : {}),
+          ...(pageSize ? { pageSize } : {}),
+        },
       }),
       providesTags: (_r, _e, { stageId }) => [
         { type: 'Stage' as const, id: `schedule-${stageId}` },
@@ -945,11 +975,22 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
 
-    emptyGroup: builder.mutation<{ unassigned: number }, number>({
-      query: (id) => ({ url: `/groups/${id}/students`, method: 'DELETE' }),
-      invalidatesTags: (_r, _e, id) => [
+    // ⚠ dropAffectations is the caller having read the refusal that named the count — never a
+    // default. An affectation hangs off the cohorte, not off the roster pointer, so emptying without
+    // it would leave every one of them behind against a roster displaying 0 étudiants.
+    emptyGroup: builder.mutation<
+      { unassigned: number; affectationsRemoved: number; periodsRemoved: number },
+      { id: number; dropAffectations?: boolean }
+    >({
+      query: ({ id, dropAffectations }) => ({
+        url: `/groups/${id}/students`,
+        method: 'DELETE',
+        params: dropAffectations ? { dropAffectations: true } : undefined,
+      }),
+      invalidatesTags: (_r, _e, { id }) => [
         { type: 'Level' as const, id: `group-${id}` },
         { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Stage' as const, id: 'LIST' },
       ],
     }),
 
@@ -1083,7 +1124,10 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         })),
     }),
 
-    deleteAllStageCohorts: builder.mutation<{ deleted: number }, { stageId: number; academicYearId?: number }>({
+    deleteAllStageCohorts: builder.mutation<
+      { cohortsRemoved: number; affectationsRemoved: number; periodsRemoved: number },
+      { stageId: number; academicYearId?: number }
+    >({
       query: ({ stageId, academicYearId }) => ({
         url: `/stages/${stageId}/cohorts/all`,
         method: 'DELETE',
@@ -1331,6 +1375,101 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // ─── Inscription — the third act ──────────────────────────────────────────
+    // The people the two acts above structurally cannot see: they start from a registration the
+    // student already holds, and nobody here has one. ⚠ This is the only act that creates *people*.
+
+    getInscriptionTemplate: builder.query<Blob, InscriptionScopeRequest>({
+      query: ({ levelId, academicYearId }) => ({
+        url: '/inscription/template',
+        params: { levelId, academicYearId },
+        responseHandler: (response) => response.blob(),
+        cache: 'no-cache',
+      }),
+    }),
+
+    // A dry run writes nothing, so it must invalidate nothing.
+    previewInscription: builder.mutation<InscriptionReport, InscriptionUploadRequest>({
+      query: ({ levelId, academicYearId, file }) => ({
+        url: '/inscription/preview',
+        method: 'POST',
+        params: { levelId, academicYearId },
+        body: fileBody(file),
+      }),
+    }),
+
+    applyInscription: builder.mutation<InscriptionReport, InscriptionUploadRequest>({
+      query: ({ levelId, academicYearId, file, confirmedStudentCount }) => ({
+        url: '/inscription',
+        method: 'POST',
+        params: { levelId, academicYearId, confirmedStudentCount },
+        body: fileBody(file),
+      }),
+      // Students and registrations are created outright, and the newcomers land in « Non réparti »,
+      // so the roster lists change too.
+      invalidatesTags: [
+        { type: 'Student' as const, id: 'LIST' },
+        { type: 'Registration' as const, id: 'LIST' },
+        { type: 'Level' as const, id: 'GROUPS' },
+      ],
+    }),
+
+    // The single-row way in: a JSON body, no file, no preview, no count to confirm — the request is
+    // the row. Every bulk import owes one, or fixing one person means re-sending the promotion.
+    inscribeStudent: builder.mutation<InscriptionRowReport, InscribeStudentRequest>({
+      query: (body) => ({ url: '/inscription/student', method: 'POST', body }),
+      invalidatesTags: [
+        { type: 'Student' as const, id: 'LIST' },
+        { type: 'Registration' as const, id: 'LIST' },
+        { type: 'Level' as const, id: 'GROUPS' },
+      ],
+    }),
+
+    // ─── Exports (.xlsx) ──────────────────────────────────────────────────────
+    // Two documents that leave the system. Both are `GET`s returning a file, so they are declared as
+    // *lazy* queries: a download is an act the user asks for, not state a page subscribes to.
+    //
+    // ⚠ `responseHandler` branches on `response.ok`, and that is not a nicety. RTK runs the handler
+    // for failures too, so reading `.blob()` unconditionally turns a problem-details refusal into an
+    // opaque Blob and `problemMessage` finds nothing — the user gets « une erreur » where the server
+    // had written « L'export porterait sur 42 000 lignes… ». The existing template endpoints above
+    // still have that shape; it is worth the same fix when they are next touched.
+    //
+    // ⚠ The file name is read off `Content-Disposition`, never rebuilt here: the server names the
+    // file after the scope it actually *resolved*, which is not always the one the page asked for.
+
+    getStudentsExport: builder.query<DownloadedFile, StudentsExportRequest>({
+      query: (params) => ({
+        url: '/students/export',
+        params,
+        cache: 'no-cache',
+        responseHandler: async (response) => {
+          if (!response.ok) return response.json().catch(() => undefined);
+          return {
+            blob: await response.blob(),
+            fileName: fileNameFromDisposition(
+              response.headers.get('content-disposition'), 'etudiants.xlsx'),
+          };
+        },
+      }),
+    }),
+
+    getStageAssignmentsExport: builder.query<DownloadedFile, StageAssignmentsExportRequest>({
+      query: (params) => ({
+        url: '/stages/assignments/export',
+        params,
+        cache: 'no-cache',
+        responseHandler: async (response) => {
+          if (!response.ok) return response.json().catch(() => undefined);
+          return {
+            blob: await response.blob(),
+            fileName: fileNameFromDisposition(
+              response.headers.get('content-disposition'), 'stages.xlsx'),
+          };
+        },
+      }),
+    }),
+
     // ─── One student at a time ────────────────────────────────────────────────
 
     recordRegistrationOutcome: builder.mutation<void, RecordOutcomeRequest>({
@@ -1386,6 +1525,10 @@ function fileBody(file: File) {
 }
 
 export const {
+  useLazyGetInscriptionTemplateQuery,
+  usePreviewInscriptionMutation,
+  useApplyInscriptionMutation,
+  useInscribeStudentMutation,
   useGetCentersQuery,
   useCreateCenterMutation,
   useUpdateCenterMutation,
@@ -1524,4 +1667,6 @@ export const {
   useRecordRegistrationOutcomeMutation,
   useReopenRegistrationYearMutation,
   useAssignStudentToGroupMutation,
+  useLazyGetStudentsExportQuery,
+  useLazyGetStageAssignmentsExportQuery,
 } = adminApiSlice;

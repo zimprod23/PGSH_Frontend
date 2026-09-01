@@ -70,6 +70,7 @@ import {
   formatGender, formatCivilStatus, formatNationality,
   formatDate, initials,
 } from '../../../student/utils/format';
+import { problemMessage } from '../../../../common/utils/problemMessage';
 
 // ─── Registration card: the year's verdict, and the roster ────────────────────
 
@@ -109,7 +110,7 @@ function RegistrationCard({
         `Décision enregistrée : ${YEAR_OUTCOMES.find((o) => o.value === outcome)?.label}`,
       );
     } catch (err: unknown) {
-      notify.error(detailOf(err) ?? "Impossible d'enregistrer la décision.");
+      notify.error(problemMessage(err) ?? "Impossible d'enregistrer la décision.");
     }
   };
 
@@ -124,7 +125,7 @@ function RegistrationCard({
           : 'Décision retirée, année remise en cours.',
       );
     } catch (err: unknown) {
-      notify.error(detailOf(err) ?? 'Impossible de rouvrir cette année.');
+      notify.error(problemMessage(err) ?? 'Impossible de rouvrir cette année.');
     }
   };
 
@@ -313,7 +314,7 @@ function JoinGroupModal({
       setGroupId(null);
       onClose();
     } catch (err: unknown) {
-      notify.error(detailOf(err) ?? "Impossible d'affecter cet étudiant.");
+      notify.error(problemMessage(err) ?? "Impossible d'affecter cet étudiant.");
     }
   };
 
@@ -877,5 +878,3 @@ export default function AdminStudentDetailPage() {
     </Container>
   );
 }
-
-const detailOf = (err: unknown) => (err as { data?: { detail?: string } })?.data?.detail;

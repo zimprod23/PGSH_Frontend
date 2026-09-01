@@ -14,6 +14,7 @@ import {
   Loader,
   Modal,
   MultiSelect,
+  Pagination,
   Popover,
   ScrollArea,
   Skeleton,
@@ -57,55 +58,38 @@ import {
   usePublishStageScheduleMutation,
   useGetServicesQuery,
 } from '../api/adminApi';
-import type { SlotCellResponse, StageSlotResponse, CohortScheduleRow } from '../types/admin.types';
+import type { SlotCellResponse, StageSlotResponse, StageScheduleSummary } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import { useAcademicYear } from '../contexts/AcademicYearContext';
 
+/**
+ * Cohortes per page. Ten columns of ~8 Mantine components each is ~2 000 nodes at this size — enough
+ * to fill any screen, small enough that mounting and unmounting the grid is instant. The whole
+ * selection is still described by `summary`, which is what keeps a page from being mistaken for the
+ * promotion.
+ */
+const PAGE_SIZE = 25;
+
 // ─── Saturation summary bar ──────────────────────────────────────────────────
 
 function SaturationSummary(
-  { visibleCohorts, slots }: { visibleCohorts: CohortScheduleRow[]; slots: StageSlotResponse[] },
+  { summary }: { summary: StageScheduleSummary },
 ) {
   const [reportOpen, { open: openReport, close: closeReport }] = useDisclosure(false);
-  const periodBySlot = new Map(slots.map((s) => [s.id, s.periodNumber]));
 
-  // cell.occupiedSeats is the backend's true per-(slot × service) load across ALL
-  // partitions, so it stays correct even when the grid is filtered to one partition.
-  //
-  // The backend already reduced each cell to the one limit that governs it; `reason` only names
-  // which rule that was, because the three are fixed in different places: move groups, raise the
-  // promotion's quota, or raise the service's capacity.
-  type Breach = {
-    service: string; hospital: string; period: number;
-    occupied: number; capacity: number;
-    reason: 'total' | 'quota' | 'refused';
-  };
-
-  const cells = new Map<string, Breach>();
-  for (const cohort of visibleCohorts) {
-    for (const cell of cohort.cells) {
-      if (!cell || cells.has(`${cell.stageSlotId}:${cell.serviceId}`)) continue;
-
-      cells.set(`${cell.stageSlotId}:${cell.serviceId}`, {
-        service:  cell.serviceName,
-        hospital: cell.hospitalName,
-        period:   periodBySlot.get(cell.stageSlotId) ?? 0,
-        occupied: cell.occupiedSeats,
-        capacity: cell.admitsLevel ? cell.capacity : 0,
-        reason:   !cell.admitsLevel ? 'refused' : cell.isLevelQuota ? 'quota' : 'total',
-      });
-    }
-  }
-
-  const saturated = [...cells.values()]
-    .filter((c) => c.reason === 'refused' || c.occupied > c.capacity)
-    .sort((a, b) => (b.occupied - b.capacity) - (a.occupied - a.capacity));
-
+  // ⚠ Computed by the server, not here. It used to be folded out of the cells the client held,
+  // which was correct only while the client held every cell: with the rows paged, a report built
+  // from 25 visible cohortes would have named a fraction of the saturations and given a deficit
+  // that shrank as you paged. The scope is the current selection — the same rows the publish button
+  // beside it acts on — and `saturatedCellCount` stays exact even when the list below is capped.
+  const saturated = summary.saturations;
   if (saturated.length === 0) return null;
 
   const top = saturated.slice(0, 3);
-  const totalOverflow = saturated.reduce((s, c) => s + (c.occupied - c.capacity), 0);
+  const totalOverflow = saturated.reduce((sum, c) => sum + (c.occupiedSeats - c.capacity), 0);
+  const listed = saturated.length;
+  const total = summary.saturatedCellCount;
 
   return (
     <Card padding="sm" radius="md" withBorder style={{ borderColor: '#fca5a5', background: '#fff5f5' }}>
@@ -113,7 +97,7 @@ function SaturationSummary(
         <Group gap="xs" wrap="wrap" justify="space-between">
           <Group gap="xs" wrap="wrap">
             <Badge color="red" variant="light" radius="sm" size="sm">
-              {saturated.length} affectation{saturated.length > 1 ? 's' : ''} saturée{saturated.length > 1 ? 's' : ''}
+              {total} affectation{total > 1 ? 's' : ''} saturée{total > 1 ? 's' : ''}
             </Badge>
             <Text size="xs" c="dimmed">
               Un service dépasse sa capacité — totale, ou le quota accordé à cette promotion.
@@ -126,12 +110,13 @@ function SaturationSummary(
         </Group>
         <Group gap={6} wrap="wrap">
           {top.map((c) => (
-            <Badge key={`${c.service}-${c.period}`} color="red" variant="outline" radius="sm" size="sm">
-              {c.service} · P{c.period} : {c.reason === 'refused' ? 'promotion non admise' : `${c.occupied}/${c.capacity}`}
+            <Badge key={`${c.serviceId}-${c.stageSlotId}`} color="red" variant="outline" radius="sm" size="sm">
+              {c.serviceName} · P{c.periodNumber} :{' '}
+              {c.reason === 'Refused' ? 'promotion non admise' : `${c.occupiedSeats}/${c.capacity}`}
             </Badge>
           ))}
-          {saturated.length > top.length && (
-            <Text size="xs" c="dimmed">+{saturated.length - top.length} autre(s)</Text>
+          {total > top.length && (
+            <Text size="xs" c="dimmed">+{total - top.length} autre(s)</Text>
           )}
         </Group>
       </Stack>
@@ -145,10 +130,22 @@ function SaturationSummary(
       >
         <Stack gap="sm">
           <Text size="xs" c="dimmed">
-            {saturated.length} affectation(s) dépassent la capacité du service sur la période concernée
-            (déficit total : <strong>{totalOverflow}</strong> place(s)). Augmentez la capacité du service à la
-            valeur « requise » ou déplacez des groupes vers d'autres services.
+            {total} affectation(s) dépassent la capacité du service sur la période concernée.
+            Augmentez la capacité du service à la valeur « requise » ou déplacez des groupes vers
+            d'autres services.
           </Text>
+          {/* A capped list must say it is capped, or the deficit below reads as the whole bill. */}
+          {listed < total && (
+            <Text size="xs" c="red" fw={600}>
+              {listed} des {total} sont détaillées ici (les plus lourdes) — déficit des {listed}{' '}
+              listées : {totalOverflow} place(s).
+            </Text>
+          )}
+          {listed === total && (
+            <Text size="xs" c="dimmed">
+              Déficit total : <strong>{totalOverflow}</strong> place(s).
+            </Text>
+          )}
           <Table withTableBorder fz="xs" striped>
             <Table.Thead>
               <Table.Tr>
@@ -161,29 +158,29 @@ function SaturationSummary(
             </Table.Thead>
             <Table.Tbody>
               {saturated.map((c) => (
-                <Table.Tr key={`${c.service}-${c.period}`}>
+                <Table.Tr key={`${c.serviceId}-${c.stageSlotId}`}>
                   <Table.Td>
                     <Stack gap={0}>
-                      <Text size="xs" fw={600}>{c.service}</Text>
-                      <Text size="xs" c="dimmed">{c.hospital}</Text>
+                      <Text size="xs" fw={600}>{c.serviceName}</Text>
+                      <Text size="xs" c="dimmed">{c.hospitalName}</Text>
                     </Stack>
                   </Table.Td>
-                  <Table.Td ta="center">P{c.period}</Table.Td>
+                  <Table.Td ta="center">P{c.periodNumber}</Table.Td>
                   <Table.Td ta="center">
                     <Text size="xs" c="dimmed">
-                      {c.reason === 'refused' ? 'Promotion non admise'
-                        : c.reason === 'quota' ? 'Quota promotion'
+                      {c.reason === 'Refused' ? 'Promotion non admise'
+                        : c.reason === 'Quota' ? 'Quota promotion'
                         : 'Capacité totale'}
                     </Text>
                   </Table.Td>
                   <Table.Td ta="center">
                     <Badge color="red" variant="light" radius="sm" size="sm">
-                      {c.reason === 'refused' ? `${c.occupied} / —` : `${c.occupied}/${c.capacity}`}
+                      {c.reason === 'Refused' ? `${c.occupiedSeats} / —` : `${c.occupiedSeats}/${c.capacity}`}
                     </Badge>
                   </Table.Td>
                   <Table.Td ta="center">
                     <Text size="xs" fw={600} c="red">
-                      {c.reason === 'refused' ? 'Quota à créer' : `+${c.occupied - c.capacity}`}
+                      {c.reason === 'Refused' ? 'Quota à créer' : `+${c.occupiedSeats - c.capacity}`}
                     </Text>
                   </Table.Td>
                 </Table.Tr>
@@ -596,10 +593,15 @@ const PublishButton = memo(function PublishButton(
 // ─── Publish all unpublished cohorts ─────────────────────────────────────────
 
 function PublishAllButton(
-  { stageId, academicYearId, cohorts, activePartition }: {
+  { stageId, academicYearId, publishableCount, activePartition }: {
     stageId: number;
     academicYearId?: number;
-    cohorts: CohortScheduleRow[];
+    /**
+     * ⚠ The server's count over the whole selection, never the visible rows'. With the grid paged,
+     * counting what the client holds would have offered « Publier tout (25) » on a selection of 90
+     * — and the call it fires publishes all 90.
+     */
+    publishableCount: number;
     activePartition: string | null;
   },
 ) {
@@ -607,8 +609,6 @@ function PublishAllButton(
   const [publishStage, { isLoading: loading }] = usePublishStageScheduleMutation();
   const [confirmOpen, { open, close }] = useDisclosure(false);
   const [allowOverCapacity, setAllowOverCapacity] = useState(false);
-
-  const publishable = cohorts.filter((c) => !c.isSchedulePublished && c.cells.some((cell) => cell !== null));
 
   const handlePublishAll = async () => {
     close();
@@ -626,7 +626,7 @@ function PublishAllButton(
     }
   };
 
-  if (publishable.length === 0) return null;
+  if (publishableCount === 0) return null;
 
   const scopeLabel = activePartition ? `partition ${activePartition}` : 'toutes les partitions';
 
@@ -638,13 +638,13 @@ function PublishAllButton(
         loading={loading}
         onClick={open}
       >
-        Publier tout ({publishable.length})
+        Publier tout ({publishableCount})
       </Button>
       <ConfirmModal
         opened={confirmOpen}
         onClose={close}
         title="Publier les cohortes"
-        message={`Publier le planning de ${publishable.length} cohorte(s) configurée(s) (${scopeLabel}) ?`}
+        message={`Publier le planning de ${publishableCount} cohorte(s) configurée(s) (${scopeLabel}) ?`}
         confirmLabel="Publier"
         confirmColor="teal"
         onConfirm={handlePublishAll}
@@ -684,12 +684,19 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
   const yearId = academicYearId ?? currentYearId ?? undefined;
   const [addSlotOpened, setAddSlotOpened]   = useState(false);
   const [activePartition, setActivePartition] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const [autoArrangePeriods, setAutoArrangePeriods] = useState<string[]>([]);
   const [autoArrangeOpen, { open: openAutoArrange, close: closeAutoArrange }] = useDisclosure(false);
   const [editing, setEditing] = useState<{ cohortId: number; slotId: number } | null>(null);
   const [clearingKey, setClearingKey] = useState<string | null>(null);
-  const { data: schedule, isLoading } = useGetStageScheduleQuery(
-    { stageId, academicYearId: yearId },
+
+  // ⚠ Paged, and filtered by partition on the server. A promotion is ~105 cohortes over ten columns:
+  // a thousand cells shipped and a thousand cell components mounted, which is what made this modal
+  // take seconds to open — and seconds to *close*, where there is no request at all to blame.
+  // `isFetching` rather than `isLoading` so paging shows the page is changing instead of freezing on
+  // the previous one.
+  const { data: schedule, isLoading, isFetching } = useGetStageScheduleQuery(
+    { stageId, academicYearId: yearId, rotationGroup: activePartition, pageNumber: page, pageSize: PAGE_SIZE },
     { skip: !opened },
   );
   const [autoArrange, { isLoading: arranging }] = useAutoArrangeStageScheduleMutation();
@@ -704,6 +711,14 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
   const busyCohortId = publishing ? publishTarget : unpublishing ? unpublishTarget : null;
 
   const handleClose = useCallback(() => { setEditing(null); onClose(); }, [onClose]);
+
+  // Changing the filter must land on page 1: page 3 of « toutes » is past the end of most partitions,
+  // and an out-of-range page answers with an empty grid that reads exactly like an empty partition.
+  const selectPartition = useCallback((label: string | null) => {
+    setActivePartition(label);
+    setPage(1);
+    setEditing(null);
+  }, []);
 
   const askPublish = useCallback((cohortId: number) => {
     setAllowOverCapacity(false);
@@ -755,12 +770,9 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
     finally { setClearingKey(null); }
   }, [stageId, clearAssignment, notify]);
 
-  const partitions = useMemo(
-    () => Array.from(
-      new Set(schedule?.cohorts.map((c) => c.rotationGroup).filter((g): g is string => g != null)),
-    ).sort(),
-    [schedule],
-  );
+  // The stage's partitions, from the server and never narrowed by the active filter — they are what
+  // the user filters *with*, so deriving them from the filtered rows would leave no way back.
+  const partitions = schedule?.summary.partitions ?? [];
 
   const handleAutoArrange = async () => {
     closeAutoArrange();
@@ -791,9 +803,12 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
             'les capacités ou ajoutez de nouveaux services.'
           );
         } else {
-          const unpublishedCohorts = schedule?.cohorts.filter((c) => !c.isSchedulePublished) ?? [];
-          const avgStudents = unpublishedCohorts.length > 0
-            ? Math.ceil(unpublishedCohorts.reduce((s, c) => s + c.studentCount, 0) / unpublishedCohorts.length)
+          // Averaged over the rows on screen, and said so: this is advice about how big a service
+          // has to be, not a count anybody acts on, and the exact figures live in the saturation
+          // report — which the server computes over the whole selection.
+          const sample = (schedule?.cohorts.items ?? []).filter((c) => !c.isSchedulePublished);
+          const avgStudents = sample.length > 0
+            ? Math.ceil(sample.reduce((sum, c) => sum + c.studentCount, 0) / sample.length)
             : 0;
           problems.push(
             `${res.saturatedServices} service(s) saturé(s) — capacité insuffisante par service : ` +
@@ -817,12 +832,11 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
 
   const slots = useMemo(() => schedule?.slots ?? [], [schedule]);
   const nextPeriodNumber = slots.length > 0 ? Math.max(0, ...slots.map((s) => s.periodNumber)) + 1 : 1;
-  const visibleCohorts = useMemo(
-    () => (activePartition
-      ? (schedule?.cohorts ?? []).filter((c) => c.rotationGroup === activePartition)
-      : (schedule?.cohorts ?? [])),
-    [schedule, activePartition],
-  );
+  const summary = schedule?.summary;
+  // The rows of this page. The counts the screen states come from `summary`, never from these —
+  // a bounded list can only describe itself.
+  const rows = schedule?.cohorts.items ?? [];
+  const totalPages = schedule ? Math.max(1, Math.ceil(schedule.cohorts.totalCount / schedule.cohorts.pageSize)) : 1;
 
   // Why "Répartition auto." cannot run yet, or null when it can. Mirrors the two guards
   // RotationArranger returns, so the user reads the reason on a disabled button instead of
@@ -832,17 +846,22 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
       ? 'Aucune période définie pour cette année — ajoutez d’abord un créneau.'
       : allowedServiceIds.length === 0
       ? 'Aucun service autorisé pour ce stage — configurez-les avant de répartir.'
-      : visibleCohorts.length === 0
+      : (summary?.totalCohorts ?? 0) === 0
       ? 'Aucune cohorte à répartir dans cette sélection.'
       : null;
 
-  // Periods with no cell assigned in any visible cohort — i.e. the freshly-added columns.
-  // Arranging only these continues the existing rotation instead of rewriting everything.
+  // Columns nobody in the selection stands in — i.e. the freshly-added ones. Arranging only these
+  // continues the existing rotation instead of rewriting it.
+  //
+  // ⚠ From the server's `occupiedSlotIds`, which covers the whole selection. Read off the rows on
+  // screen it would call a column empty because this page's 25 cohortes are not in it, and the
+  // « nouveaux créneaux uniquement » button would then quietly rewrite a column already arranged.
   const emptySlotPeriods = useMemo(
-    () => slots
-      .filter((_, i) => !visibleCohorts.some((c) => c.cells[i] != null))
-      .map((s) => s.periodNumber),
-    [slots, visibleCohorts],
+    () => {
+      const occupied = new Set(summary?.occupiedSlotIds ?? []);
+      return slots.filter((s) => !occupied.has(s.id)).map((s) => s.periodNumber);
+    },
+    [slots, summary],
   );
 
   // Stacking guard: when targeting one partition, warn if the chosen window already
@@ -854,16 +873,22 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
     [autoArrangePeriods, slots],
   );
 
+  // ⚠ From `summary.partitionUsage`, which the server reads across the WHOLE stage. This warning is
+  // about the partitions the filter has just removed, so the rows on screen — filtered to the
+  // targeted partition — are precisely the ones that can never answer it.
   const conflictingPartitions = useMemo(
-    () => (activePartition
-      ? Array.from(new Set(
-          (schedule?.cohorts ?? [])
-            .filter((c) => c.rotationGroup && c.rotationGroup !== activePartition)
-            .filter((c) => c.cells.some((cell, i) => cell && targetPeriodNumbers.includes(slots[i]?.periodNumber)))
-            .map((c) => c.rotationGroup as string),
-        )).sort()
-      : []),
-    [schedule, activePartition, targetPeriodNumbers, slots],
+    () => {
+      if (!activePartition) return [];
+      const targeted = new Set(
+        slots.filter((s) => targetPeriodNumbers.includes(s.periodNumber)).map((s) => s.id),
+      );
+      return Array.from(new Set(
+        (summary?.partitionUsage ?? [])
+          .filter((u) => u.rotationGroup && u.rotationGroup !== activePartition && targeted.has(u.stageSlotId))
+          .map((u) => u.rotationGroup as string),
+      )).sort();
+    },
+    [summary, activePartition, targetPeriodNumbers, slots],
   );
 
   return (
@@ -882,28 +907,37 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
         radius="lg"
         size="90vw"
         scrollAreaComponent={ScrollArea.Autosize}
+        /* The exit transition keeps the whole grid mounted while it plays, so « Fermer » felt as slow
+           as opening did even after the rows were paged. Nothing here is worth animating. */
+        transitionProps={{ duration: 0 }}
       >
         <Stack gap="md">
           {/* Controls */}
           <Group justify="space-between" wrap="nowrap" align="flex-start">
+            {/* Every number here is the server's, over the whole selection — see StageScheduleSummary. */}
             <Group gap="xs" wrap="wrap">
-              {schedule && schedule.cohorts.some((c) => c.isSchedulePublished) && (
-                <Badge color="teal" variant="light" size="sm" leftSection={<IconCheck size={10} />}>
-                  {schedule.cohorts.filter((c) => c.isSchedulePublished).length} publiée(s)
+              {summary && (
+                <Badge color="gray" variant="light" size="sm">
+                  {summary.totalCohorts} cohorte(s)
                 </Badge>
               )}
-              {schedule && schedule.cohorts.some((c) => !c.isSchedulePublished && c.cells.some((cell) => cell !== null)) && (
+              {summary && summary.publishedCohorts > 0 && (
+                <Badge color="teal" variant="light" size="sm" leftSection={<IconCheck size={10} />}>
+                  {summary.publishedCohorts} publiée(s)
+                </Badge>
+              )}
+              {summary && summary.configuredUnpublishedCohorts > 0 && (
                 <Badge color="orange" variant="light" size="sm">
-                  {schedule.cohorts.filter((c) => !c.isSchedulePublished && c.cells.some((x) => x !== null)).length} configurée(s) non publiée(s)
+                  {summary.configuredUnpublishedCohorts} configurée(s) non publiée(s)
                 </Badge>
               )}
             </Group>
             <Group gap="xs" wrap="nowrap" align="flex-end">
-              {schedule && (
+              {summary && (
                 <PublishAllButton
                   stageId={stageId}
                   academicYearId={yearId}
-                  cohorts={visibleCohorts}
+                  publishableCount={summary.configuredUnpublishedCohorts}
                   activePartition={activePartition}
                 />
               )}
@@ -945,13 +979,15 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
                 value={activePartition ?? ''}
                 onChange={(v) => {
                   const val = Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
-                  setActivePartition(val || null);
+                  selectPartition(val || null);
                 }}
               >
                 <Group gap="xs">
                   <Chip value="" size="xs" variant="light" color="violet">Toutes</Chip>
                   {partitions.map((p) => (
-                    <Chip key={p} value={p} size="xs" variant="light" color="violet">{p}</Chip>
+                    <Chip key={p.label} value={p.label} size="xs" variant="light" color="violet">
+                      {p.label} ({p.cohortCount})
+                    </Chip>
                   ))}
                 </Group>
               </Chip.Group>
@@ -969,7 +1005,7 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
           {/* Grid */}
           {isLoading ? (
             <Stack gap="xs">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height={48} radius="md" />)}</Stack>
-          ) : !schedule || (schedule.slots.length === 0 && schedule.cohorts.length === 0) ? (
+          ) : !schedule || (schedule.slots.length === 0 && schedule.cohorts.totalCount === 0) ? (
             <Card padding="xl" radius="lg" withBorder>
               <Stack align="center" gap="xs">
                 <IconCalendarTime size={32} stroke={1} color="#94A3B8" />
@@ -987,7 +1023,7 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
             </Card>
           ) : (
             <>
-              <SaturationSummary visibleCohorts={visibleCohorts} slots={schedule.slots} />
+              <SaturationSummary summary={schedule.summary} />
               <ScrollArea>
               <Table withTableBorder withColumnBorders fz="xs" style={{ minWidth: 400 + schedule.slots.length * 170 }}>
                 <Table.Thead>
@@ -1011,7 +1047,7 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {visibleCohorts.map((row) => (
+                  {rows.map((row) => (
                     <Table.Tr key={row.cohortId} style={{ background: row.isSchedulePublished ? '#f0fdf450' : undefined }}>
                       <Table.Td>
                         <Group gap="xs" wrap="nowrap">
@@ -1077,6 +1113,33 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
                 </Table.Tbody>
               </Table>
             </ScrollArea>
+
+            {/* ⚠ States the whole selection, not the page. A paged grid has a failure mode the
+                unbounded one did not: the last page of a partition looks exactly like a promotion
+                nobody has cut, and « 26-50 sur 105 » is what tells the two apart. */}
+            <Group justify="space-between" wrap="wrap" gap="xs">
+              <Text size="xs" c="dimmed">
+                {schedule.cohorts.totalCount === 0
+                  ? 'Aucune cohorte dans cette sélection.'
+                  : `${(schedule.cohorts.pageNumber - 1) * schedule.cohorts.pageSize + 1}`
+                    + `–${Math.min(schedule.cohorts.pageNumber * schedule.cohorts.pageSize, schedule.cohorts.totalCount)}`
+                    + ` sur ${schedule.cohorts.totalCount} cohorte(s)`
+                    + (activePartition ? ` — partition ${activePartition}` : '')}
+              </Text>
+              <Group gap="xs" wrap="nowrap">
+                {isFetching && <Loader size={12} />}
+                {totalPages > 1 && (
+                  <Pagination
+                    size="sm"
+                    radius="md"
+                    withEdges
+                    total={totalPages}
+                    value={schedule.cohorts.pageNumber}
+                    onChange={(p) => { setEditing(null); setPage(p); }}
+                  />
+                )}
+              </Group>
+            </Group>
             </>
           )}
 

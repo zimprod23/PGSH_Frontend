@@ -163,9 +163,19 @@ export default function ServiceDetailPage() {
         {/* ── Who may send students here ─────────────────────────────────────────────────────── */}
         <Paper withBorder radius="md" p="md">
           <Title order={5} mb={4}>Stages autorisés</Title>
+          {/* ⚠ Two different things on one page, and this is the one that gets read as the other.
+              « Promotion » here is the promotion of the *stage*, from a catalogue that carries no
+              year; « Limite en vigueur » above is who the service **admits**. A reader coming down
+              from « Occupation réelle · 2026-2027 » carries the year with them and concludes the
+              service is restricted to these promotions — which is the report that brought us here. */}
           <Text size="xs" c="dimmed" mb="sm">
             Les stages qui listent ce service. C’est l’envers de la liste tenue sur la fiche du
             stage — elle n’était jusqu’ici lisible que de ce côté-là.
+          </Text>
+          <Text size="xs" c="dimmed" mb="sm">
+            <strong>Catalogue, sans année</strong>&nbsp;: changer l’année en haut ne modifie rien
+            ici. « Promotion » est celle du stage — ce n’est <strong>pas</strong> la liste des
+            promotions que ce service admet, qui se lit dans «&nbsp;Limite en vigueur&nbsp;».
           </Text>
 
           {stages.length === 0 ? (

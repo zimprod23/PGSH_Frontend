@@ -913,6 +913,11 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
   const [emptyTarget, setEmptyTarget]     = useState<AcademicGroupResponse | null>(null);
   const [emptyOpen, { open: openEmpty, close: closeEmpty }] = useDisclosure(false);
   const [emptyAllOpen, { open: openEmptyAll, close: closeEmptyAll }] = useDisclosure(false);
+  // Set when the server refuses because the roster still holds affectations. The modal stays open
+  // and shows what emptying would strand; confirming again re-sends with dropAffectations. Same
+  // shape as the unpublish warning on StageDetailPage, and for the same reason: a refusal the user
+  // cannot read is a broken button.
+  const [emptyWarning, setEmptyWarning] = useState<string | null>(null);
 
   // Student search state. The picked student is tracked explicitly: a name like "Alaoui" matches
   // several students, and silently resolving to the first hit showed an arbitrary one's groups.
@@ -1003,14 +1008,31 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
 
   const handleEmptyConfirm = async () => {
     if (!emptyTarget) return;
+    const dropAffectations = emptyWarning !== null;
     try {
-      const res = await emptyGroup(emptyTarget.id).unwrap();
-      notify.success(`${res.unassigned} étudiant${res.unassigned !== 1 ? 's' : ''} retiré${res.unassigned !== 1 ? 's' : ''} du groupe`);
-    } catch {
-      notify.error('Impossible de vider ce groupe');
+      const res = await emptyGroup({ id: emptyTarget.id, dropAffectations }).unwrap();
+      notify.success(
+        `${res.unassigned} étudiant${res.unassigned !== 1 ? 's' : ''} retiré${res.unassigned !== 1 ? 's' : ''} du groupe`
+        + (res.affectationsRemoved > 0
+          ? ` — ${res.affectationsRemoved} affectation(s) et ${res.periodsRemoved} période(s) supprimée(s)`
+          : ''),
+      );
+    } catch (error) {
+      const problem = error as { data?: { detail?: string; title?: string } };
+      const detail = problem.data?.detail;
+      if (!dropAffectations && problem.data?.title === 'AcademicGroups.RosterHasAffectations' && detail) {
+        setEmptyWarning(detail);
+        return;   // modal stays open, now showing what would be left behind
+      }
+      // errorMiddleware already toasts the server's sentence for every rejected mutation.
     }
+    closeEmptyDialog();
+  };
+
+  const closeEmptyDialog = () => {
     closeEmpty();
     setEmptyTarget(null);
+    setEmptyWarning(null);
   };
 
   const handleEmptyAllConfirm = async () => {
@@ -1019,7 +1041,7 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
       const res = await emptyAllGroups(Number(selectedYear)).unwrap();
       notify.success(`${res.unassigned} étudiant${res.unassigned !== 1 ? 's' : ''} retiré${res.unassigned !== 1 ? 's' : ''} de leurs groupes`);
     } catch {
-      notify.error('Impossible de vider les groupes');
+      // errorMiddleware toasts the refusal, which names the affectations still attached.
     }
     closeEmptyAll();
   };
@@ -1189,6 +1211,12 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
                 <Table.Th>N°</Table.Th>
                 <Table.Th>Libellé</Table.Th>
                 <Table.Th>Niveau</Table.Th>
+                {/* ⚠ A roster list without this column reads as « la promotion est répartie » when
+                    every row holds nobody. 2026-2027 showed 90 groupes for la 4ᵉ année Médecine, all
+                    empty, and the only way to find out was to open them one by one — which is how an
+                    export with a blank « Groupe » column got reported as broken. The server has
+                    always sent `studentCount` for exactly this. */}
+                <Table.Th>Étudiants</Table.Th>
                 <Table.Th>Rotation</Table.Th>
                 <Table.Th>Année</Table.Th>
                 <Table.Th w={120} />
@@ -1198,14 +1226,14 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
               {loadingGroups ? (
                 Array.from({ length: 4 }).map((_, i) => (
                   <Table.Tr key={i}>
-                    {[40, 200, 100, 60, 100, 100].map((w, j) => (
+                    {[40, 200, 100, 50, 60, 100, 100].map((w, j) => (
                       <Table.Td key={j}><Skeleton height={14} width={w} radius="sm" /></Table.Td>
                     ))}
                   </Table.Tr>
                 ))
               ) : groups.length === 0 ? (
                 <Table.Tr>
-                  <Table.Td colSpan={6}>
+                  <Table.Td colSpan={7}>
                     <Text c="dimmed" size="sm" ta="center" py="md">
                       {debouncedLabelSearch.trim()
                         ? `Aucun groupe ne correspond à « ${debouncedLabelSearch.trim()} ».`
@@ -1226,6 +1254,18 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
                       {g.levelLabel
                         ? <Text size="xs" c="dimmed">{g.levelLabel}</Text>
                         : <Text size="xs" c="dimmed">—</Text>}
+                    </Table.Td>
+                    <Table.Td>
+                      {/* An empty roster is a real and ordinary state — après un découpage, avant la
+                          répartition — so it is coloured as a warning, not an error. */}
+                      <Badge
+                        variant="light"
+                        color={g.studentCount > 0 ? 'teal' : 'orange'}
+                        size="sm"
+                        radius="md"
+                      >
+                        {g.studentCount}
+                      </Badge>
                     </Table.Td>
                     <Table.Td>
                       {g.rotationGroup
@@ -1314,10 +1354,13 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
       />
       <ConfirmModal
         opened={emptyOpen}
-        onClose={() => { closeEmpty(); setEmptyTarget(null); }}
+        onClose={closeEmptyDialog}
         title="Vider le groupe"
-        message={`Retirer tous les étudiants du groupe "${emptyTarget?.label}" ? Le groupe est conservé.`}
-        confirmLabel="Vider"
+        message={
+          emptyWarning
+            ?? `Retirer tous les étudiants du groupe "${emptyTarget?.label}" ? Le groupe est conservé.`
+        }
+        confirmLabel={emptyWarning ? 'Vider et supprimer les affectations' : 'Vider'}
         confirmColor="orange"
         onConfirm={handleEmptyConfirm}
         loading={emptying}
@@ -1326,7 +1369,7 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
         opened={emptyAllOpen}
         onClose={closeEmptyAll}
         title="Vider tous les groupes"
-        message={`Retirer tous les étudiants de leurs groupes pour l'année "${yearLabel}" ? Les groupes et leurs cohortes sont conservés.`}
+        message={`Retirer tous les étudiants de leurs groupes pour l'année "${yearLabel}" ? Les groupes et leurs cohortes sont conservés. Bloqué si des affectations existent : elles resteraient rattachées à des groupes affichés vides.`}
         confirmLabel="Vider toutes"
         confirmColor="orange"
         onConfirm={handleEmptyAllConfirm}

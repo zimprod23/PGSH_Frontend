@@ -127,19 +127,27 @@ On 401 from backend: `errorMiddleware` calls `keycloak.logout()` immediately.
 ## API Error Handling
 
 ```
-API call fails
+API call fails  (queries AND mutations — the middleware does not distinguish)
   → RTK Query creates a rejected action
     → errorMiddleware intercepts
       → Parses RFC 7807 ProblemDetails
-        → 401: logout()
-        → 403: redirect to /unauthorized
-        → 422/400 (validation): show validation errors in form (not toast)
-        → 409 (conflict): toast error with message
-        → 500: toast "Une erreur serveur est survenue"
         → Network error: toast "Impossible de contacter le serveur"
+        → 401: keycloak.logout()
+        → 403: redirect to /no-profile when title = "Profile Not Found", else toast "Accès refusé"
+        → 400/422: toast "Données invalides" — extensions.errors joined, else detail
+        → 409: toast "Conflit" with detail
+        → 404 on a QUERY: nothing  ← the one deliberate gap
+        → anything else / 500+: toast
 ```
 
-**Important:** Validation errors (`status: 400` with `extensions.errors`) are handled at the form level, not by the global middleware. The form component reads `error?.data?.extensions?.errors` from the mutation result and shows field-level messages.
+⚠ **The middleware toasts 400/422 itself.** This section used to say the opposite — « handled at the
+form level, not by the global middleware » — and that sentence is how a component ends up adding its
+own `notify.error` and printing every refusal twice. It happened again on 2026-08-31 (the export
+button). **A component must not toast a rejected request**; see `CLAUDE.md` §1e for the rule and for
+the single exception (a 404 on a query, which nothing else reports).
+
+A form may still read `error?.data?.extensions?.errors` to place **field-level** messages beside the
+inputs — that is a different job from announcing the failure, and it does not need a second toast.
 
 ---
 

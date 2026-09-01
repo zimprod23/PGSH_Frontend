@@ -1,5 +1,6 @@
 import {
   Accordion,
+  Alert,
   Badge,
   Box,
   Card,
@@ -14,7 +15,7 @@ import {
   UnstyledButton,
   rem,
 } from '@mantine/core';
-import { IconRepeat, IconSchool, IconUsersGroup } from '@tabler/icons-react';
+import { IconInfoCircle, IconRepeat, IconSchool, IconUsersGroup } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import type { ParcoursStage, ParcoursYear } from '../types/parcours.types';
 import { ParcoursTotalsBar } from './ParcoursTotalsBar';
@@ -149,8 +150,30 @@ function YearPanel({ year }: { year: ParcoursYear }) {
     );
   }
 
+  // A year the faculty failed is redone from scratch, stages included — so what was served in it
+  // establishes nothing, not even the stages that were validated. Without saying so, « Chirurgie —
+  // Validé » sitting under « Redoublant » reads as a stage acquired, which is exactly the reading the
+  // rule removes: the server no longer counts these towards what the student owes.
+  const annulled = year.registrationStatus === 'Failed';
+
   return (
     <Stack gap="md">
+      {annulled && (
+        <Alert
+          variant="light"
+          color="orange"
+          radius="md"
+          icon={<IconInfoCircle size={16} stroke={1.8} />}
+          title="Année redoublée"
+        >
+          <Text size="sm">
+            Cette année n'a pas été validée : elle est refaite intégralement, stages compris. Les
+            stages ci-dessous restent au dossier comme historique, mais ils ne comptent pas comme
+            acquis — y compris ceux qui ont été validés.
+          </Text>
+        </Alert>
+      )}
+
       <ParcoursTotalsBar totals={year.totals} />
 
       <Box visibleFrom="sm">

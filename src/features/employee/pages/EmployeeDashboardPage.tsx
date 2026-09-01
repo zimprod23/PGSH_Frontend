@@ -12,7 +12,11 @@ import {
 import { StatCard } from '../../student/components/StatCard';
 import { GRADE_LABELS } from '../types/employee.types';
 
-// ─── Null-render helper: fetches complete periods for one service ──────────────
+// ─── Null-render helper: how many rotations of one service await an evaluation ─
+//
+// ⚠ It used to fetch every *closed* period of the service and count the unmarked ones in the
+// browser — 2 920 rows for one chef, on the landing page, to render a single number. The count is
+// now the server's own, and the page is asked for one row purely because the endpoint returns one.
 
 function PendingEvalFetcher({
   serviceId,
@@ -21,12 +25,13 @@ function PendingEvalFetcher({
   serviceId: number;
   onResult: (serviceId: number, count: number) => void;
 }) {
-  const { data } = useGetServicePeriodsByServiceQuery({ serviceId, isComplete: true });
+  const { data } = useGetServicePeriodsByServiceQuery({
+    serviceId,
+    state: 'AwaitingEvaluation',
+    pageSize: 1,
+  });
 
-  const count = useMemo(
-    () => (data?.items ?? []).filter((p) => !p.hasEvaluation).length,
-    [data],
-  );
+  const count = data?.counts.awaitingEvaluation ?? 0;
 
   useEffect(() => {
     onResult(serviceId, count);

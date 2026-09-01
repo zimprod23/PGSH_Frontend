@@ -18,6 +18,7 @@ import { useAcademicYear } from '../contexts/AcademicYearContext';
 import { RepartitionDocument } from '../components/repartition/RepartitionDocument';
 import { levelTitle } from '../components/repartition/repartitionLabels';
 import { downloadRepartition, printRepartition } from '../components/repartition/buildRepartitionFile';
+import { StageRecordExportMenu } from '../components/StageRecordExportMenu';
 
 /**
  * «Répartition annuelle des stages» — the one artefact the faculty actually publishes.
@@ -134,6 +135,19 @@ export default function RepartitionPage() {
             >
               Télécharger (.html)
             </Button>
+
+            {/* The répartition is the plan; this is the record. Same promotion, same année —
+                and it is available before the plan is printable, because a promotion can have
+                stages served (imported history, délocalisations) with no grid at all. */}
+            <StageRecordExportMenu
+              scope={{ levelId: levelId ? Number(levelId) : undefined,
+                       academicYearId: currentYearId ?? undefined }}
+              disabledReason={
+                !levelId ? 'Choisissez une promotion.'
+                : !currentYearId ? 'Choisissez une année universitaire dans la barre du haut.'
+                : undefined
+              }
+            />
           </Group>
         </Group>
       </Paper>

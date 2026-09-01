@@ -101,7 +101,15 @@ export type ReinscriptionAction =
   | 'NoOutcome'
   | 'CursusEnded'
   | 'AlreadyRegistered'
-  | 'NextLevelMissing';
+  | 'NextLevelMissing'
+  /**
+   * ⚠ Admis into what would be the **last year of his own cursus**, with an earlier stage still
+   * unvalidated. Added to the backend with the final-year gate and missing here until 2026-08-30 —
+   * so its badge rendered blank and, worse, the rows never reached the « à traiter » table at all:
+   * the count said N and the list showed nothing. Measured on the live base: **60 of the 686** 6ᵉ
+   * année Médecine are refused entry to the 7ᵉ, so this is the ordinary case, not an edge one.
+   */
+  | 'FinalYearBlocked';
 
 export const REINSCRIPTION_ACTION_LABEL: Record<ReinscriptionAction, string> = {
   WillRegister:      'Réinscrit',
@@ -109,7 +117,18 @@ export const REINSCRIPTION_ACTION_LABEL: Record<ReinscriptionAction, string> = {
   CursusEnded:       'Fin de cursus',
   AlreadyRegistered: 'Déjà inscrit',
   NextLevelMissing:  'Pas de niveau supérieur',
+  FinalYearBlocked:  'Stage antérieur non validé',
 };
+
+/**
+ * Rows a human has to do something about. Kept beside the union so a new action cannot be added
+ * without deciding whether it belongs here — the omission above was exactly that, silently.
+ */
+export const REINSCRIPTION_NEEDS_ATTENTION: ReinscriptionAction[] = [
+  'NoOutcome',
+  'NextLevelMissing',
+  'FinalYearBlocked',
+];
 
 export interface ReinscriptionRowReport {
   studentId: string;
@@ -140,6 +159,10 @@ export interface ReinscriptionReport {
   willRegister: number;
   skipped: number;
   needsAttention: number;
+  /** Refused entry to the final year over an unvalidated earlier stage — revalidate, or grant a dérogation. */
+  finalYearBlocked: number;
+  /** Entered the final year *because* a dérogation was granted: an override nobody sees is one nobody reviews. */
+  finalYearWaived: number;
   byTargetLevel: Record<string, number>;
   byLevel: ReinscriptionLevelBreakdown[];
   rows: ReinscriptionRowReport[];

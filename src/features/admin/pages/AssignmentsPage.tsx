@@ -59,6 +59,7 @@ import {
   useResumeStagePeriodsMutation,
   useValidateCohortAssignmentsMutation,
 } from '../api/adminApi';
+import { StageRecordExportMenu } from '../components/StageRecordExportMenu';
 import type {
   CohortDetailResponse,
   CohortResponse,
@@ -360,8 +361,11 @@ export default function AssignmentsPage() {
   );
 
   // Stage periods (P1, P2…) — used to scope bulk start/close to a chosen window.
+  //
+  // Only `slots` is read here, so the page is asked for the smallest one there is: the grid response
+  // now carries a page of cohorte rows with their cells, and this screen has no use for any of them.
   const { data: schedule } = useGetStageScheduleQuery(
-    { stageId: Number(stageId), academicYearId: currentYearId ?? undefined },
+    { stageId: Number(stageId), academicYearId: currentYearId ?? undefined, pageSize: 1 },
     { skip: !stageId },
   );
   const scheduleSlots = schedule?.slots ?? [];
@@ -372,13 +376,16 @@ export default function AssignmentsPage() {
   const periodArg = selectedPeriods.length ? selectedPeriods : undefined;
   const isAllPeriods = selectedPeriods.length === 0 || selectedPeriods.length >= allPeriodNumbers.length;
 
-  // Which periods each cohort actually occupies, read off the schedule grid (cells aligned to slots).
-  const cohortPeriods = new Map<number, Set<number>>();
-  schedule?.cohorts.forEach((row) => {
-    const set = new Set<number>();
-    row.cells.forEach((cell, i) => { if (cell && scheduleSlots[i]) set.add(scheduleSlots[i].periodNumber); });
-    cohortPeriods.set(row.cohortId, set);
-  });
+  // Which periods each cohort actually occupies.
+  //
+  // ⚠ Read from the cohorte itself, not off the planning grid. It used to be folded out of the
+  // grid's cells, which was only correct while that response carried every cohorte and every cell —
+  // now that its rows are paged, the grid can only speak for the 25 it returned, and every cohorte
+  // past the first page would have read as running in no period at all: silently dropped from the
+  // list here, and excluded from « démarrer / clôturer sur P4-P6 ».
+  const cohortPeriods = new Map<number, Set<number>>(
+    cohorts.map((c) => [c.id, new Set(c.periodNumbers)]),
+  );
 
   // Filter cohorts by the globally-selected academic year, then by the selected periods
   // (a cohort shows only if it runs in at least one targeted period). All periods → no period filter.
@@ -630,6 +637,19 @@ export default function AssignmentsPage() {
                 >
                   Importer les notes
                 </Button>
+              )}
+              {/* The other direction from « Importer les notes », and deliberately beside it: one
+                  puts the verdicts in, the other takes the record out. Scoped to the stage and the
+                  année in view — never to every year this stage has ever run. */}
+              {stageId && (
+                <StageRecordExportMenu
+                  label={isMobile ? 'Exporter' : 'Exporter le dossier (.xlsx)'}
+                  variant="light"
+                  scope={{ stageId: Number(stageId), academicYearId: currentYearId ?? undefined }}
+                  disabledReason={
+                    currentYearId ? undefined : 'Choisissez une année universitaire dans la barre du haut.'
+                  }
+                />
               )}
               {isMobile && stageId && (
                 <Button

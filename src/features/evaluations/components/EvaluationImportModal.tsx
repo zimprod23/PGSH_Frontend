@@ -36,6 +36,7 @@ import {
   type EvaluationImportScope,
 } from '../types/import.types';
 import { useNotify } from '../../../common/hooks/useNotify';
+import { problemMessage } from '../../../common/utils/problemMessage';
 
 interface Props {
   stageId: number;
@@ -119,7 +120,7 @@ export function EvaluationImportModal({
     try {
       setReport(await preview({ ...request, file: picked }).unwrap());
     } catch (err: unknown) {
-      notify.error(detailOf(err) ?? 'Fichier illisible.');
+      notify.error(problemMessage(err) ?? 'Fichier illisible.');
     }
   };
 
@@ -131,7 +132,7 @@ export function EvaluationImportModal({
       setApplied(true);
       notify.success(`${result.periodCount} note(s) enregistrée(s).`);
     } catch (err: unknown) {
-      notify.error(detailOf(err) ?? "L'import a été refusé.");
+      notify.error(problemMessage(err) ?? "L'import a été refusé.");
     }
   };
 
@@ -329,5 +330,3 @@ export function EvaluationImportModal({
     </Modal>
   );
 }
-
-const detailOf = (err: unknown) => (err as { data?: { detail?: string } })?.data?.detail;

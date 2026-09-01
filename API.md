@@ -1,5 +1,13 @@
 # API.md — Backend API Contract
 
+> ⚠ **This file stopped being maintained around Phase 7 and is now a partial contract.** Checked
+> 2026-08-30: it documents **none** of the CNPN routes, the déliberation / réinscription / inscription
+> acts, the rotation cycle, the working-day calendar, service occupancy, the final-year waivers, the
+> promotion partitioning or the chef-de-service worklist. **An endpoint's absence here says nothing
+> about whether it exists** — that is how somebody concludes a backend feature has not been built and
+> writes it again. The authority is the backend's own `PGSH.API/Endpoints/`, plus `/scalar/v1` against
+> a running stack; the backend `CLAUDE.md` explains what each act is for.
+
 All requests go through the Vite proxy at `/api` → backend. In production, replace with direct base URL.
 
 **Authentication:** Every request includes `Authorization: Bearer <keycloak_token>`. Handled automatically by the RTK Query base in `src/app/apiSlice.ts`.
@@ -16,6 +24,38 @@ All requests go through the Vite proxy at `/api` → backend. In production, rep
   }
 }
 ```
+
+## Exports (.xlsx) — added 2026-08-31
+
+The two routes that return a **file** rather than JSON. Both are admin-only (403 otherwise), both
+resolve an omitted `academicYearId` to the **current** year, and both name the file after the scope
+they resolved — read it from `Content-Disposition`, never rebuild it (see `CLAUDE.md` §1f).
+
+| Route | Query params | Returns |
+|---|---|---|
+| `GET /students/export` | `academicYearId?` `levelId?` `program?` `academicGroupId?` `searchTerm?` | one sheet, one row per **registration** |
+| `GET /stages/assignments/export` | `academicYearId?` `levelId?` `stageId?` `academicGroupId?` `onlyEvaluated?` | three sheets: **Stages** (one row per affectation), **Périodes** (one row per période), **Synthèse** (verdicts per stage) |
+
+- `students/export` carries `Programme` and `Niveau` as **columns**; `levelId` cuts the
+  per-promotion file with the columns still in place.
+- `stages/assignments/export` is scoped by the **registration's** level, so a rattrapage of an earlier
+  year's stage is on its own promotion's file, with `Niveau du stage` naming where the stage belongs.
+- `onlyEvaluated=true` narrows to the affectations carrying a verdict (a PV). Left off, the unmarked
+  ones are in the document — that is what makes a missing évaluation visible.
+- ⚠ **A `SingleService` run is one période covering several créneaux**, and both sheets now say so:
+  `Nb créneaux` / `Créneaux` (« P1-P3 »), plus `Détail des créneaux` on the Périodes sheet giving each
+  column its own window. The rows stay one per période — a run is marked once — and a période that
+  came from no grid leaves the count blank rather than printing `0`.
+- Both sheets carry `Chef de service` with an `Origine du chef` beside it (« Affectation » /
+  « Note (import) » / « Mixte »): 140 of the 148 services name their professor only in an **undated**
+  legacy note, and the file must not pass that off as the dated record.
+- Refusals are ordinary ProblemDetails: `Export.NotAllowed` (403), `Export.TooManyRows` (400, naming
+  the count and the axis that narrows it), an unknown level (400) or stage (404).
+
+⚠ **A `404` on these is silent** — `errorMiddleware` deliberately swallows a 404 from a query, so a
+download control must handle that one case itself (`isReportedByErrorMiddleware`).
+
+---
 
 **Enum values:** All enums are serialized as **strings** (e.g., `"Pending"`, `"Medecine"`). Never integers.
 
@@ -391,6 +431,13 @@ interface CohortResponse {
   isSchedulePublished: boolean;
   academicYearId: number;
   academicYearLabel: string;
+  rotationGroup: string | null;
+  /**
+   * ⚠ The columns of the axis this cohorte stands in. Read here rather than folded out of the
+   * planning grid's cells, which only worked while that response shipped every cohorte and every
+   * cell — past its first page, every cohorte would read as running in no period at all.
+   */
+  periodNumbers: number[];
 }
 ```
 
@@ -415,12 +462,60 @@ Error: `Schedule.NotPublished`
 ### Stage Schedule Grid
 
 #### GET `/stages/{stageId}/schedule`
-Returns the full schedule grid for a stage — all slots (columns) and cohorts (rows) with their service assignments.
+The planning grid for one stage and one year: the columns of the axis, **a page of cohorte rows**, and
+a summary describing the whole selection.
+
+⚠ **The rows are paged and the partition is filtered server-side.** The current year's biggest stage
+carries 105 cohortes over ten columns — a thousand cells in one payload, and a thousand cell
+components mounted at once, which is what made the grid slow to open *and* to close.
+
+```
+?academicYearId=22&rotationGroup=A&pageNumber=1&pageSize=25
+```
+| param | meaning |
+|---|---|
+| `academicYearId` | omitted = the current year, never all of them |
+| `rotationGroup` | one partition label; omitted = the whole promotion |
+| `pageNumber` / `pageSize` | default 1 / 25; a non-positive value is read as *unstated*, never as one row |
+
 ```typescript
 interface StageScheduleResponse {
   stageId: number;
-  slots: StageSlotResponse[];
-  cohorts: CohortScheduleRow[];
+  slots: StageSlotResponse[];                      // every column — bounded by T, never paged
+  cohorts: PaginatedResponse<CohortScheduleRow>;   // one page of rows
+  summary: StageScheduleSummary;                   // the whole selection
+}
+
+/**
+ * ⚠ Every number here is measured over the selection, in the store — never over the page. The
+ * buttons beside them act on the selection: « Publier tout (N) » fires ONE stage-wide call, so an N
+ * counted from 25 visible rows would promise 25 and publish 90.
+ */
+interface StageScheduleSummary {
+  totalCohorts: number;
+  publishedCohorts: number;
+  configuredUnpublishedCohorts: number;   // what « Publier tout » will publish
+  /** ⚠ NOT narrowed by `rotationGroup` — these are the chips the user filters *with*. */
+  partitions: { label: string; cohortCount: number }[];
+  /** Exact, even when `saturations` below is capped at 100. */
+  saturatedCellCount: number;
+  /** Deduplicated per (créneau, service): a dozen cohortes in one full service is one problem. */
+  saturations: SaturatedCellResponse[];
+  /** Columns the selection already occupies — what « nouveaux créneaux uniquement » targets. */
+  occupiedSlotIds: number[];
+  /** ⚠ Read across the WHOLE stage: it answers a question about the rows the filter removed. */
+  partitionUsage: { rotationGroup: string | null; stageSlotId: number }[];
+}
+
+interface SaturatedCellResponse {
+  stageSlotId: number;
+  periodNumber: number;
+  serviceId: number;
+  serviceName: string;
+  hospitalName: string;
+  occupiedSeats: number;
+  capacity: number;                        // 0 when `reason` is 'Refused' — there is no room to be under
+  reason: 'Total' | 'Quota' | 'Refused';   // service total · promotion quota · promotion not admitted
 }
 
 interface StageSlotResponse {
@@ -436,21 +531,50 @@ interface CohortScheduleRow {
   cohortLabel: string;
   academicGroupId: number;
   academicGroupLabel: string;
+  rotationGroup: string | null;
   studentCount: number;
   isSchedulePublished: boolean;
   cells: (SlotCellResponse | null)[];   // one entry per slot, null if unassigned
 }
 
+/**
+ * `capacity` / `occupiedSeats` are the ONE limit governing this cell and the load measured against
+ * it — quotas replace a service's total rather than sitting under it. `isLevelQuota` says which rule
+ * is in force; `admitsLevel` is false when the service refuses this promotion outright, which
+ * « autoriser le dépassement » does not lift.
+ */
 interface SlotCellResponse {
   assignmentId: number;
   stageSlotId: number;
   serviceId: number;
   serviceName: string;
   hospitalName: string;
-  serviceCapacity: number;
-  occupiedSeats: number;   // students already placed here across all cohorts
+  capacity: number;
+  occupiedSeats: number;
+  isLevelQuota: boolean;
+  admitsLevel: boolean;
 }
 ```
+
+#### POST `/stages/{stageId}/schedule/publish`
+Publishes the stage's configured, unpublished cohortes in **one** call — use this, never a loop of
+`POST /cohorts/{id}/publish-schedule`.
+
+```typescript
+interface PublishStageRequest {
+  academicYearId?: number;      // omitted = the current year
+  partitionLabels?: string[];
+  periodNumbers?: number[];
+  allowOverCapacity?: boolean;  // lifts the numbers only, never an inadmissible service
+}
+// Response: { publishedCohorts, periodsCreated, skippedCohorts, skippedAlreadyServed }
+```
+
+⚠ **One refusal, not one per cell.** When several cells breach at once the call returns a single
+`Schedule.PublishRefusedByIntake` naming how many, how many of those are the unforceable
+admissibility half, and the heaviest three. A single breach keeps its own specific code
+(`Schedule.CapacityExceeded`, `Schedule.LevelCapacityExceeded`, `Schedule.LevelNotAdmitted`).
+Nothing is written when it refuses.
 
 #### POST `/stages/{stageId}/slots`
 Create a new time period column.

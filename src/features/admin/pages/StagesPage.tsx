@@ -32,6 +32,7 @@ import {
   IconUsersGroup,
 } from '@tabler/icons-react';
 import { useState, useMemo, useEffect } from 'react';
+import { StageCatalogueFigure } from '../components/StageCatalogueFigure';
 import { useListParams } from '../../../common/hooks/useListParams';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -141,8 +142,25 @@ function StageFormDrawer({
       }
       onSaved();
       onClose();
-    } catch {
-      notify.error('Erreur lors de l\'enregistrement');
+    } catch (err: unknown) {
+      // ⚠ A bare `catch` here hid the reason. Every stage in the base carries zero objectives, the
+      // validator demanded one, and the save was refused with a message naming a field the user was
+      // not editing — but all that reached the screen was « Erreur lors de l'enregistrement », so a
+      // rotation-mode switch looked like a broken button. A refusal the server took the trouble to
+      // explain has to be shown.
+      //
+      // Validation failures carry their messages in `errors[]`; `detail` is the generic
+      // « One or more validation errors occurred ». Every other refusal says it in `detail`.
+      const problem = (err as {
+        data?: { detail?: string; errors?: { description?: string }[] };
+      })?.data;
+
+      const validation = (problem?.errors ?? [])
+        .map((e) => e.description)
+        .filter(Boolean)
+        .join(' · ');
+
+      notify.error(validation || problem?.detail || "Erreur lors de l'enregistrement");
     }
   };
 
@@ -421,8 +439,8 @@ export default function StagesPage() {
                   <Table.Tr>
                     <Table.Th>Nom</Table.Th>
                     <Table.Th>Niveau</Table.Th>
-                    <Table.Th>Durée</Table.Th>
-                    <Table.Th>Coefficient</Table.Th>
+                    <Table.Th>Durée (catalogue)</Table.Th>
+                    <Table.Th>Coefficient (catalogue)</Table.Th>
                     <Table.Th>Périodes</Table.Th>
                     <Table.Th w={100} />
                   </Table.Tr>
@@ -459,10 +477,19 @@ export default function StagesPage() {
                           )}
                         </Table.Td>
                         <Table.Td>
-                          <Text size="sm" c="dimmed">{stage.durationInDays}j</Text>
+                          <StageCatalogueFigure
+                            value={stage.durationInDays}
+                            figure="durationInDays"
+                            textFigures={stage.textFigures ?? []}
+                          />
                         </Table.Td>
                         <Table.Td>
-                          <Text size="sm" ff="monospace">{stage.coefficient}</Text>
+                          <StageCatalogueFigure
+                            value={stage.coefficient}
+                            figure="coefficient"
+                            textFigures={stage.textFigures ?? []}
+                            monospace
+                          />
                         </Table.Td>
                         <Table.Td>
                           <Tooltip

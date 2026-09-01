@@ -51,6 +51,7 @@ import {
   useAssignAllStudentsByStageMutation,
   useStartCohortAssignmentsMutation,
   usePublishScheduleMutation,
+  usePublishStageScheduleMutation,
   useUnpublishScheduleMutation,
   useGetAcademicYearsQuery,
   useGetAcademicGroupOptionsQuery,
@@ -73,7 +74,7 @@ export default function StageDetailPage() {
   const notify = useNotify();
 
   // The academic year comes from the single global navbar selector — no page-local year dropdown.
-  const { currentYearId } = useAcademicYear();
+  const { currentYearId, currentYear } = useAcademicYear();
 
   const { data: stage, isLoading: stageLoading } = useGetStageByIdQuery(stageId);
 
@@ -90,6 +91,7 @@ export default function StageDetailPage() {
   const [assignAll, { isLoading: assigningAll }] = useAssignAllStudentsByStageMutation();
   const [startAssignments]   = useStartCohortAssignmentsMutation();
   const [publishSchedule]    = usePublishScheduleMutation();
+  const [publishStageSchedule] = usePublishStageScheduleMutation();
   const [unpublishSchedule]  = useUnpublishScheduleMutation();
   const [deleteAllCohorts, { isLoading: resettingCohorts }] = useDeleteAllStageCohortsMutation();
 
@@ -98,6 +100,7 @@ export default function StageDetailPage() {
   const [unpublishingCohortId, setUnpublishingCohortId] = useState<number | null>(null);
   const [startingCohortId,    setStartingCohortId]    = useState<number | null>(null);
   const [publishingAll,       setPublishingAll]       = useState(false);
+  const [publishAllOverCapacity, setPublishAllOverCapacity] = useState(false);
   const [unpublishingAll,     setUnpublishingAll]     = useState(false);
 
   const [activePartition, setActivePartition] = useState<string | null>(null);
@@ -139,6 +142,7 @@ export default function StageDetailPage() {
   const [unpublishWarning,    setUnpublishWarning]    = useState<string | null>(null);
   const [unpublishOpen,       { open: openUnpublish,       close: closeUnpublish       }] = useDisclosure(false);
   const [unpublishAllOpen,    { open: openUnpublishAll,    close: closeUnpublishAll    }] = useDisclosure(false);
+  const [publishAllOpen,      { open: openPublishAll,      close: closePublishAll      }] = useDisclosure(false);
   const [resetCohortsOpen,    { open: openResetCohorts,    close: closeResetCohorts    }] = useDisclosure(false);
 
   // Allowed services
@@ -240,8 +244,17 @@ export default function StageDetailPage() {
 
   const handleDeleteCohortConfirm = async () => {
     if (!deleteCohortTarget) return;
-    try { await deleteCohort({ cohortId: deleteCohortTarget.id, stageId }).unwrap(); notify.success('Cohorte supprimée'); }
-    catch { notify.error('Impossible de supprimer cette cohorte'); }
+    try {
+      const res = await deleteCohort({ cohortId: deleteCohortTarget.id, stageId }).unwrap();
+      notify.success(
+        res.affectationsRemoved > 0
+          ? `Cohorte supprimée — ${res.affectationsRemoved} affectation(s) et ${res.periodsRemoved} période(s) avec elle`
+          : 'Cohorte supprimée',
+      );
+    } catch {
+      // errorMiddleware toasts the refusal, which names the cohorte, its counts and what to do
+      // first. A notify.error beside it printed the identical sentence twice.
+    }
     closeDeleteCohort();
     setDeleteCohortTarget(null);
   };
@@ -297,18 +310,37 @@ export default function StageDetailPage() {
     setUnpublishWarning(null);
   };
 
+  /**
+   * ⚠ One request for the whole stage, never one per cohorte.
+   *
+   * This used to loop: a hundred sequential publishes, each rebuilding the service occupancy from
+   * scratch, and — since `errorMiddleware` toasts every rejected mutation — one red toast per
+   * cohorte when the plan was over capacity. Dozens of them, arriving one at a time as the loop
+   * ground on, none of which said how many cells were actually in trouble. `PublishStageSchedule`
+   * is the same act expressed once: it checks every cell first, refuses with a single sentence
+   * naming the count and the heaviest breaches, and writes nothing when it refuses.
+   */
   const handlePublishAll = async () => {
-    const targets = yearCohorts.filter((c) => c.slotAssignmentCount > 0 && !c.isSchedulePublished);
-    if (targets.length === 0) { notify.info('Aucune cohorte avec un plan configuré non publié'); return; }
+    const publishable = yearCohorts.filter((c) => c.slotAssignmentCount > 0 && !c.isSchedulePublished);
+    if (publishable.length === 0) { notify.info('Aucune cohorte avec un plan configuré non publié'); return; }
+
+    closePublishAll();
     setPublishingAll(true);
-    let success = 0, failed = 0;
-    for (const cohort of targets) {
-      try { await publishSchedule({ cohortId: cohort.id, stageId }).unwrap(); success++; }
-      catch { failed++; }
+    try {
+      const res = await publishStageSchedule({
+        stageId,
+        academicYearId: currentYearId ?? undefined,
+        allowOverCapacity: publishAllOverCapacity,
+      }).unwrap();
+      notify.success(
+        `${res.publishedCohorts} planning(s) publié(s) — ${res.periodsCreated} période(s)`
+        + (res.skippedCohorts > 0 ? `, ${res.skippedCohorts} cohorte(s) ignorée(s)` : ''),
+      );
+    } catch {
+      // errorMiddleware toasts the server's own sentence — once, and it names the numbers.
+    } finally {
+      setPublishingAll(false);
     }
-    setPublishingAll(false);
-    if (failed > 0) notify.error(`${failed} cohorte(s) en erreur lors de la publication`);
-    else notify.success(`${success} planning(s) publié(s)`);
   };
 
   const handleUnpublishAllConfirm = async () => {
@@ -342,11 +374,21 @@ export default function StageDetailPage() {
     closeResetCohorts();
     try {
       const res = await deleteAllCohorts({ stageId, academicYearId: currentYearId ?? undefined }).unwrap();
-      notify.success(`${res.deleted} cohorte${res.deleted !== 1 ? 's' : ''} supprimée${res.deleted !== 1 ? 's' : ''}`);
+      notify.success(
+        `${res.cohortsRemoved} cohorte${res.cohortsRemoved !== 1 ? 's' : ''} supprimée${res.cohortsRemoved !== 1 ? 's' : ''}`
+        + (res.affectationsRemoved > 0
+          ? ` — ${res.affectationsRemoved} affectation(s) et ${res.periodsRemoved} période(s) avec elles`
+          : ''),
+      );
     } catch {
-      notify.error('Impossible de réinitialiser les cohortes — des affectations sont déjà en cours');
+      // errorMiddleware toasts the refusal — « Psychiatrie est engagé en 2025-2026 : 60 cohorte(s)… »
     }
   };
+
+  // ⚠ Named, never « l'année en cours ». The reset targets the year selected in the navbar, which is
+  // routinely a past one — the refusal we saw on the real base read « engagé en 2025-2026 » while the
+  // dialog above it had said « l'année en cours ». A destructive confirmation must name what it hits.
+  const yearLabel = currentYear?.label ?? "l'année sélectionnée";
 
   const hasUnpublishedPlans = yearCohorts.some((c) => c.slotAssignmentCount > 0 && !c.isSchedulePublished);
   const hasPublishedRotations = yearCohorts.some((c) => c.isSchedulePublished);
@@ -581,7 +623,7 @@ export default function StageDetailPage() {
                             size="xs" color="orange" radius="md" variant="light"
                             leftSection={<IconRocket size={12} stroke={1.5} />}
                             loading={publishingAll}
-                            onClick={handlePublishAll}
+                            onClick={() => { setPublishAllOverCapacity(false); openPublishAll(); }}
                           >
                             Publier toutes
                           </Button>
@@ -848,7 +890,7 @@ export default function StageDetailPage() {
         opened={deleteCohortOpen}
         onClose={() => { closeDeleteCohort(); setDeleteCohortTarget(null); }}
         title="Supprimer la cohorte"
-        message={`Supprimer la cohorte "${deleteCohortTarget?.label}" ?`}
+        message={`Supprimer la cohorte "${deleteCohortTarget?.label}" ? Les affectations et les périodes construites dessus partent avec elle. Refusé si la rotation a démarré.`}
         confirmLabel="Supprimer"
         onConfirm={handleDeleteCohortConfirm}
       />
@@ -862,6 +904,27 @@ export default function StageDetailPage() {
         onConfirm={handleUnpublishRotationConfirm}
         loading={!!unpublishingCohortId}
       />
+      <ConfirmModal
+        opened={publishAllOpen}
+        onClose={closePublishAll}
+        title="Publier les plannings"
+        message={`Générer les périodes de service de ${yearCohorts.filter((c) => c.slotAssignmentCount > 0 && !c.isSchedulePublished).length} cohorte(s) configurée(s) ?`}
+        confirmLabel="Publier"
+        confirmColor="teal"
+        onConfirm={handlePublishAll}
+        loading={publishingAll}
+      >
+        <Checkbox
+          checked={publishAllOverCapacity}
+          onChange={(e) => setPublishAllOverCapacity(e.currentTarget.checked)}
+          label="Autoriser le dépassement d'effectif"
+          /* Same wording as the grid's, and the same limit: it lifts the numbers, never a service
+             that does not admit the promotion. A checkbox promising a power it lacks is worse than
+             no checkbox — the admin ticks it, gets the same refusal, and blames the screen. */
+          description="Publie malgré tout lorsqu'un service dépasse sa capacité totale ou le quota d'une promotion. Ne force pas un service qui n'accueille pas cette promotion."
+          color="orange"
+        />
+      </ConfirmModal>
       <ConfirmModal
         opened={unpublishAllOpen}
         onClose={closeUnpublishAll}
@@ -877,8 +940,8 @@ export default function StageDetailPage() {
         title="Réinitialiser les cohortes"
         message={
           yearCohorts.some((c) => c.isSchedulePublished)
-            ? `Supprimer toutes les cohortes (${yearCohorts.length}) de ce stage, y compris les plannings publiés et les périodes de service ? Cette action est irréversible.`
-            : `Supprimer toutes les cohortes (${yearCohorts.length}) de ce stage ? Cette action est irréversible.`
+            ? `Supprimer toutes les cohortes (${yearCohorts.length}) de ce stage pour ${yearLabel}, y compris les plannings publiés et les périodes de service ? Cette action est irréversible, et refusée si une rotation a démarré.`
+            : `Supprimer toutes les cohortes (${yearCohorts.length}) de ce stage pour ${yearLabel} ? Cette action est irréversible.`
         }
         confirmLabel="Réinitialiser"
         onConfirm={handleResetAllCohortsConfirm}

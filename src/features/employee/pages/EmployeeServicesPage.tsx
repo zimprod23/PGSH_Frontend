@@ -8,9 +8,12 @@ import {
   Collapse,
   Container,
   Group,
+  Loader,
+  Pagination,
   Paper,
   ScrollArea,
   SegmentedControl,
+  Select,
   Skeleton,
   Stack,
   Table,
@@ -22,12 +25,13 @@ import {
   UnstyledButton,
   rem,
 } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
+import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import {
   IconBuildingHospital,
   IconCalendarEvent,
   IconChevronRight,
   IconClipboardList,
+  IconClock,
   IconPencil,
   IconPlayerPause,
   IconSearch,
@@ -38,32 +42,37 @@ import { useMemo, useState } from 'react';
 import {
   useGetCurrentEmployeeQuery,
   useGetServicePeriodsByServiceQuery,
+  useGetWorklistAcademicYearsQuery,
 } from '../api/employeeApi';
-import type { MyServicePeriodResponse } from '../types/employee.types';
+import {
+  PERIOD_STATE_META,
+  WORKLIST_STATES,
+  type ChefWorklistCounts,
+  type MyServicePeriodResponse,
+  type ServicePeriodState,
+} from '../types/employee.types';
 import { EvaluationModal } from '../../evaluations/components/EvaluationModal';
 import type { EvaluationTarget } from '../../evaluations/types/evaluation.types';
 
 // ─── Granularity helpers ──────────────────────────────────────────────────────
 
-type PeriodStatus = 'active' | 'toEvaluate' | 'evaluated';
-
-const STATUS_ORDER: PeriodStatus[] = ['active', 'toEvaluate', 'evaluated'];
-
-const STATUS_META: Record<PeriodStatus, { label: string; color: string }> = {
-  active:     { label: 'En cours',  color: 'blue'   },
-  toEvaluate: { label: 'À évaluer', color: 'orange' },
-  evaluated:  { label: 'Évalué',    color: 'teal'   },
-};
-
-function periodStatus(p: MyServicePeriodResponse): PeriodStatus {
-  if (!p.isComplete) return 'active';
-  return p.hasEvaluation ? 'evaluated' : 'toEvaluate';
-}
-
 const isTransfer = (p: MyServicePeriodResponse) => p.transfer != null;
 
 const fmtDate = (iso: string) =>
   new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(iso));
+
+/** Rows per page. Matches the server's own default and its hard ceiling. */
+const PAGE_SIZE = 200;
+
+/** Below this the search is ignored, so a stray keystroke does not re-query the whole service. */
+const MIN_SEARCH = 2;
+
+/**
+ * The sentinel for « toutes les années ». An explicit option rather than clearing the field: an
+ * empty selector reads as "no filter", and here the absence of a choice means the opposite — the
+ * server applies the current year. Spanning every year has to be something the chef says.
+ */
+const ALL_YEARS = 'all';
 
 interface GroupBucket {
   label: string;
@@ -77,7 +86,7 @@ interface WindowBucket {
   stageName: string;
   levelLabel: string | null;
   groups: GroupBucket[];
-  counts: Record<PeriodStatus, number>;
+  counts: Record<ServicePeriodState, number>;
   total: number;
   transferIn: number;
   transferOut: number;
@@ -93,7 +102,14 @@ function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V) {
   else map.set(key, [value]);
 }
 
-/** Period (time window) → academic group → students. */
+/**
+ * Period (time window) → academic group → students.
+ *
+ * ⚠ Grouping is per page now. It used to be over every row of the service, which is exactly why the
+ * server returned every row — and why the card mounted thousands of them at once. A slice normally
+ * fits one page, so the grouping is usually over the whole slice anyway; when it is not, the pager
+ * says so rather than the rows silently vanishing.
+ */
 function buildWindows(periods: MyServicePeriodResponse[]): WindowBucket[] {
   const byWindow = new Map<string, MyServicePeriodResponse[]>();
   for (const p of periods) pushTo(byWindow, `${p.startDate}__${p.endDate}`, p);
@@ -112,13 +128,14 @@ function buildWindows(periods: MyServicePeriodResponse[]): WindowBucket[] {
         Number(isTransfer(a)) - Number(isTransfer(b)) || a.studentFullName.localeCompare(b.studentFullName)),
     })).sort((a, b) => a.label.localeCompare(b.label));
 
-    const counts: Record<PeriodStatus, number> = { active: 0, toEvaluate: 0, evaluated: 0 };
+    const counts: Record<ServicePeriodState, number> =
+      { Planned: 0, Underway: 0, AwaitingEvaluation: 0, Settled: 0 };
     let transferIn = 0;
     let transferOut = 0;
     for (const r of rows) {
       if (r.transfer?.direction === 'Incoming') transferIn++;
       else if (r.transfer?.direction === 'Outgoing') transferOut++;
-      else counts[periodStatus(r)]++;
+      else counts[r.state]++;
     }
 
     const total = rows.length - transferIn - transferOut;
@@ -130,6 +147,22 @@ function buildWindows(periods: MyServicePeriodResponse[]): WindowBucket[] {
   return windows.sort((a, b) => a.startDate.localeCompare(b.startDate));
 }
 
+/**
+ * Which slice to open on. A bounded list has one failure mode the unbounded one did not — landing on
+ * an empty slice reads exactly like "this chef has no work" — so the first slice with something in
+ * it wins, in the order a chef cares about it.
+ */
+function firstNonEmptyState(counts: ChefWorklistCounts): ServicePeriodState {
+  return WORKLIST_STATES.find((s) => counts[PERIOD_STATE_META[s].countKey] > 0) ?? 'Underway';
+}
+
+const emptyMessage: Record<ServicePeriodState, string> = {
+  Underway:           'Aucune rotation en cours dans ce service.',
+  AwaitingEvaluation: 'Aucune évaluation en attente.',
+  Planned:            'Aucune rotation planifiée dans ce service.',
+  Settled:            'Aucune rotation terminée pour ce filtre.',
+};
+
 // ─── Service card ─────────────────────────────────────────────────────────────
 
 function ServiceCard({ serviceId, serviceName, hospitalName }: {
@@ -140,18 +173,78 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
   const [evalTarget, setEvalTarget] = useState<EvaluationTarget | null>(null);
   const [modalOpen, { open: openModal, close: closeModal }] = useDisclosure(false);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | PeriodStatus>('all');
+  const [debouncedSearch] = useDebouncedValue(search, 350);
   const [serviceOpen, setServiceOpen] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
+  // Null until the chef picks; autoState is the one-time opening choice made from the first
+  // response's counts.
+  const [chosenState, setChosenState] = useState<ServicePeriodState | null>(null);
+  const [autoState, setAutoState] = useState<ServicePeriodState | null>(null);
+  const state: ServicePeriodState = chosenState ?? autoState ?? 'Underway';
+
+  const [page, setPage] = useState(1);
+
+  // Null until the chef picks a year, which is not the same as "all years": it means "whatever the
+  // server resolves", i.e. the year flagged current. The response names the year it used, so the
+  // selector displays the real answer instead of guessing at one.
+  const [yearChoice, setYearChoice] = useState<string | null>(null);
+
+  const { data: years } = useGetWorklistAcademicYearsQuery();
+
+  const searchTerm = debouncedSearch.trim().length >= MIN_SEARCH ? debouncedSearch.trim() : undefined;
+
   // Admin pause/resume/start mutations live in the admin API slice and don't invalidate this
   // employee-slice query, so refetch on mount/arg change to keep the chef worklist status live.
-  const { data: page, isLoading } = useGetServicePeriodsByServiceQuery(
-    { serviceId },
+  const { data, isLoading, isFetching } = useGetServicePeriodsByServiceQuery(
+    {
+      serviceId,
+      state,
+      searchTerm,
+      pageNumber: page,
+      pageSize: PAGE_SIZE,
+      // Sending neither is how the current year gets applied — the rule that an omitted year means
+      // the current one, never all of them. ⚠ Narrowing a chef's live work by year is the change
+      // that blanked worklists twice, and it is only safe because the response reports what the
+      // filter held back (outsideYearCount); that notice is not decoration, it is the guard.
+      academicYearId:
+        yearChoice && yearChoice !== ALL_YEARS ? Number(yearChoice) : undefined,
+      allYears: yearChoice === ALL_YEARS,
+    },
     { refetchOnMountOrArgChange: true },
   );
 
-  const periods = useMemo(() => page?.items ?? [], [page]);
+  const counts = data?.counts;
+
+  // Adjusting state during render rather than in an effect — React's own sanctioned form, and the
+  // only one that is safe here. In an effect the sequence oscillates: switching slice changes the
+  // query key, the new key has no data yet, so `counts` goes undefined and the slice falls back to
+  // Underway, which restores the cached response and flips it again. Guarded on `autoState`, this
+  // runs exactly once and never fights the chef's own choice.
+  if (chosenState === null && autoState === null && counts) {
+    setAutoState(firstNonEmptyState(counts));
+  }
+
+  // What the selector shows: the chef's own choice, else the year the server resolved.
+  const yearValue = yearChoice ?? (data ? (data.academicYearId?.toString() ?? ALL_YEARS) : null);
+  const yearLabel = years?.find((y) => String(y.id) === yearValue)?.label;
+  const outsideYear = data?.outsideYearCount ?? 0;
+
+  const selectYear = (next: string | null) => {
+    setYearChoice(next ?? ALL_YEARS);
+    setPage(1);
+    setExpandedGroups(new Set());
+  };
+
+  const periods = useMemo(() => data?.page.items ?? [], [data]);
+  const totalCount = data?.page.totalCount ?? 0;
+  const totalPages = data?.page.totalPages ?? 1;
+
+  const selectState = (next: ServicePeriodState) => {
+    setChosenState(next);
+    setPage(1);
+    setExpandedGroups(new Set());
+  };
 
   const openFor = (period: MyServicePeriodResponse) => {
     setEvalTarget({
@@ -168,20 +261,9 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
     openModal();
   };
 
-  const groups = useMemo(
-    () => Array.from(new Set(periods.map((p) => p.academicGroupLabel))).sort(),
-    [periods],
-  );
-
   // The stage(s) this chef evaluates in this service — usually one, but a service can host
   // different rotations across windows, so show every distinct stage present.
   const stages = useMemo(() => distinctStages(periods), [periods]);
-
-  const counts = useMemo(() => {
-    const c: Record<PeriodStatus, number> = { active: 0, toEvaluate: 0, evaluated: 0 };
-    for (const p of periods) if (!isTransfer(p)) c[periodStatus(p)]++;
-    return c;
-  }, [periods]);
 
   const transferCounts = useMemo(() => {
     let incoming = 0;
@@ -193,21 +275,10 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
     return { incoming, outgoing };
   }, [periods]);
 
-  const liveTotal = periods.length - transferCounts.incoming - transferCounts.outgoing;
-
-  const q = search.trim().toLowerCase();
-  const windows = useMemo(() => {
-    const filtered = periods.filter((p) => {
-      // The status filter targets the live roster; transfer overlays only appear under "Tous".
-      if (statusFilter !== 'all' && (isTransfer(p) || periodStatus(p) !== statusFilter)) return false;
-      if (q && !`${p.studentFullName} ${p.studentCne} ${p.studentAppogee}`.toLowerCase().includes(q)) return false;
-      return true;
-    });
-    return buildWindows(filtered);
-  }, [periods, statusFilter, q]);
+  const windows = useMemo(() => buildWindows(periods), [periods]);
 
   // While searching, every rendered group already contains only matches — force them open.
-  const searching = q.length > 0;
+  const searching = searchTerm !== undefined;
   const allGroupKeys = useMemo(
     () => windows.flatMap((w) => w.groups.map((g) => `${w.key}::${g.label}`)),
     [windows],
@@ -224,8 +295,17 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
   const toggleAllGroups = () =>
     setExpandedGroups(allExpanded ? new Set() : new Set(allGroupKeys));
 
-  const actionFor = (p: MyServicePeriodResponse, status: PeriodStatus) => {
-    if (status === 'active') {
+  const actionFor = (p: MyServicePeriodResponse) => {
+    // Published, not opened. The chef is shown who is coming and when; the rotation is not his yet.
+    if (p.state === 'Planned') {
+      return (
+        <Tooltip label="Rotation planifiée — elle deviendra active une fois ouverte par l'administration"
+          withArrow multiline w={240}>
+          <Text size="xs" c="dimmed" fs="italic">Pas encore démarrée</Text>
+        </Tooltip>
+      );
+    }
+    if (p.state === 'Underway') {
       // Suspended mid-rotation (e.g. an exam week) — frozen until the administration resumes it.
       if (p.isPaused) {
         return (
@@ -248,7 +328,15 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
         </Tooltip>
       );
     }
-    if (status === 'toEvaluate') {
+    // A rotation cut short by a transfer is terminal: it is kept as history, never evaluated.
+    if (p.isInterrupted) {
+      return (
+        <Tooltip label="Rotation interrompue par un transfert — conservée en historique" withArrow multiline w={240}>
+          <Text size="xs" c="dimmed" fs="italic">Interrompue</Text>
+        </Tooltip>
+      );
+    }
+    if (p.state === 'AwaitingEvaluation') {
       return (
         <Button
           size="xs"
@@ -313,9 +401,9 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
               </Stack>
             </Group>
             <Group gap={6} justify="flex-end" style={{ flexWrap: 'wrap', maxWidth: '55%' }}>
-              {STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => (
-                <Badge key={s} size="sm" variant="light" color={STATUS_META[s].color} radius="sm">
-                  {counts[s]} {STATUS_META[s].label.toLowerCase()}
+              {counts && WORKLIST_STATES.filter((s) => counts[PERIOD_STATE_META[s].countKey] > 0).map((s) => (
+                <Badge key={s} size="sm" variant="light" color={PERIOD_STATE_META[s].color} radius="sm">
+                  {counts[PERIOD_STATE_META[s].countKey]} {PERIOD_STATE_META[s].label.toLowerCase()}
                 </Badge>
               ))}
               {transferCounts.incoming > 0 && (
@@ -328,11 +416,6 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
                   {transferCounts.outgoing} sortant{transferCounts.outgoing > 1 ? 's' : ''}
                 </Badge>
               )}
-              {groups.length > 0 && (
-                <Badge size="sm" variant="outline" color="grape" radius="sm">
-                  {groups.length} groupe{groups.length > 1 ? 's' : ''}
-                </Badge>
-              )}
             </Group>
           </Group>
 
@@ -342,26 +425,43 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
                 <TextInput
                   placeholder="Rechercher un étudiant (nom, CNE, Apogée)…"
                   leftSection={<IconSearch size={16} stroke={1.5} />}
+                  rightSection={isFetching ? <Loader size="xs" /> : null}
                   value={search}
-                  onChange={(e) => setSearch(e.currentTarget.value)}
+                  onChange={(e) => { setSearch(e.currentTarget.value); setPage(1); }}
                   radius="md"
                   style={{ flex: 1, minWidth: rem(220) }}
                 />
                 <ScrollArea type="never">
                   <SegmentedControl
-                    value={statusFilter}
-                    onChange={(v) => setStatusFilter(v as 'all' | PeriodStatus)}
+                    value={state}
+                    onChange={(v) => selectState(v as ServicePeriodState)}
                     radius="md"
                     size="xs"
                     color="navy"
-                    data={[
-                      { value: 'all',        label: `Tous (${liveTotal})` },
-                      { value: 'active',     label: `En cours (${counts.active})` },
-                      { value: 'toEvaluate', label: `À évaluer (${counts.toEvaluate})` },
-                      { value: 'evaluated',  label: `Évalués (${counts.evaluated})` },
-                    ]}
+                    data={WORKLIST_STATES.map((s) => ({
+                      value: s,
+                      label: `${PERIOD_STATE_META[s].label}${
+                        counts ? ` (${counts[PERIOD_STATE_META[s].countKey]})` : ''
+                      }`,
+                    }))}
                   />
                 </ScrollArea>
+                {/* On every slice, not just the archive: a chef planning next year's rotations and a
+                    chef looking up last year's marks are asking the same question of different
+                    years. Safe on the live slices only because outsideYearCount is shown below. */}
+                <Select
+                  size="xs"
+                  radius="md"
+                  w={rem(180)}
+                  leftSection={<IconCalendarEvent size={14} stroke={1.5} />}
+                  value={yearValue}
+                  onChange={selectYear}
+                  allowDeselect={false}
+                  data={[
+                    ...(years ?? []).map((y) => ({ value: String(y.id), label: y.label })),
+                    { value: ALL_YEARS, label: 'Toutes les années' },
+                  ]}
+                />
                 {allGroupKeys.length > 0 && (
                   <Button
                     variant="subtle"
@@ -376,18 +476,62 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
                 )}
               </Group>
 
+              {/* ⚠ The guard, not a decoration. Year scoping blanked chef worklists twice and each
+                  time it was silent: rows the filter removed left nothing behind to say they
+                  existed, so an empty screen and an empty service looked identical. The filter is
+                  allowed on live work now precisely because it always says what it is holding
+                  back, and the way out is one click away. */}
+              {outsideYear > 0 && (
+                <Group
+                  gap="xs"
+                  wrap="nowrap"
+                  p="xs"
+                  style={{
+                    border: '1px solid var(--mantine-color-yellow-3)',
+                    borderRadius: 'var(--mantine-radius-md)',
+                    background: 'var(--mantine-color-yellow-0)',
+                  }}
+                >
+                  <IconCalendarEvent size={16} stroke={1.5} color="#B45309" />
+                  <Text size="xs" c="yellow.9" style={{ flex: 1 }}>
+                    {outsideYear} rotation{outsideYear > 1 ? 's' : ''} de cette catégorie
+                    {yearLabel ? ` en dehors de ${yearLabel}` : ' en dehors de cette année'}.
+                  </Text>
+                  <Button
+                    size="compact-xs"
+                    variant="light"
+                    color="yellow"
+                    onClick={() => selectYear(ALL_YEARS)}
+                  >
+                    Toutes les années
+                  </Button>
+                </Group>
+              )}
+
               {isLoading ? (
                 <Stack gap="xs">{[1, 2].map((i) => <Skeleton key={i} height={72} radius="md" />)}</Stack>
-              ) : periods.length === 0 ? (
+              ) : windows.length === 0 ? (
                 <Center py="lg">
                   <Stack align="center" gap={4}>
                     <IconUsers size={28} stroke={1.5} color="#94A3B8" />
-                    <Text size="sm" c="dimmed">Aucune rotation pour ce service.</Text>
+                    <Text size="sm" c="dimmed">
+                      {searching ? 'Aucun étudiant ne correspond à votre recherche.' : emptyMessage[state]}
+                    </Text>
+                    {/* An empty slice is not an empty service. Say where the work actually is, or
+                        this screen reads exactly like the bug it was built to fix. */}
+                    {!searching && counts && counts[PERIOD_STATE_META[state].countKey] === 0 &&
+                      WORKLIST_STATES.some((s) => counts[PERIOD_STATE_META[s].countKey] > 0) && (
+                      <Group gap={6} mt={4}>
+                        {WORKLIST_STATES.filter((s) => s !== state && counts[PERIOD_STATE_META[s].countKey] > 0)
+                          .map((s) => (
+                            <Button key={s} size="compact-xs" variant="light"
+                              color={PERIOD_STATE_META[s].color} onClick={() => selectState(s)}>
+                              {counts[PERIOD_STATE_META[s].countKey]} {PERIOD_STATE_META[s].label.toLowerCase()}
+                            </Button>
+                          ))}
+                      </Group>
+                    )}
                   </Stack>
-                </Center>
-              ) : windows.length === 0 ? (
-                <Center py="lg">
-                  <Text size="sm" c="dimmed">Aucun étudiant ne correspond à votre recherche.</Text>
                 </Center>
               ) : (
                 <Stack gap="md">
@@ -416,11 +560,13 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
                             </Stack>
                           </Group>
                           <Group gap={6} justify="flex-end" style={{ flexWrap: 'wrap' }}>
-                            {STATUS_ORDER.filter((s) => w.counts[s] > 0).map((s) => (
-                              <Badge key={s} size="sm" variant="light" color={STATUS_META[s].color} radius="sm">
-                                {w.counts[s]} {STATUS_META[s].label.toLowerCase()}
-                              </Badge>
-                            ))}
+                            {WORKLIST_STATES
+                              .filter((s) => w.counts[s] > 0)
+                              .map((s) => (
+                                <Badge key={s} size="sm" variant="light" color={PERIOD_STATE_META[s].color} radius="sm">
+                                  {w.counts[s]} {PERIOD_STATE_META[s].label.toLowerCase()}
+                                </Badge>
+                              ))}
                             {w.transferIn > 0 && (
                               <Badge size="sm" variant="light" color="teal" radius="sm">
                                 {w.transferIn} entrant{w.transferIn > 1 ? 's' : ''}
@@ -457,10 +603,10 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
                                     <Text size="xs" c="dimmed">{g.rows.length} étudiant{g.rows.length > 1 ? 's' : ''}</Text>
                                   </Group>
                                   <Group gap={4} wrap="nowrap">
-                                    {STATUS_ORDER.map((s) => {
-                                      const n = g.rows.filter((r) => !isTransfer(r) && periodStatus(r) === s).length;
+                                    {WORKLIST_STATES.map((s) => {
+                                      const n = g.rows.filter((r) => !isTransfer(r) && r.state === s).length;
                                       return n > 0 ? (
-                                        <Badge key={s} size="xs" variant="dot" color={STATUS_META[s].color} radius="sm">
+                                        <Badge key={s} size="xs" variant="dot" color={PERIOD_STATE_META[s].color} radius="sm">
                                           {n}
                                         </Badge>
                                       ) : null;
@@ -528,7 +674,6 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
                                             </Table.Tr>
                                           );
                                         }
-                                        const status = periodStatus(p);
                                         return (
                                           <Table.Tr key={p.id}>
                                             <Table.Td>
@@ -540,12 +685,20 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
                                               </Stack>
                                             </Table.Td>
                                             <Table.Td>
-                                              <Badge size="sm" variant="light" color={STATUS_META[status].color} radius="sm">
-                                                {STATUS_META[status].label}
+                                              <Badge
+                                                size="sm"
+                                                variant="light"
+                                                color={PERIOD_STATE_META[p.state].color}
+                                                radius="sm"
+                                                leftSection={p.state === 'Planned'
+                                                  ? <IconClock size={11} stroke={1.5} />
+                                                  : undefined}
+                                              >
+                                                {PERIOD_STATE_META[p.state].label}
                                               </Badge>
                                             </Table.Td>
                                             <Table.Td align="right" w={rem(140)}>
-                                              {actionFor(p, status)}
+                                              {actionFor(p)}
                                             </Table.Td>
                                           </Table.Tr>
                                         );
@@ -560,6 +713,24 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
                       </Stack>
                     </Paper>
                   ))}
+
+                  {/* A slice bigger than one page is paged rather than truncated: the count says how
+                      many rows are still reachable, so nothing is silently hidden. */}
+                  {totalPages > 1 && (
+                    <Group justify="space-between" wrap="wrap">
+                      <Text size="xs" c="dimmed">
+                        {totalCount} rotation{totalCount > 1 ? 's' : ''} · page {page} sur {totalPages}
+                      </Text>
+                      <Pagination
+                        size="sm"
+                        radius="md"
+                        color="navy"
+                        value={page}
+                        total={totalPages}
+                        onChange={(p) => { setPage(p); setExpandedGroups(new Set()); }}
+                      />
+                    </Group>
+                  )}
                 </Stack>
               )}
             </Stack>
@@ -585,7 +756,7 @@ export default function EmployeeServicesPage() {
         <Stack gap={4}>
           <Title order={2} fw={700}>Mes Services</Title>
           <Text size="sm" c="dimmed">
-            Services dont vous êtes chef — rotations actives et évaluations en attente.
+            Services dont vous êtes chef — rotations planifiées, en cours et évaluations en attente.
           </Text>
         </Stack>
 
