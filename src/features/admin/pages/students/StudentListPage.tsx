@@ -65,6 +65,20 @@ const PROGRAM_FILTER: { value: string; label: string }[] = [
   { value: 'Doctorat',  label: 'Doctorat'  },
 ];
 
+/**
+ * The verdicts, in the order a PV lists them, with the two positions a running year passes through
+ * at the end.
+ *
+ * ⚠ Built from `STATUS_CFG` rather than re-typed, so the option and the badge on the row it returns
+ * can never disagree about what a verdict is called. The five outcomes come first because that is
+ * what somebody filtering is looking for — « qui a été diplômé », « qui redouble » — while `Pending`
+ * and `Active` describe a year nobody has ruled on yet.
+ */
+const STATUS_FILTER: { value: string; label: string }[] = [
+  ...(['Graduated', 'Validated', 'Failed', 'Excluded', 'Withdrawn', 'Active', 'Pending'] as const)
+    .map((value) => ({ value, label: STATUS_CFG[value].label })),
+];
+
 const PAGE_SIZE_OPTIONS = ['10', '15', '25', '50'];
 
 function SkeletonRows({ count }: { count: number }) {
@@ -81,9 +95,11 @@ function SkeletonRows({ count }: { count: number }) {
   );
 }
 
-type StudentFilters = { program: string | null; level: string | null; size: string | null };
+type StudentFilters = {
+  program: string | null; level: string | null; status: string | null; size: string | null;
+};
 /** Module-level so its identity is stable — useListParams memoises on it. */
-const STUDENT_FILTERS: StudentFilters = { program: '', level: '', size: '15' };
+const STUDENT_FILTERS: StudentFilters = { program: '', level: '', status: '', size: '15' };
 
 export default function StudentListPage() {
   const navigate = useNavigate();
@@ -93,6 +109,7 @@ export default function StudentListPage() {
     useListParams<StudentFilters>(STUDENT_FILTERS);
   const program = filters.program ?? '';
   const level = filters.level ?? '';
+  const status = filters.status ?? '';
   const pageSize = Number(filters.size) || 15;
 
   // Changing the programme clears the promotion in the *same* patch: « Sixième Année Pharmacie »
@@ -127,6 +144,7 @@ export default function StudentListPage() {
     program: (program || undefined) as AcademicProgram | undefined,
     levelId: level ? Number(level) : undefined,
     academicYearId: currentYearId ?? undefined,
+    status: (status || undefined) as RegistrationStatus | undefined,
     pageNumber: page,
     pageSize,
   });
@@ -143,6 +161,7 @@ export default function StudentListPage() {
     academicYearId: currentYearId ?? undefined,
     program: (program || undefined) as AcademicProgram | undefined,
     levelId: level ? Number(level) : undefined,
+    status: (status || undefined) as RegistrationStatus | undefined,
     searchTerm: debouncedSearch.trim() || undefined,
   };
 
@@ -210,7 +229,33 @@ export default function StudentListPage() {
                 size="sm"
                 w={rem(220)}
               />
+
+              {/* ⚠ The verdict of the *selected year's* registration, resolved server-side on the
+                  same row as the promotion — a student diplômé in 2025-2026 and re-registered in
+                  2026-2027 is not a « diplômé de 2026-2027 ». That is the ordinary case here, not an
+                  edge one: the final year is re-registered every September until the thesis is
+                  defended. It is also how the 1 217 diplômés a réinscription records become
+                  reachable from a screen rather than only from a downloaded file. */}
+              <Select
+                placeholder="Toutes les décisions"
+                value={status || null}
+                onChange={(v) => setFilter('status', v ?? '')}
+                data={STATUS_FILTER}
+                clearable
+                radius="md"
+                size="sm"
+                w={rem(200)}
+              />
             </Group>
+
+            {status && !currentYearId && (
+              <Text size="xs" c="dimmed">
+                Aucune année n'est sélectionnée dans la barre du haut, donc «&nbsp;
+                {STATUS_CFG[status as RegistrationStatus].label}&nbsp;» porte sur{' '}
+                <strong>toutes les années</strong>&nbsp;: un étudiant diplômé une année et réinscrit
+                la suivante y figure.
+              </Text>
+            )}
 
             <ScrollArea>
               <Table

@@ -137,12 +137,22 @@ export default function RotationCyclePage() {
     setRestoredKey(configurationKey);
     setRestored(block);
 
+    // ⚠ **Restoring nothing is a state too.** The clearing used to live inside the `if`, so a
+    // (promotion, année) pair carrying no block left the *previous* pair's stages standing in the
+    // form. Changing the promotion hid it — that picker clears on change — but changing the **year**
+    // in the navbar does not go through the picker, and neither does landing on a promotion whose
+    // block was just deleted. The stages then belonged to a promotion nobody was looking at, and
+    // « Simuler » would have been run against them.
+    setAxis(null);
+    setLayout(null);
+    setApplied(false);
+
     if (block) {
       setStages(block.stages.map((st) => ({ stageId: String(st.stageId), periods: st.periods })));
       setWindows(block.windows.map((w) => [w.startDate, w.endDate]));
-      setAxis(null);
-      setLayout(null);
-      setApplied(false);
+    } else {
+      setStages([emptyStage(), emptyStage()]);
+      setWindows([]);
     }
   }
 

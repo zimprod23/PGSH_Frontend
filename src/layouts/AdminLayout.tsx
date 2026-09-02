@@ -22,6 +22,7 @@ import {
   IconClipboardList,
   IconCalendar,
   IconGavel,
+  IconSnowflake,
   IconBook2,
   IconSchool,
   IconUsersGroup,
@@ -31,6 +32,7 @@ import {
   IconCalendarEvent,
   IconCalendarOff,
   IconTable,
+  IconChartBar,
   IconRefresh,
   IconClipboardCheck,
   IconBell,
@@ -91,6 +93,7 @@ const NAV: NavEntry[] = [
     items: [
       { kind: 'leaf', label: 'Années académiques', icon: IconCalendar,   path: `${ROOT}/academic-years` },
       { kind: 'leaf', label: 'Clôture & réinscription', icon: IconGavel, path: `${ROOT}/year-closure`   },
+      { kind: 'leaf', label: 'Signalements',       icon: IconSnowflake,  path: `${ROOT}/signalements`    },
       { kind: 'leaf', label: 'Niveaux',            icon: IconSchool,     path: `${ROOT}/levels`         },
       { kind: 'leaf', label: 'CNPN (programme)',    icon: IconBook2,      path: `${ROOT}/curriculum`     },
       { kind: 'leaf', label: 'Groupes',            icon: IconUsersGroup, path: `${ROOT}/groups`             },
@@ -114,6 +117,7 @@ const NAV: NavEntry[] = [
     icon: IconBuildingHospital,
     items: [
       { kind: 'leaf', label: 'Centres / Hôpitaux / Services', icon: IconBuildingHospital, path: `${ROOT}/hospitals` },
+      { kind: 'leaf', label: 'Charge des services', icon: IconChartBar, path: `${ROOT}/charge-services` },
     ],
   },
   {

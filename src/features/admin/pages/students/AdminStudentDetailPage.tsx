@@ -45,11 +45,13 @@ import {
   IconArrowBackUp,
   IconRefresh,
   IconUsersGroup,
+  IconStethoscope,
 } from '@tabler/icons-react';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useGetStudentByIdQuery, useGetStudentRegistrationsQuery } from '../../../student/api/studentApi';
 import { RevalidateStageModal } from '../../components/RevalidateStageModal';
+import { StudentStagesTab } from '../../components/student/StudentStagesTab';
 import {
   useCreateRegistrationMutation,
   useGetAcademicYearsQuery,
@@ -815,6 +817,9 @@ export default function AdminStudentDetailPage() {
                   <Tabs.Tab value="personal" leftSection={<IconUser size={14} stroke={1.5} />}>
                     Informations
                   </Tabs.Tab>
+                  <Tabs.Tab value="stages" leftSection={<IconStethoscope size={14} stroke={1.5} />}>
+                    Stages
+                  </Tabs.Tab>
                   <Tabs.Tab value="academic" leftSection={<IconSchool size={14} stroke={1.5} />}>
                     Cursus
                   </Tabs.Tab>
@@ -826,6 +831,19 @@ export default function AdminStudentDetailPage() {
                     <RegistrationsTab
                       studentId={id}
                       onAdd={() => setModalOpen(true)}
+                    />
+                  )}
+                </Tabs.Panel>
+
+                {/* Stages — what he has done and what he still owes. Three reads that existed on
+                    the API with no caller in this app, so a refusal at réinscription (« il doit
+                    encore N stages ») could not be understood from the file it is about. */}
+                <Tabs.Panel value="stages">
+                  {id && (
+                    <StudentStagesTab
+                      studentId={id}
+                      currentRegistrationId={student?.currentRegistration?.id ?? null}
+                      currentLevelLabel={student?.currentRegistration?.level.label ?? levelLabel}
                     />
                   )}
                 </Tabs.Panel>

@@ -90,11 +90,25 @@ export interface ApiError {
 
 // ─── Bulk operations ─────────────────────────────────────────────────────────
 
+/**
+ * The domain `Error` record as it is actually serialised on a bulk item.
+ *
+ * ⚠ Not `ApiError`. That is the problem-details envelope a *failed request* returns; a bulk
+ * response is a 200 whose individual items each carry a domain error. Typed as `ApiError` the
+ * fields never lined up, so an item error could be tested for truthiness and never read — which is
+ * why « 60 non assigné(s) » printed a count and no reason.
+ */
+export interface DomainError {
+  code: string;
+  description: string;
+  type?: string;
+}
+
 export interface BulkItemResult<TId, TResult> {
   identifier: TId;
   data: TResult;
   isSuccess: boolean;
-  error?: ApiError;
+  error?: DomainError;
 }
 
 export interface BulkResponse<TId, TResult> {

@@ -31,12 +31,14 @@ const StudentListPage         = lazy(() => import('../features/admin/pages/stude
 const AdminStudentDetailPage  = lazy(() => import('../features/admin/pages/students/AdminStudentDetailPage'));
 const AcademicYearsPage       = lazy(() => import('../features/admin/pages/AcademicYearsPage'));
 const YearClosurePage         = lazy(() => import('../features/admin/pages/YearClosurePage'));
+const RegistrationHoldsPage   = lazy(() => import('../features/admin/pages/RegistrationHoldsPage'));
 const LevelsPage              = lazy(() => import('../features/admin/pages/LevelsPage'));
 const CurriculumPage          = lazy(() => import('../features/admin/pages/CurriculumPage'));
 const GroupsPage              = lazy(() => import('../features/admin/pages/GroupsPage'));
 const GroupDetailPage         = lazy(() => import('../features/admin/pages/GroupDetailPage'));
 const StageTimelinePage       = lazy(() => import('../features/admin/pages/StageTimelinePage'));
 const RepartitionPage         = lazy(() => import('../features/admin/pages/RepartitionPage'));
+const OccupancyReportPage     = lazy(() => import('../features/admin/pages/OccupancyReportPage'));
 const RotationCyclePage       = lazy(() => import('../features/admin/pages/RotationCyclePage'));
 const HolidaysPage            = lazy(() => import('../features/admin/pages/HolidaysPage'));
 const StagesPage              = lazy(() => import('../features/admin/pages/StagesPage'));
@@ -114,6 +116,7 @@ export const router = createBrowserRouter([
               { path: PATHS.ADMIN.STUDENT_DETAIL,     element: wrap(<AdminStudentDetailPage />)    },
               { path: PATHS.ADMIN.ACADEMIC_YEARS,     element: wrap(<AcademicYearsPage />)         },
               { path: PATHS.ADMIN.YEAR_CLOSURE,       element: wrap(<YearClosurePage />)           },
+              { path: PATHS.ADMIN.HOLDS,             element: wrap(<RegistrationHoldsPage />)     },
               { path: PATHS.ADMIN.LEVELS,             element: wrap(<LevelsPage />)                },
               { path: PATHS.ADMIN.CURRICULUM,         element: wrap(<CurriculumPage />)            },
               {
@@ -133,6 +136,7 @@ export const router = createBrowserRouter([
               { path: PATHS.ADMIN.SERVICE_DETAIL, element: wrap(<AdminServiceDetailPage />) },
               { path: PATHS.ADMIN.TIMELINE,    element: wrap(<StageTimelinePage />) },
               { path: PATHS.ADMIN.REPARTITION, element: wrap(<RepartitionPage />)   },
+              { path: PATHS.ADMIN.OCCUPANCY, element: wrap(<OccupancyReportPage />) },
               { path: PATHS.ADMIN.ROTATION_CYCLE, element: wrap(<RotationCyclePage />) },
               { path: PATHS.ADMIN.HOLIDAYS,    element: wrap(<HolidaysPage />)       },
               { path: PATHS.ADMIN.HOSPITALS,    element: wrap(<InfrastructurePage />) },

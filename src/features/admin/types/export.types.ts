@@ -1,4 +1,4 @@
-import type { AcademicProgram } from '../../../common/types';
+import type { AcademicProgram, RegistrationStatus } from '../../../common/types';
 
 /**
  * What the roll export is cut for.
@@ -13,6 +13,9 @@ export interface StudentsExportRequest {
   levelId?: number;
   program?: AcademicProgram;
   academicGroupId?: number;
+  // Present so the file can take the same scope as the list it is downloaded from. A screen showing
+  // « diplômés » whose export carries the whole promotion is worse than no button.
+  status?: RegistrationStatus;
   searchTerm?: string;
 }
 

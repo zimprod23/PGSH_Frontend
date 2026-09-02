@@ -10,10 +10,18 @@ import type {
   RecordOutcomeRequest,
   ReinscriptionReport,
   ReinscriptionRequest,
+  ReinscriptionSheetReport,
+  ReinscriptionSheetUploadRequest,
   ReopenYearReport,
   ReopenYearRequest,
 } from '../types/yearClosure.types';
 import { fileNameFromDisposition, type DownloadedFile } from '../../../common/utils/downloadBlob';
+import type {
+  RegistrationHold,
+  RegistrationHoldsRequest,
+  ReleaseHoldRequest,
+  ReleaseHoldReport,
+} from '../types/registrationHold.types';
 import type {
   StudentsExportRequest,
   StageAssignmentsExportRequest,
@@ -26,6 +34,8 @@ import type {
   InscriptionUploadRequest,
 } from '../types/inscription.types';
 import type { StudentSummaryResponse, GetStudentsQuery, UpdateStudentRequest } from '../../student/types/student.types';
+import type { OccupancyReportRequest, OccupancyReportResponse } from '../types/occupancyReport.types';
+import type { OutstandingStageResponse, StudentLevelDossierResponse } from '../types/dossier.types';
 import type {
   CohortDetailResponse,
   StageScheduleResponse,
@@ -1310,6 +1320,43 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       providesTags: (_r, _e, serviceId) => [{ type: 'Service' as const, id: `stages-${serviceId}` }],
     }),
 
+    /**
+     * Every service's year at once — the question no single service page can answer.
+     *
+     * ⚠ Tagged on `Service`/`LIST` **and** on the planning tags, because that is what actually moves
+     * it: arranging a stage or publishing a promotion changes every number here, while editing a
+     * service's own capacity changes one row. Both have to invalidate it, or the report keeps
+     * printing the load from before the arrange that was run to fix it.
+     */
+    getOccupancyReport: builder.query<OccupancyReportResponse, OccupancyReportRequest>({
+      query: (params) => ({ url: '/services/occupancy-report', params }),
+      providesTags: [{ type: 'Service' as const, id: 'occupancy-report' }],
+    }),
+
+    /**
+     * What a student owes at ONE level, folded across every registration he holds there — the
+     * question a repeating student's several registrations make impossible to read one at a time.
+     */
+    getStudentLevelDossier: builder.query<
+      StudentLevelDossierResponse, { studentId: string; levelId: number }
+    >({
+      query: ({ studentId, levelId }) => `/students/${studentId}/levels/${levelId}/dossier`,
+      providesTags: (_r, _e, { studentId, levelId }) => [
+        { type: 'Registration' as const, id: `dossier-${studentId}-${levelId}` },
+      ],
+    }),
+
+    /**
+     * What `FinalYearGuard` reads before letting somebody *begin* a final year — cursus-wide, across
+     * every level, which is exactly what the per-level dossier is not.
+     */
+    getOutstandingStages: builder.query<OutstandingStageResponse[], string>({
+      query: (studentId) => `/students/${studentId}/outstanding-stages`,
+      providesTags: (_r, _e, studentId) => [
+        { type: 'Registration' as const, id: `outstanding-${studentId}` },
+      ],
+    }),
+
     // The window comes from the caller: a timeline segment is cut at window boundaries and generally
     // coincides with no single StageSlot, so there is no période id to pass instead.
     getServiceOccupants: builder.query<
@@ -1405,6 +1452,97 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: [
         { type: 'Registration' as const, id: 'LIST' },
         { type: 'Student' as const, id: 'LIST' },
+        { type: 'Level' as const, id: 'GROUPS' },
+      ],
+    }),
+
+    // ─── Réinscription par fichier ────────────────────────────────────────────
+    // The rollover as the faculty actually hands it over: one spreadsheet stating, per student, the
+    // étape he was in and the étape he enters. It closes the year and opens the next in one act,
+    // where the two routes above are the same job split across a PV and a derivation.
+    //
+    // ⚠ No template route. The other three canvases are documents PGSH hands out and gets back;
+    // this one is the faculty's own, and generating a rival version invites the two to drift.
+
+    // A dry run writes nothing, so it must invalidate nothing.
+    previewReinscriptionSheet: builder.mutation<ReinscriptionSheetReport, ReinscriptionSheetUploadRequest>({
+      query: ({ file, ...params }) => ({
+        url: '/reinscription/sheet/preview',
+        method: 'POST',
+        params,
+        body: fileBody(file),
+      }),
+    }),
+
+    applyReinscriptionSheet: builder.mutation<ReinscriptionSheetReport, ReinscriptionSheetUploadRequest>({
+      query: ({ file, ...params }) => ({
+        url: '/reinscription/sheet',
+        method: 'POST',
+        params,
+        body: fileBody(file),
+      }),
+      // It writes on both sides of the year boundary — a verdict onto every registration of the year
+      // closing, and a new registration for every student of the year opening — so the student list,
+      // the registration lists and the rosters the répartition reads from are all stale at once.
+      invalidatesTags: [
+        { type: 'Registration' as const, id: 'LIST' },
+        { type: 'Student' as const, id: 'LIST' },
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Level' as const, id: 'GROUPS' },
+      ],
+    }),
+
+    // The same upload, as the three-sheet document scolarité works from.
+    //
+    // ⚠ It writes nothing, so it is deliberately usable *before* the confirmation and on a roll the
+    // apply would refuse — « donne-moi la liste des erreurs » is the request, and a refusal that only
+    // names the first offending line cannot answer it. It invalidates nothing for the same reason.
+    //
+    // ⚠ A mutation rather than a lazy query, unlike the other two exports: it carries a file, so it
+    // has to be a POST. The `response.ok` branch is the same and matters for the same reason — read
+    // unconditionally, `.blob()` turns a problem-details refusal into an opaque Blob and the user
+    // gets « une erreur » where the server had written a sentence.
+    exportReinscriptionSheetReport: builder.mutation<DownloadedFile, ReinscriptionSheetUploadRequest>({
+      query: ({ file, ...params }) => ({
+        url: '/reinscription/sheet/export',
+        method: 'POST',
+        params,
+        body: fileBody(file),
+        responseHandler: async (response) => {
+          if (!response.ok) return response.json().catch(() => undefined);
+          return {
+            blob: await response.blob(),
+            fileName: fileNameFromDisposition(
+              response.headers.get('content-disposition'), 'reinscription.xlsx'),
+          };
+        },
+      }),
+    }),
+
+    // ─── Signalements ─────────────────────────────────────────────────────────
+    // Registrations PGSH created but will not plan until somebody settles them. The réinscription
+    // roll raises them by the thousand; they come off one at a time, because each is a different
+    // question — is the évaluation keyed in, did this student really defend, is he coming back late.
+    //
+    // ⚠ There is deliberately no bulk release. It would undo in one click the only thing that made a
+    // 1 267-row inference safe to record.
+
+    getRegistrationHolds: builder.query<PaginatedResponse<RegistrationHold>, RegistrationHoldsRequest>({
+      query: (params) => ({ url: '/registrations/holds', params }),
+      providesTags: [{ type: 'Registration' as const, id: 'HOLDS' }],
+    }),
+
+    releaseRegistrationHold: builder.mutation<ReleaseHoldReport, ReleaseHoldRequest>({
+      query: ({ holdId, releaseNote }) => ({
+        url: `/registrations/holds/${holdId}/release`,
+        method: 'POST',
+        body: { releaseNote },
+      }),
+      // Releasing puts a student back into the population every planning screen reads, so the roster
+      // and affectation lists are stale the moment it succeeds — not only the worklist itself.
+      invalidatesTags: [
+        { type: 'Registration' as const, id: 'HOLDS' },
+        { type: 'Registration' as const, id: 'LIST' },
         { type: 'Level' as const, id: 'GROUPS' },
       ],
     }),
@@ -1579,6 +1717,9 @@ export const {
   useDeleteServiceMutation,
   useGetStudentsQuery,
   useDeleteStudentMutation,
+  useGetOccupancyReportQuery,
+  useGetStudentLevelDossierQuery,
+  useGetOutstandingStagesQuery,
   useGetAcademicYearsQuery,
   useCreateAcademicYearMutation,
   useUpdateAcademicYearMutation,
@@ -1700,6 +1841,11 @@ export const {
   useApplyDeliberationMutation,
   useLazyPreviewReinscriptionQuery,
   useApplyReinscriptionMutation,
+  usePreviewReinscriptionSheetMutation,
+  useApplyReinscriptionSheetMutation,
+  useExportReinscriptionSheetReportMutation,
+  useGetRegistrationHoldsQuery,
+  useReleaseRegistrationHoldMutation,
   useRecordRegistrationOutcomeMutation,
   useReopenRegistrationYearMutation,
   useAssignStudentToGroupMutation,

@@ -12,6 +12,7 @@ import {
   Modal,
   NumberInput,
   Pagination,
+  Anchor,
   ScrollArea,
   Select,
   SimpleGrid,
@@ -42,7 +43,7 @@ import {
 } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 import { useAcademicYear } from '../contexts/useAcademicYear';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   useGetLevelsQuery,
   useGetPromotionLevelsQuery,
@@ -122,6 +123,13 @@ function AutoArrangeTab() {
     ? new Set(result.items.filter((i) => i.isSuccess).map((i) => i.data)).size
     : null;
 
+  // The failed items carry the server's own sentence per student — for a signalement, the evidence
+  // the flag was raised on. Listed, not just counted: « 60 non assigné(s) » tells the operator the
+  // cut is short and gives him nothing to act on, which is barely better than the silent cut this
+  // reporting exists to replace. The list scrolls rather than being capped, so none is hidden.
+  const failures = (result?.items ?? []).filter((i) => i.error);
+  const heldCount = failures.filter((i) => i.error?.code === 'Registrations.OnHold').length;
+
   return (
     <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
       <Card padding="xl" radius="lg" withBorder shadow="sm">
@@ -183,8 +191,38 @@ function AutoArrangeTab() {
                 </Card>
               ))}
             </SimpleGrid>
+            {/*
+              ⚠ The reason, not just the count. The server sends one error per student — the
+              signalement's own evidence for a held registration — and printing only « 60 non
+              assigné(s) » throws that away: the operator is told the cut is short and given nothing
+              to act on, which is barely better than the silent cut this reporting exists to replace.
+              Found running the smoke test on the real 2026-2027 roll, where all 60 failures were
+              signalements and the screen named none of them.
+            */}
             {result.failureCount > 0 && (
-              <Alert color="danger" variant="light">{result.failureCount} étudiant(s) non assigné(s).</Alert>
+              <Alert color="danger" variant="light">
+                <Text size="sm" fw={600} mb={4}>
+                  {result.failureCount} étudiant(s) non assigné(s)
+                </Text>
+                {heldCount > 0 && (
+                  <Text size="xs" mb={6}>
+                    Dont <b>{heldCount}</b> dont l'inscription est <b>signalée</b> : elle n'entre dans
+                    aucun groupe tant que le signalement n'est pas levé.{' '}
+                    <Anchor size="xs" component={Link} to={`${PATHS.ADMIN.ROOT}/${PATHS.ADMIN.HOLDS}`}>
+                      Voir les signalements
+                    </Anchor>
+                  </Text>
+                )}
+                <ScrollArea.Autosize mah={200}>
+                  <Stack gap={4}>
+                    {failures.map((item) => (
+                      <Text key={String(item.identifier)} size="xs" c="dimmed">
+                        {item.error?.description ?? 'Non assigné.'}
+                      </Text>
+                    ))}
+                  </Stack>
+                </ScrollArea.Autosize>
+              </Alert>
             )}
           </Stack>
         </Card>

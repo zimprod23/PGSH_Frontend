@@ -1,0 +1,448 @@
+/*
+ * «Charge des services» — the cross-service occupancy report.
+ *
+ * Same bargain as repartitionDocument.css: the page imports this for the on-screen preview and
+ * imports it again as a raw string (`?raw`) to inline into the standalone .html, so the preview, the
+ * printed PDF and the downloaded file cannot drift apart.
+ *
+ * Plain CSS on plain markup — no Mantine, no design tokens, nothing to fetch. Deliberately NOT
+ * theme-aware: a dark-mode report prints as a black slab.
+ *
+ * ⚠ Every figure here is inline SVG or a CSS box, never a canvas and never a charting library. A
+ * canvas serializes as an empty element and a library that measures the DOM on mount draws nothing
+ * in a file opened somewhere else — the reader would get holes where the charts were, with nothing
+ * saying so.
+ *
+ * Colour carries exactly two meanings and no more: **how full** a service is, and **whether a rule
+ * refuses it**. Anything else is ink on paper.
+ */
+
+@page {
+  size: A4 portrait;
+  margin: 10mm;
+}
+
+.charge-doc {
+  --navy: #0f3f6b;
+  --ink: #14202b;
+  --ink-soft: #5a6b7a;
+  --rule: #16202b;
+  --rule-hair: #ccd5de;
+  --paper: #ffffff;
+  --band: #eef2f6;
+
+  /* The fill scale. Green through amber to red is the one gradient a reader needs no legend for —
+     but the legend is printed anyway, because "amber" is not a number. */
+  --ok: #1f8a5f;
+  --tight: #c98a12;
+  --over: #c0392b;
+  --unused: #8896a4;
+
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Cambria', 'Georgia', 'Times New Roman', serif;
+  font-size: 11.5px;
+  line-height: 1.35;
+  padding: 0 0 20px;
+
+  /*
+   * ⚠ **The document is a page, and it has to be one on screen too.**
+   * Left full-bleed it stretched to whatever window it was in: on a 1920 px screen the month chart —
+   * an SVG at `width: 100%` over a 720-unit viewBox — scaled to bars six hundred pixels tall, and the
+   * horizontal bar chart ran off the right edge. Capping it near A4's usable width (190 mm ≈ 718 px)
+   * makes the preview, the printed PDF and the downloaded .html the same shape, which is the whole
+   * bargain this stylesheet exists for. Print lifts the cap: the @page box is already the width.
+   */
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+@media print {
+  .charge-doc { max-width: none; margin: 0; }
+}
+
+/*
+ * ⚠ **Without this the whole document prints half-blank, and nothing says so.**
+ * Browsers drop background graphics when printing. The SVG figures survive — they are `fill`, which
+ * is content — but « Occupation sur l'année » draws each band as a coloured `background` on a bare
+ * <span>, so the strip came out as a row of empty grey tracks: the one figure that shows *when* a
+ * service is full, missing from the PDF while looking fine on screen. The stat cards' rules, the
+ * notes' tint and the masthead went the same way.
+ *
+ * Declared on every element rather than on the root: `print-color-adjust` does not inherit through
+ * every engine, and this document is exported to be printed by somebody else's browser.
+ */
+.charge-doc,
+.charge-doc * {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* ─── Masthead ────────────────────────────────────────────────────────────── */
+
+.charge-doc__header {
+  padding: 16px 18px 13px;
+  border-bottom: 2.5px solid var(--navy);
+  background: linear-gradient(180deg, #eef4f9 0%, var(--paper) 100%);
+}
+
+/* A hairline of the accent above the rule: it reads as a masthead rather than as a heading with a
+   border, and it costs one pixel of ink. */
+.charge-doc__header::before {
+  content: '';
+  display: block;
+  width: 42px;
+  height: 3px;
+  background: var(--navy);
+  margin-bottom: 9px;
+}
+
+.charge-doc__title {
+  margin: 0;
+  font-size: 21px;
+  letter-spacing: 0.2px;
+  color: var(--navy);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.charge-doc__scope {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.charge-doc__issued {
+  margin: 2px 0 0;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.charge-doc__section {
+  padding: 0 18px;
+  margin-top: 18px;
+}
+
+/*
+ * ⚠ `break-inside: avoid` used to sit here, on *every* section — including the one holding the
+ * 148-row service table. A block a browser cannot fit on one page is not moved, it is **clipped**,
+ * so the longest table in the document was the one most likely to lose its tail in the PDF. Only a
+ * figure gets the rule now; a table breaks across pages and keeps its rows whole instead.
+ */
+.charge-doc__section--figure { break-inside: avoid; }
+
+/* A heading stranded at the foot of a page belongs to nothing. */
+.charge-doc__h2 { break-after: avoid; }
+
+.charge-doc__h2 {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+  color: var(--navy);
+  font-weight: 700;
+  border-bottom: 1.5px solid var(--navy);
+  padding-bottom: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.charge-doc__h2::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: var(--navy);
+  flex: 0 0 auto;
+  transform: translateY(-1px);
+}
+
+.charge-doc__lede {
+  margin: 4px 0 9px;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+}
+
+/* ─── Notes: what the report looked for and did not find ──────────────────── */
+
+.charge-doc__notes {
+  margin: 12px 16px 0;
+  padding: 9px 12px;
+  border-left: 3px solid var(--tight);
+  background: #fdf8ec;
+  break-inside: avoid;
+}
+
+.charge-doc__notes p {
+  margin: 0 0 6px;
+  font-size: 10.5px;
+}
+
+.charge-doc__notes p:last-child { margin-bottom: 0; }
+
+/* ─── Totals ──────────────────────────────────────────────────────────────── */
+
+.charge-doc__stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.charge-doc__stat {
+  border: 1px solid var(--rule-hair);
+  border-top: 3px solid var(--navy);
+  padding: 8px 10px 7px;
+  background: #fbfcfd;
+}
+
+.charge-doc__stat--warn   { border-top-color: var(--over);  background: #fdf3f2; }
+.charge-doc__stat--accent { border-top-color: var(--ok);    background: #f2faf6; }
+
+.charge-doc__stat--warn b   { color: var(--over); }
+.charge-doc__stat--accent b { color: var(--ok); }
+
+.charge-doc__stat b {
+  display: block;
+  font-size: 19px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+}
+
+.charge-doc__stat span {
+  display: block;
+  font-size: 9.5px;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-top: 2px;
+}
+
+/* ─── Charts ──────────────────────────────────────────────────────────────── */
+
+.charge-doc__chart {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin-top: 2px;
+}
+
+.charge-doc__axis     { stroke: var(--rule-hair); stroke-width: 1; }
+.charge-doc__gridline { stroke: var(--rule-hair); stroke-width: 0.5; stroke-dasharray: 2 3; }
+
+.charge-doc__tick {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 8px;
+  fill: var(--ink-soft);
+}
+
+.charge-doc__value {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 8px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+
+.charge-doc__bar--ok     { fill: var(--ok); }
+.charge-doc__bar--tight  { fill: var(--tight); }
+.charge-doc__bar--over   { fill: var(--over); }
+.charge-doc__bar--unused { fill: var(--unused); }
+
+/* The ceiling, drawn through the bars rather than beside them — a limit is only legible against the
+   thing it limits. */
+.charge-doc__ceiling {
+  stroke: var(--rule);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+
+.charge-doc__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 9.5px;
+  color: var(--ink-soft);
+}
+
+.charge-doc__legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  font-style: normal;
+}
+
+/* ─── The year strip: one row per service, bands positioned by date ───────── */
+
+.charge-doc__strip {
+  display: grid;
+  grid-template-columns: 152px 1fr 70px;
+  gap: 3px 10px;
+  align-items: center;
+  font-size: 10px;
+}
+
+.charge-doc__strip-head {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--rule-hair);
+  padding-bottom: 3px;
+  margin-bottom: 5px;
+}
+
+/* The month scale. Without it a band's *position* says nothing: you can see a service is full and
+   not say when — which is the whole question the figure exists to answer. */
+.charge-doc__strip-axis {
+  position: relative;
+  height: 12px;
+  overflow: hidden;
+}
+
+.charge-doc__strip-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 8px;
+  letter-spacing: 0;
+  color: var(--ink-soft);
+}
+
+/* A hairline of the same scale behind every track, so the eye can carry a date down the column. */
+.charge-doc__strip-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(15, 63, 107, 0.13);
+  z-index: 0;
+}
+
+.charge-doc__strip-band { z-index: 1; }
+
+.charge-doc__strip-name {
+  padding: 3px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.charge-doc__strip-name small {
+  display: block;
+  font-size: 8.5px;
+  color: var(--ink-soft);
+}
+
+.charge-doc__strip-track {
+  position: relative;
+  height: 16px;
+  background: var(--band);
+  border: 1px solid #dde5ec;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.charge-doc__strip-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* A one-day band still has to be visible, or an interruption reads as a gap in the data. */
+  min-width: 1.5px;
+  /* A white hairline inside each band: two consecutive périodes in the same service would otherwise
+     read as one continuous stay, which is precisely the distinction the strip is drawn for. */
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.75), inset -1px 0 0 rgba(255, 255, 255, 0.75);
+  border-radius: 1px;
+}
+
+.charge-doc__strip-figure {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 9.5px;
+}
+
+.charge-doc__strip-empty {
+  font-size: 9px;
+  color: var(--ink-soft);
+  font-style: italic;
+  padding-left: 4px;
+}
+
+/* ─── Tables ──────────────────────────────────────────────────────────────── */
+
+.charge-doc__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.charge-doc__table th {
+  text-align: left;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--navy);
+  border-bottom: 1.5px solid var(--navy);
+  padding: 5px 6px;
+  font-weight: 700;
+  background: #f4f8fb;
+}
+
+.charge-doc__table td {
+  border-bottom: 1px solid #e6ecf2;
+  padding: 4px 6px;
+  vertical-align: top;
+}
+
+/* Zebra rather than a full grid: on a table this dense, ruling every column is more ink than
+   information. `break-inside: avoid` on the row keeps a line whole across a page break. */
+.charge-doc__table tbody tr:nth-child(even) { background: #f8fafc; }
+
+.charge-doc__table tbody tr:last-child td { border-bottom: 1.5px solid var(--navy); }
+
+.charge-doc__table tr { break-inside: avoid; }
+
+/* Repeat the header on every page the table spills onto, or page 2 is a wall of unlabelled numbers. */
+.charge-doc__table thead { display: table-header-group; }
+
+.charge-doc__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.charge-doc__flag {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-size: 8.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.charge-doc__flag--over   { color: var(--over); }
+.charge-doc__flag--closed { color: var(--over); background: #fdecea; }
+.charge-doc__flag--unused { color: var(--unused); }
+
+.charge-doc__muted { color: var(--ink-soft); }
+
+.charge-doc__footer {
+  margin: 20px 18px 0;
+  padding: 9px 11px;
+  border-left: 3px solid var(--rule-hair);
+  background: #f8fafc;
+  font-size: 9.5px;
+  color: var(--ink-soft);
+  break-inside: avoid;
+}
+
+.charge-doc__legend {
+  padding: 5px 8px;
+  background: #f8fafc;
+  border: 1px solid #e6ecf2;
+  border-radius: 2px;
+}

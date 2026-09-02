@@ -48,6 +48,7 @@ import {
   type ReinscriptionReport,
 } from '../types/yearClosure.types';
 import { InscriptionSection } from '../components/InscriptionSection';
+import { ReinscriptionSheetSection } from '../components/ReinscriptionSheetSection';
 import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { problemMessage } from '../../../common/utils/problemMessage';
@@ -70,6 +71,17 @@ import { problemMessage } from '../../../common/utils/problemMessage';
  * already holds* — which is exactly why neither can see the September intake, a transfer arriving from
  * another faculty, a returner, or a réorientation. They hold no registration to be read. This is the
  * act for them, and it is the only one in PGSH that creates **people**.
+ *
+ * **…or all of 1 and 2 at once.** When the faculty sends its own réinscription roll — one line per
+ * student, his étape now and his étape next year — those two facts carry the verdict with them, and
+ * the single act at the top of the page does both. It is offered first because it is what actually
+ * arrives: the 2026-2027 file is 6 862 lines of exactly that shape. Use 1 and 2 below when the year
+ * closes on a PV instead.
+ *
+ * ⚠ **The two canvases invert each other and must not be confused.** The déliberation sheet is a list
+ * of *exceptions*, so a student it does not name is admis. The réinscription roll is the list of who
+ * *is* coming back, so a student it does not name is not — and PGSH cannot tell a graduate from an
+ * exclusion, which is why it writes nothing for them and reports the count instead.
  *
  * ⚠ The whole risk of an exceptions file is the student nobody named, so the apply will not run until
  * the number admitted by silence has been confirmed — and it is sent back to the server, which refuses
@@ -220,6 +232,18 @@ export default function YearClosurePage() {
             Aucune année universitaire sélectionnée.
           </Alert>
         )}
+
+        {/*
+          ── Réinscription par fichier ───────────────────────────────────────
+          First on the page because it is the act the faculty's own document performs: it closes the
+          year and opens the next together, where 1 and 2 below split the same job across a PV and a
+          derivation. Deliberately outside the numbering — it is not a fourth step, it is 1 and 2.
+        */}
+        <ReinscriptionSheetSection
+          fromYearId={currentYearId}
+          fromYearLabel={closingYear?.label}
+          targetYears={targetYears}
+        />
 
         {/* ── 1 · Déliberation ───────────────────────────────────────────── */}
         <Card withBorder radius="lg" p="lg">

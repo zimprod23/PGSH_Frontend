@@ -238,6 +238,11 @@ export interface GetStudentsQuery {
   levelId?: number;
   // When set, the level/group/status columns reflect this year's registration.
   academicYearId?: number;
+  // The verdict recorded on that year's registration. Read on the *same* registration as the level
+  // and the year server-side: a student diplômé one year and re-registered the next satisfies each
+  // half on a different row, and the final year is re-registered every September until the thesis
+  // is defended — so that student is the ordinary case, not an edge one.
+  status?: RegistrationStatus;
   pageNumber?: number;
   pageSize?: number;
 }

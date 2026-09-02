@@ -33,11 +33,16 @@ they resolved — read it from `Content-Disposition`, never rebuild it (see `CLA
 
 | Route | Query params | Returns |
 |---|---|---|
-| `GET /students/export` | `academicYearId?` `levelId?` `program?` `academicGroupId?` `searchTerm?` | one sheet, one row per **registration** |
+| `GET /students/export` | `academicYearId?` `levelId?` `program?` `academicGroupId?` `status?` `searchTerm?` | one sheet, one row per **registration** |
 | `GET /stages/assignments/export` | `academicYearId?` `levelId?` `stageId?` `academicGroupId?` `onlyEvaluated?` | three sheets: **Stages** (one row per affectation), **Périodes** (one row per période), **Synthèse** (verdicts per stage) |
 
 - `students/export` carries `Programme` and `Niveau` as **columns**; `levelId` cuts the
   per-promotion file with the columns still in place.
+- ⚠ **`status` exists so the file can take the same scope as the list it is downloaded from.** A
+  screen showing « diplômés » whose export carries the whole promotion is worse than no button. On
+  `GET /students` the same parameter is resolved on the **same registration row** as the level and
+  the year — a student diplômé one year and re-registered the next satisfies each half on a different
+  row, and in a thesis year that is the ordinary case.
 - `stages/assignments/export` is scoped by the **registration's** level, so a rattrapage of an earlier
   year's stage is on its own promotion's file, with `Niveau du stage` naming where the stage belongs.
 - `onlyEvaluated=true` narrows to the affectations carrying a verdict (a PV). Left off, the unmarked
@@ -168,6 +173,12 @@ interface LevelSummary {
 
 #### GET `/students`
 Paginated student list (admin use).
+
+⚠ **`levelId`, `academicYearId` and `status` are resolved on the *same* registration row**, never as
+independent conditions. 2 635 students in this base have repeated, and the final year is
+re-registered every September until the thesis is defended — so a student who satisfies each half on
+a different row is the ordinary case. Measured live: « 5ᵉ année Médecine, 2026-2027 » is **833**
+students as one `Any` and **2 127** as two.
 ```typescript
 // Query params
 interface GetStudentsQuery {
@@ -175,6 +186,10 @@ interface GetStudentsQuery {
   cne?: string;
   appogee?: string;
   cin?: string;
+  program?: AcademicProgram;
+  levelId?: number;
+  academicYearId?: number;
+  status?: RegistrationStatus;   // the verdict on THAT year's registration
   pageNumber?: number;   // default 1
   pageSize?: number;     // default 10, max 100
 }
@@ -239,6 +254,49 @@ interface StudentHistoryResponse {
 ---
 
 ### Registrations
+
+#### Signalements — `GET /registrations/holds` · `POST /registrations/holds/{id}/release`
+
+Registrations PGSH created but will **not plan** until somebody settles them: cut into no roster,
+given no cohorte, published no période. They keep their status, their verdict and everything already
+published under them — a hold only stops *new* work being built on a registration nobody confirmed.
+
+```typescript
+interface RegistrationHoldsRequest {
+  academicYearId?: number;             // omitted → the current year, never "all"
+  reason?: 'OutstandingPriorStages' | 'AbsentFromReinscriptionRoll';
+  filter?: 'Active' | 'Released' | 'All';   // default Active — the worklist
+  searchTerm?: string;                 // nom / CNE / Apogée, server-side, debounce 350 ms
+  pageNumber?: number;
+  pageSize?: number;                   // default 25
+}
+// Response: PaginatedResponse<RegistrationHold>
+
+interface ReleaseHoldRequest { holdId: string; releaseNote: string; }  // note required
+// Response: { registrationId, released, stillHeld }
+```
+
+- ⚠ **The year is the *registration's*, not the flag's.** One réinscription roll raises holds on the
+  closing year's registrations and creates the opening year's in the same act, so the 182 final-year
+  debts sit on **2026-2027** and the 1 267 absentees on **2025-2026**. The navbar year drives the page.
+- ⚠ **`stillHeld` is not decoration.** Two reasons can stand on one registration, so « c'est réglé »
+  and « il en reste un » are different facts and only the server knows which.
+- ⚠ **There is no bulk release**, deliberately: it would undo in one click the only thing that made a
+  1 267-row inference safe to record. Each hold is a different question.
+- The evidence is a **snapshot** taken when the flag was raised and is never re-derived on read. If it
+  no longer holds, that is the discovery that releases it.
+
+#### POST `/reinscription/sheet/export` — the roll's report as .xlsx
+
+Same multipart upload as `/reinscription/sheet/preview` (`file`, `fromAcademicYearId`,
+`toAcademicYearId`), returns a three-sheet workbook: **Synthèse · Lignes · Absents**.
+
+- ⚠ **Uncapped.** The on-screen report stops at 1 000 rows and orders attention-first so a browser
+  survives it; the real roll needs ~1 450 walked one at a time. The document is written from the plan,
+  not from the capped report, and « Lignes » is in *sheet order* so line 4 312 is line 4 312.
+- ⚠ **It writes nothing**, so it is offered before the confirmation and **on a roll the apply would
+  refuse** — « donne-moi la liste des erreurs » is the request, and a refusal naming only the first
+  offending line cannot answer it.
 
 #### POST `/registrations`
 ```typescript
@@ -694,6 +752,43 @@ interface GetServicesQuery {
 #### POST `/services` — `CreateServiceCommand` body
 #### PUT `/services/{id}` — Request body with `ServiceType` string
 #### DELETE `/services/{id}` — `204 No Content`
+
+#### GET `/services/occupancy-report` — every service's year at once
+```typescript
+interface OccupancyReportRequest {
+  academicYearId?: number;   // omitted → the CURRENT year, never all of them
+  hospitalId?: number;
+  levelId?: number;
+  stageId?: number;
+  onlySaturated?: boolean;
+}
+// Response: OccupancyReportResponse  (see types/occupancyReport.types.ts)
+```
+
+The cross-service half of the occupancy reads. `GET /services/{id}/occupancy` answers « what does
+*this* service hold »; this one answers « which services are the problem », and two of its findings
+exist **only** at this scale:
+
+- `totals.servicesNeverUsed` — in scope, holding nobody all year. From a service's own page that
+  looks like a service with nothing planned, which is exactly what it is; it is usually the other
+  half of a saturation elsewhere.
+- `stages[].servicesUnused` — a stage listing five services and placing everybody in two.
+
+⚠ **`levelId` / `stageId` narrow which services are listed and what `share` counts — never the load a
+saturation is measured on.** A service is shared, and the ceiling that refuses a publish counts every
+promotion standing in it, so a filtered measurement would print « ok » for a service that is over
+because of another promotion. `peakStudents` is always the whole load.
+
+⚠ **A peak is simultaneous presence, never a sum**: one cohort of 40 passing through three windows is
+40. `months[].peakStudents` is likewise the **maximum reached inside the month**, not its mean.
+
+⚠ **`services[].saturation` is `null`, never 0, when there is no ceiling** — a service admitting
+nobody would otherwise sort as the least saturated. Those rows sort **first**, above even a service
+at 400 %: theirs is the one refusal publication cannot force.
+
+`notes[]` says what the report looked for and did not find, and is **silent when the data has nothing
+to say**. With no cells at all it explains that this is planning that has not started rather than a
+saturation of zero — two states that call for opposite acts.
 
 ---
 
