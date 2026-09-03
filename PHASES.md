@@ -555,3 +555,36 @@ d'inscription, un id de stage et un id de cohorte. C'est cette porte.
 ajouté en même temps. Un processus antérieur répond 404 — à distinguer d'un 401, qui dit seulement
 que l'appel n'était pas authentifié.
 
+## Une page « Sauvegardes », et une bannière dans chaque acte irréversible — session 40
+
+`pages/BackupsPage.tsx` (`/admin/sauvegardes`), `components/SafePointBanner.tsx`,
+`hooks/useSafePointGate.ts`.
+
+**La bannière est la fonctionnalité ; la page est l'administration.** Ce qui manquait n'était pas la
+capacité de prendre un `pg_dump` — elle existait, en ligne de commande, et a servi trois fois — mais
+le fait qu'un humain devait y penser, le jour même où il applique une déliberation sur une promotion
+entière. « Créer un point maintenant » est donc **dans** la confirmation de l'acte : la déliberation,
+la réinscription par fichier, l'application d'un axe de rotation.
+
+- ⚠ **Elle ne bloque pas.** Sans retour en arrière exploitable, l'application est désactivée jusqu'à
+  une case cochée — la forme de `ConfirmedDefaultCount`. Bloquer sèchement voudrait dire que le jour
+  où Docker est en panne, la faculté ne peut plus clôturer son année.
+- ⚠ **Cinq états, quatre phrases, et surtout deux états là où on aurait mis un booléen** :
+  « le service de sauvegarde ne répond pas » n'est pas « il n'y a aucune sauvegarde ». Réparer le
+  runner et prendre un point sont des gestes opposés ; un seul écran rouge pour les deux, et
+  l'utilisateur clique sur un bouton qui échoue puis conclut que la page est cassée.
+- ⚠ **`state` / `hasUsableUndo` / `schemaMatchesRunning` viennent du serveur.** Recalculer la
+  comparaison de schéma en TypeScript, ce serait une règle des deux côtés du réseau.
+- **Il n'y a pas de bouton « Restaurer », et ce n'est pas une lacune** : un processus ne peut pas
+  remplacer la base dont il se sert. Le modal affiche le **coût chiffré** table par table — effacées
+  d'un côté, rétablies de l'autre — puis la commande exacte, la pile arrêtée.
+- La page suit les règles de volume habituelles : liste paginée, effectifs demandés au serveur, et
+  les deux gestes destructifs pré-volés (libellé vide → bouton désactivé ; point le plus récent →
+  icône désactivée avec l'infobulle qui dit pourquoi).
+- L'encart Keycloak dit que le realm **n'est pas** couvert. Une lacune énoncée vaut mieux qu'une
+  lacune supposée réglée : restaurer la base sans le realm laisse `SyncUserMiddleware` apparier un
+  `sub` contre des `User` disparus, et son repli est l'adresse e-mail.
+
+⚠ **Ce qui reste** : `BackupVerification.Restored` est une valeur que rien ne pose — l'écran sait
+faire relire la table des matières d'une archive, pas la restaurer à blanc. Backend `PHASES.md` §18.2,
+recette `SMOKE-TEST.md` §41.

@@ -48,6 +48,7 @@ const AdminServiceDetailPage  = lazy(() => import('../features/admin/pages/Servi
 const EmployeesPage           = lazy(() => import('../features/admin/pages/EmployeesPage'));
 const AttendancePage          = lazy(() => import('../features/admin/pages/AttendancePage'));
 const AssignmentsPage         = lazy(() => import('../features/admin/pages/AssignmentsPage'));
+const BackupsPage             = lazy(() => import('../features/admin/pages/BackupsPage'));
 
 // ─── Lazy-loaded employee pages ───────────────────────────────────────────────
 const EmployeeDashboardPage  = lazy(() => import('../features/employee/pages/EmployeeDashboardPage'));
@@ -142,6 +143,7 @@ export const router = createBrowserRouter([
               { path: PATHS.ADMIN.HOSPITALS,    element: wrap(<InfrastructurePage />) },
               { path: PATHS.ADMIN.EMPLOYEES,   element: wrap(<EmployeesPage />)      },
               { path: PATHS.ADMIN.ASSIGNMENTS, element: wrap(<AssignmentsPage />)    },
+              { path: PATHS.ADMIN.BACKUPS,     element: wrap(<BackupsPage />)        },
             ],
           },
         ],

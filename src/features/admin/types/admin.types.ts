@@ -1258,8 +1258,34 @@ export interface ServiceDetailResponse {
   chefHistory: ChefTenureResponse[];
   /** The name in the legacy « Responsable (source) » note, when there is one — 140 of 148 services
    *  have only this. ⚠ Undated: it says who the Access base last recorded, not who led the service
-   *  on any given date, so it must never be presented as a configured chef. */
+   *  on any given date, so it must never be presented as a configured chef.
+   *
+   *  This is the *raw* fact — what the fiche says. Who PGSH **names** as the chef is
+   *  `chefAttribution`, and that is what a screen prints. */
   chefFromSourceNote: string | null;
+  /** ⚠ **Print this, never re-rank the sources here.** The server resolves it with the same rule the
+   *  répartition and the stage export use (`ServiceChefDirectory`). This page used to rank them
+   *  itself — the sitting FK, then the note, with the open tenure under « Historique » — and
+   *  disagreed with both documents: a service reading « Pr.N.Elhafidi » exported as « Youssef
+   *  Alaoui », with nothing on either screen mentioning the other. Same class as
+   *  `ServicePeriodResponse.state`. ⚠ Absent only from an API predating this change, and that means
+   *  **unknown** — never « the note »: filling it in from `chefFromSourceNote` would put a second
+   *  resolution order back on the client, which is the defect. */
+  chefAttribution?: ServiceChefAttribution;
+}
+
+/** Who PGSH names as a service's chef today, and on what authority. */
+export interface ServiceChefAttribution {
+  /** Null when nobody is named at all — « aucun chef de service désigné ». */
+  name: string | null;
+  /** The name is the **undated** import note rather than a dated affectation. Never dropped beside
+   *  the name: an undated note presented as the record is a claim nothing supports. */
+  fromSourceNote: boolean;
+  /** ⚠ A chef **is** linked in Personnel and is deliberately not the name above — the temporary
+   *  `ServiceChefPolicy.InForce = SourceNoteOnly`, because the base's only two affectations are
+   *  test links. Say so, or the « en cours » tenure below the headline explains nothing. False when
+   *  nobody is linked: that is a different sentence. */
+  linkedChefWithheld: boolean;
 }
 
 export interface ChefTenureResponse {

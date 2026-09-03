@@ -49,6 +49,8 @@ import {
 } from '../types/yearClosure.types';
 import { InscriptionSection } from '../components/InscriptionSection';
 import { ReinscriptionSheetSection } from '../components/ReinscriptionSheetSection';
+import { SafePointBanner } from '../components/SafePointBanner';
+import { useSafePointGate } from '../hooks/useSafePointGate';
 import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { problemMessage } from '../../../common/utils/problemMessage';
@@ -213,7 +215,12 @@ export default function YearClosurePage() {
 
   // Pre-flight: never let a click through that the server is bound to refuse.
   const yearMissing = currentYearId === null;
-  const canApply = !!report && report.canApply && (!report.defaultedCount || confirmed) && !applied;
+  // ⚠ Un point de sauvegarde n'est pas une formalité ici : le fichier de déliberation n'est **pas
+  // conservé**, donc une promotion à moitié corrigée ne se reconstruit pas. Le seul retour en arrière
+  // est la restauration.
+  const backup = useSafePointGate();
+  const canApply = !!report && report.canApply && (!report.defaultedCount || confirmed)
+    && !backup.blocked && !applied;
   const rolloverReady = !yearMissing && !!targetYearId;
 
   return (
@@ -340,6 +347,14 @@ export default function YearClosurePage() {
               )}
             </Alert>
 
+            {report && !applied && (
+              <SafePointBanner
+                actLabel={`Avant clôture ${closingYear?.label ?? ''}`.trim()}
+                acknowledged={backup.acknowledged}
+                onAcknowledge={backup.setAcknowledged}
+              />
+            )}
+
             {report && <DeliberationSummary report={report} applied={applied} />}
 
             {report && report.defaultedCount > 0 && !applied && (
@@ -361,7 +376,7 @@ export default function YearClosurePage() {
             {report && !applied && (
               <Group justify="flex-end">
                 <Tooltip
-                  label={applyReason(report, confirmed)}
+                  label={applyReason(report, confirmed, backup.blocked)}
                   disabled={canApply}
                   withArrow
                 >
@@ -593,9 +608,10 @@ function DeliberationSummary({ report, applied }: { report: DeliberationReport; 
 }
 
 /** Why the apply button is off. A disabled control with no reason is a dead end. */
-function applyReason(report: DeliberationReport, confirmed: boolean) {
+function applyReason(report: DeliberationReport, confirmed: boolean, backupBlocked: boolean) {
   if (report.errorCount > 0) return 'Corrigez les lignes en erreur.';
   if (report.defaultedCount > 0 && !confirmed) return 'Confirmez les admissions par défaut.';
+  if (backupBlocked) return 'Créez un point de sauvegarde, ou confirmez de continuer sans.';
   return '';
 }
 

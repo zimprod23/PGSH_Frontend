@@ -50,6 +50,8 @@ import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { useListParams } from '../../../common/hooks/useListParams';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
+import { SafePointBanner } from '../components/SafePointBanner';
+import { useSafePointGate } from '../hooks/useSafePointGate';
 
 /** Module-level so its identity is stable — useListParams memoises on it. */
 const CYCLE_FILTERS = { level: null as string | null };
@@ -284,6 +286,11 @@ export default function RotationCyclePage() {
       setLayout(null);
     }
   };
+
+  // ⚠ Appliquer un axe le **remplace en entier** et les cellules tombent avec les créneaux
+  // (CASCADE). Rien ne remet en place une répartition déjà arrangée : seul un point de sauvegarde le
+  // fait.
+  const backup = useSafePointGate();
 
   const handleApply = async () => {
     try {
@@ -769,6 +776,14 @@ export default function RotationCyclePage() {
         {layout && (
           <Card withBorder radius="md" padding="lg" ref={resultRef}>
             <Stack gap="md">
+              {!applied && (
+                <SafePointBanner
+                  actLabel="Avant application d'un axe"
+                  acknowledged={backup.acknowledged}
+                  onAcknowledge={backup.setAcknowledged}
+                />
+              )}
+
               <Group justify="space-between" align="flex-start">
                 <div>
                   <Title order={4}>Croisement calculé</Title>
@@ -778,15 +793,24 @@ export default function RotationCyclePage() {
                   </Text>
                 </div>
                 <Group gap="xs">
-                  <Button
-                    radius="md"
-                    color="navy"
-                    leftSection={<IconCheck size={16} />}
-                    onClick={handleApply}
-                    loading={applying}
+                  <Tooltip
+                    label="Créez un point de sauvegarde, ou confirmez de continuer sans."
+                    disabled={!backup.blocked}
+                    withArrow
                   >
-                    Appliquer l'axe
-                  </Button>
+                    <div>
+                      <Button
+                        radius="md"
+                        color="navy"
+                        leftSection={<IconCheck size={16} />}
+                        onClick={handleApply}
+                        loading={applying}
+                        disabled={backup.blocked}
+                      >
+                        Appliquer l'axe
+                      </Button>
+                    </div>
+                  </Tooltip>
                   <Tooltip label="Écrivez d'abord l'axe" disabled={applied}>
                     <Button
                       radius="md"

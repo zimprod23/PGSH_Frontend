@@ -39,6 +39,8 @@ import {
 import { useNotify } from '../../../common/hooks/useNotify';
 import { isReportedByErrorMiddleware, problemMessage } from '../../../common/utils/problemMessage';
 import { downloadBlob } from '../../../common/utils/downloadBlob';
+import { SafePointBanner } from './SafePointBanner';
+import { useSafePointGate } from '../hooks/useSafePointGate';
 
 interface Props {
   /** The year being closed. */
@@ -47,6 +49,7 @@ interface Props {
   /** Every year after it, newest last — the same list the derivation-driven rollover offers. */
   targetYears: { value: string; label: string }[];
 }
+
 
 /**
  * **Réinscription par fichier** — the rollover as the faculty actually hands it over.
@@ -88,6 +91,10 @@ export function ReinscriptionSheetSection({ fromYearId, fromYearLabel, targetYea
   const [report, setReport] = useState<ReinscriptionSheetReport | null>(null);
   const [applied, setApplied] = useState(false);
   const [confirmedGraduations, setConfirmedGraduations] = useState(false);
+
+  // ⚠ Le rouleau applique 6 813 inscriptions, 7 232 décisions et 1 327 signalements d'un clic, et il
+  // est conçu pour être rejoué. Rien ne le défait ligne à ligne.
+  const backup = useSafePointGate();
 
   const [preview, { isLoading: previewing }] = usePreviewReinscriptionSheetMutation();
   const [apply, { isLoading: applying }] = useApplyReinscriptionSheetMutation();
@@ -239,6 +246,7 @@ export function ReinscriptionSheetSection({ fromYearId, fromYearLabel, targetYea
               disabled={
                 (report.willRegister === 0 && report.willGraduate === 0)
                 || (report.willGraduate > 0 && !confirmedGraduations)
+                || backup.blocked
               }
               onClick={handleApply}
             >
@@ -253,6 +261,14 @@ export function ReinscriptionSheetSection({ fromYearId, fromYearLabel, targetYea
             Aucune année postérieure n'existe. Créez l'année universitaire suivante avant de
             réinscrire.
           </Alert>
+        )}
+
+        {report && !applied && (
+          <SafePointBanner
+            actLabel="Avant réinscription"
+            acknowledged={backup.acknowledged}
+            onAcknowledge={backup.setAcknowledged}
+          />
         )}
 
         {report && (

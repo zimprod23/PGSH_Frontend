@@ -54,6 +54,22 @@ they resolved — read it from `Content-Disposition`, never rebuild it (see `CLA
 - Both sheets carry `Chef de service` with an `Origine du chef` beside it (« Affectation » /
   « Note (import) » / « Mixte »): 140 of the 148 services name their professor only in an **undated**
   legacy note, and the file must not pass that off as the dated record.
+- ⚠ **Since 2026-09-03 the name comes from that note *alone*** — the base's 2 chef affectations are
+  test links, so `ServiceChefPolicy.InForce` is `SourceNoteOnly` (server-side, and it governs the
+  répartition document too). Expect « Note (import) » on every row, **no name at all** on a service
+  named only by an affectation, and a sentence under the caption of the two chef sheets saying so.
+  Nothing in the response shape changed, so no client change was needed — but « rattacher un chef dans
+  Personnel puis ré-exporter » no longer flips the column, which is worth knowing before it is
+  reported as a bug.
+
+⚠ **`GET services/{id}` carries the resolved chef, and a screen prints *that*** —
+`chefAttribution: { name, fromSourceNote, linkedChefWithheld }`, resolved server-side by
+`ServiceChefDirectory` as of today. **Do not re-rank `serviceChef` / `chefFromSourceNote` /
+`chefHistory` on the client**: that is what the service page used to do, and it headlined
+« Pr.N.Elhafidi » on a service whose export said « Youssef Alaoui ». `linkedChefWithheld` is « a chef
+*is* linked and is deliberately not the name above » — it is what makes « Désignez un chef de
+service » the right advice on 140 services and the wrong one on the two that have one. `serviceChef`
+and `chefHistory` remain, as the *configuration* an admin edits.
 - Refusals are ordinary ProblemDetails: `Export.NotAllowed` (403), `Export.TooManyRows` (400, naming
   the count and the axis that narrows it), an unknown level (400) or stage (404).
 
@@ -831,6 +847,97 @@ interface AutoArrangeGroupsRequest {
 }
 // Response: BulkResponse<studentId (string), groupId (number)>
 ```
+
+### Backups (points de restauration)
+
+Tous ces appels exigent `Roles.Administrative` — sauf le `DELETE`, réservé à `SuperUser`.
+
+#### GET `/backups/safe-point`
+La lecture que fait **chaque confirmation d'acte en masse**. Elle répond même quand le service de
+sauvegarde est injoignable : un statut qui 500 dans la seule situation qu'il existe pour signaler est
+pire que pas de statut du tout.
+
+```typescript
+type SafePointState = 'Unavailable' | 'None' | 'SchemaChanged' | 'Stale' | 'Fresh';
+
+interface SafePointStatus {
+  state: SafePointState;
+  location: string;
+  unavailableReason: string | null;   // renseigné exactement quand state === 'Unavailable'
+  latest: BackupPoint | null;
+  ageMinutes: number | null;
+  hasUsableUndo: boolean;             // ⚠ envoyé, jamais recalculé côté client
+  runningMigration: string | null;
+  runningGitSha: string | null;
+  totalPoints: number;
+  nextScheduledAtUtc: string | null;  // null = aucune planification active, à dire en toutes lettres
+  keycloakRealmCovered: boolean;      // false dans cette version, et la page le dit
+}
+```
+
+⚠ **`Unavailable` et `None` sont deux états, pas un écran vide commun.** « Le runner ne répond pas »
+et « il n'y a aucune sauvegarde » appellent des gestes opposés.
+
+#### GET `/backups?pageNumber&pageSize` → `PaginatedResponse<BackupPoint>`
+```typescript
+interface BackupPoint {
+  id: string;                 // le radical du fichier : 20260903-142211-avant-reinscription
+  label: string;
+  kind: 'Scheduled' | 'Named' | 'PreAct';
+  takenAtUtc: string;
+  sizeBytes: number;
+  lastMigration: string | null;
+  gitSha: string | null;
+  note: string | null;
+  takenBy: string | null;
+  verification: 'Never' | 'Listed' | 'Restored';
+  verifiedAtUtc: string | null;
+  schemaMatchesRunning: boolean;              // ⚠ envoyé, jamais recalculé
+  census: { table: string; count: number | null }[];   // null ≠ 0
+}
+```
+Contrairement au statut, cette liste **refuse** (500) quand l'archive est injoignable : personne n'est
+au milieu d'un acte en la lisant.
+
+#### POST `/backups` → `BackupPoint` (201)
+```typescript
+interface CreateBackupPointRequest {
+  label: string;                              // requis, ≤ 80 — le bouton le vérifie avant l'envoi
+  note?: string;                              // ≤ 500
+  kind?: 'Named' | 'PreAct';                  // PreAct = pris depuis la confirmation d'un acte
+}
+```
+
+#### POST `/backups/{id}/verify` → `BackupPoint`
+`pg_restore -l` : prouve que l'archive n'est ni tronquée ni corrompue, et rien de plus.
+
+#### GET `/backups/{id}/restore-plan` → `RestorePlan`
+```typescript
+interface RestorePlan {
+  point: BackupPoint;
+  schemaMatchesRunning: boolean;
+  runningMigration: string | null;
+  schemaStepCommand: string | null;   // le `dotnet ef database update` à passer d'abord
+  restoreCommand: string;             // à lancer dans un terminal, l'AppHost arrêté
+  impact: {
+    table: string;
+    atSafePoint: number | null;
+    now: number | null;
+    discarded: number | null;         // écrites depuis : ce que la restauration efface
+    restored: number | null;          // disparues depuis : ce qu'elle rétablit
+  }[];
+  totalRowsDiscarded: number | null;
+  totalRowsRestored: number | null;
+  confirmationPhrase: string;         // l'id, à saisir pour confirmer
+}
+```
+⚠ **Il n'existe aucune route qui restaure.** Un processus ne peut pas remplacer la base dont il se
+sert. Et un désaccord de schéma **ne fait pas échouer** cette lecture : le refus doit pouvoir nommer
+la migration à appliquer.
+
+#### DELETE `/backups/{id}` → 204
+`SuperUser` seulement, et le point **le plus récent** est refusé (409) : c'est celui que lisent toutes
+les confirmations.
 
 ---
 

@@ -38,6 +38,7 @@ export const PATHS = {
     EMPLOYEES:       'employees',
     ATTENDANCE:      'attendance',
     ASSIGNMENTS:     'assignments',
+    BACKUPS:         'sauvegardes',
   },
 
   EMPLOYEE: {

@@ -33,6 +33,7 @@ import {
   IconCalendarOff,
   IconTable,
   IconChartBar,
+  IconDatabaseExport,
   IconRefresh,
   IconClipboardCheck,
   IconBell,
@@ -126,6 +127,14 @@ const NAV: NavEntry[] = [
     icon: IconBriefcase,
     items: [
       { kind: 'leaf', label: 'Employés', icon: IconUsers, path: `${ROOT}/employees` },
+    ],
+  },
+  {
+    kind: 'group',
+    label: 'Système',
+    icon: IconDatabaseExport,
+    items: [
+      { kind: 'leaf', label: 'Sauvegardes', icon: IconDatabaseExport, path: `${ROOT}/sauvegardes` },
     ],
   },
   {

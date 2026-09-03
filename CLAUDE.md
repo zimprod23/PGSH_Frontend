@@ -384,6 +384,31 @@ service while none named the scale. It also re-did the server's whole occupancy 
   on purpose (each refusal names what *that* cohorte would lose) and it has the same symptom; it is
   `HANDOFF.md` item 19, not a pattern to copy.
 
+### 1g-bis. Un acte irréversible affiche s'il a un retour en arrière — `SafePointBanner`
+
+`features/admin/components/SafePointBanner.tsx` + `hooks/useSafePointGate.ts`, posés sur la
+déliberation, la réinscription par fichier et l'application d'un axe de rotation.
+
+- **Le bouton « Créer un point maintenant » est la fonctionnalité, pas la bannière.** Une sauvegarde
+  que quelqu'un doit penser à prendre dans un terminal est une *procédure*, et les procédures sautent
+  le jour où elles servent — c'est-à-dire le jour où on écrit une promotion entière. Accessible depuis
+  l'acte, elle en devient un effet de bord. ⚠ Prendre le point ne doit **rien perdre** de l'écran :
+  le fichier chargé et le rapport affiché survivent, sinon personne ne cliquera dessus deux fois.
+- ⚠ **Elle ne bloque pas.** Sans retour en arrière exploitable, le bouton d'application est désactivé
+  jusqu'à une **case cochée** — même forme que `ConfirmedDefaultCount` : on confirme ce qui ne se
+  défait pas. Bloquer sèchement voudrait dire que le jour où Docker est en panne, la faculté ne peut
+  plus clôturer son année.
+- ⚠ **Quatre phrases distinctes, pas une phrase paramétrée.** « Le service ne répond pas » et « il n'y
+  a aucune sauvegarde » appellent des gestes opposés — réparer le runner, ou prendre un point — et une
+  formulation commune est exactement l'écran vide qui les confond. Même famille que
+  `RepartitionSummary.DeclaredSlotCount` et `OutsideYearCount`.
+- **`state`, `hasUsableUndo` et `schemaMatchesRunning` sont envoyés, jamais recalculés ici.** Même
+  règle que `ServicePeriodResponse.State` et `RegistrationHoldResponse.BlocksPlanning` : une règle
+  écrite des deux côtés d'une frontière réseau est deux règles que rien n'empêche de diverger.
+- Le `useSafePointGate` vit dans `hooks/` et non à côté du composant : un fichier qui exporte un
+  composant **et** un hook casse le fast-refresh (`react-refresh/only-export-components`), et `npm run
+  lint` le refuse.
+
 ### 1h. A write that takes minutes says so, and says what leaving costs
 
 « Générer le plan » writes cohortes, affectations and cells for a whole promotion. A `loading` spinner

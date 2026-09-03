@@ -35,6 +35,12 @@ import type {
 } from '../types/inscription.types';
 import type { StudentSummaryResponse, GetStudentsQuery, UpdateStudentRequest } from '../../student/types/student.types';
 import type { OccupancyReportRequest, OccupancyReportResponse } from '../types/occupancyReport.types';
+import type {
+  BackupPoint,
+  CreateBackupPointRequest,
+  RestorePlan,
+  SafePointStatus,
+} from '../types/backup.types';
 import type { OutstandingStageResponse, StudentLevelDossierResponse } from '../types/dossier.types';
 import type {
   CohortDetailResponse,
@@ -135,6 +141,11 @@ import type {
  * Changing the calendar changes every working-day count already on screen — the coverage list, and any axis
  * laid out from it. Module-level so the tag list identity is stable.
  */
+const BACKUPS_CHANGED = [
+  { type: 'Backup' as const, id: 'LIST' },
+  { type: 'Backup' as const, id: 'STATUS' },
+];
+
 const CALENDAR_CHANGED = [
   { type: 'Calendar' as const, id: 'HOLIDAYS' },
   { type: 'Calendar' as const, id: 'AXIS' },
@@ -1527,6 +1538,46 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     // ⚠ There is deliberately no bulk release. It would undo in one click the only thing that made a
     // 1 267-row inference safe to record.
 
+    /**
+     * L'état du dernier point de sauvegarde — lu par la page « Sauvegardes » **et** par la
+     * confirmation de chaque acte en masse.
+     *
+     * ⚠ `refetchOnMountOrArgChange` : la question posée est « à quand remonte la dernière
+     * sauvegarde ? ». Une réponse mise en cache une heure plus tôt répond à une autre question, et
+     * c'est celle qu'on lirait juste avant d'appliquer une réinscription.
+     */
+    getSafePointStatus: builder.query<SafePointStatus, void>({
+      query: () => ({ url: '/backups/safe-point' }),
+      providesTags: [{ type: 'Backup' as const, id: 'STATUS' }],
+      keepUnusedDataFor: 30,
+    }),
+
+    getBackupPoints: builder.query<PaginatedResponse<BackupPoint>, { pageNumber?: number; pageSize?: number }>({
+      query: (params) => ({ url: '/backups', params }),
+      providesTags: [{ type: 'Backup' as const, id: 'LIST' }],
+    }),
+
+    createBackupPoint: builder.mutation<BackupPoint, CreateBackupPointRequest>({
+      query: (body) => ({ url: '/backups', method: 'POST', body }),
+      invalidatesTags: BACKUPS_CHANGED,
+    }),
+
+    verifyBackupPoint: builder.mutation<BackupPoint, string>({
+      query: (id) => ({ url: `/backups/${id}/verify`, method: 'POST' }),
+      invalidatesTags: BACKUPS_CHANGED,
+    }),
+
+    deleteBackupPoint: builder.mutation<void, string>({
+      query: (id) => ({ url: `/backups/${id}`, method: 'DELETE' }),
+      invalidatesTags: BACKUPS_CHANGED,
+    }),
+
+    /** Ce que la restauration effacerait, ce qu'elle rétablirait, et la commande qui la fait. */
+    getRestorePlan: builder.query<RestorePlan, string>({
+      query: (id) => ({ url: `/backups/${id}/restore-plan` }),
+      providesTags: (_r, _e, id) => [{ type: 'Backup' as const, id }],
+    }),
+
     getRegistrationHolds: builder.query<PaginatedResponse<RegistrationHold>, RegistrationHoldsRequest>({
       query: (params) => ({ url: '/registrations/holds', params }),
       providesTags: [{ type: 'Registration' as const, id: 'HOLDS' }],
@@ -1844,6 +1895,12 @@ export const {
   usePreviewReinscriptionSheetMutation,
   useApplyReinscriptionSheetMutation,
   useExportReinscriptionSheetReportMutation,
+  useGetSafePointStatusQuery,
+  useGetBackupPointsQuery,
+  useCreateBackupPointMutation,
+  useVerifyBackupPointMutation,
+  useDeleteBackupPointMutation,
+  useLazyGetRestorePlanQuery,
   useGetRegistrationHoldsQuery,
   useReleaseRegistrationHoldMutation,
   useRecordRegistrationOutcomeMutation,
