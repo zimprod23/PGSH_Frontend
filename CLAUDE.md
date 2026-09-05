@@ -193,6 +193,21 @@ Known offenders to fix when touched (this list is tracked in root `HANDOFF.md` �
   bug the Suivi bar already fixed with `selectionHasTargetPeriod`.)
 - Audit every page's primary mutation for an equivalent "can this even succeed right now?" guard.
 
+### 1a. Rendre l'état invalide irreprésentable vaut mieux que le désactiver
+
+§1 dit de désactiver un contrôle dont les préconditions ne sont pas réunies, et de dire pourquoi.
+Quand deux contrôles s'excluent, il y a mieux : faire en sorte que la combinaison interdite n'existe
+pas. `PlacementsPage` a un filtre « Hôpital » et un filtre « Service », et le serveur refuse les deux
+ensemble (un service appartient déjà à un hôpital). Plutôt que de désactiver l'un quand l'autre est
+rempli — ce qui laisse l'utilisateur deviner lequel effacer — **choisir l'un efface l'autre**. Il n'y
+a alors aucun état invalide à expliquer, et aucun aller-retour perdu.
+
+- **Le `disabled` + raison reste la règle** quand la précondition n'est pas un autre contrôle :
+  « Exclusivement » sur la même page est désactivé tant qu'aucun lieu n'est choisi, avec la raison
+  dans l'infobulle, parce qu'il n'y a rien à effacer — il manque quelque chose.
+- Repère : deux champs **mutuellement exclusifs** → effacement croisé. Un champ qui **dépend** d'un
+  autre → `disabled` + raison.
+
 ### 1b. Never render an unbounded list — the data is bigger than the fixtures were
 
 The legacy import replaced seeded fixtures with real history, and every list that had no pagination
@@ -421,6 +436,26 @@ run for nothing.
   is true because `GenerateMacroPlanCommandHandler` runs inside one transaction
   (`ExecuteAtomicallyAsync`). Without that, interrupting leaves a plan built for the first three
   stages and nothing for the rest — and the panel would be lying.
+
+### 1i ⚠ Un panneau qui *nomme* son sujet se lit sur `currentData`, jamais sur `data`
+
+RTK Query garde dans **`data`** le dernier résultat obtenu *quel que soit l'argument*&nbsp;;
+**`currentData`** ne contient que le résultat de l'argument courant, et se vide dès que l'argument
+change ou que la requête est `skip`ée.
+
+Trouvé en pilotant `PlacementsPage` le 2026-09-04 — invisible au type-check, aux tests, et à toute
+relecture. Le panneau de faisabilité est `skip`é tant qu'aucun hôpital n'est choisi&nbsp;; lu sur
+`data`, il **survivait au skip** et continuait d'afficher « Faisabilité — Hôpital Militaire
+Mohammed V » alors que le filtre venait d'être vidé par le choix d'un service ailleurs.
+
+- **Le repère : le composant nomme-t-il ce qu'il décrit&nbsp;?** Un panneau titré « Faisabilité —
+  <hôpital> » n'affiche pas une donnée en retard, il affiche une **phrase fausse**. Idem en cours de
+  chargement&nbsp;: passer de l'hôpital A à l'hôpital B montrerait les stages de A sous le nom de B.
+- **`data` reste le bon choix pour une liste** dont l'en-tête ne prétend rien de plus que ce que la
+  liste contient, avec `isFetching` pour le dire — c'est ce que fait la liste des rosters ici, et
+  `OccupancyReportPage` avant elle.
+- Même famille que §1d&nbsp;: une donnée périmée qui se corrige presque partout, donc qu'on ne voit
+  que dans le cas précis où elle ne se corrige pas.
 
 ### 2. Debounce every search / free-text-filtered query input
 

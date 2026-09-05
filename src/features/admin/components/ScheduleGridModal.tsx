@@ -220,6 +220,9 @@ function CellFace({ cell, loading, disabled, onClick, onClear, ref, ...rest }: C
       ref={ref}
       onClick={onClick}
       {...rest}
+      title={cell?.isPublished
+        ? 'Cellule publiée : des périodes ont été matérialisées à partir d’elle.'
+        : undefined}
       style={{
         display: 'flex', flexDirection: 'column', gap: 2,
         padding: '6px 8px',
@@ -237,10 +240,37 @@ function CellFace({ cell, loading, disabled, onClick, onClear, ref, ...rest }: C
         <>
           <Group gap={4} wrap="nowrap" justify="space-between">
             <Stack gap={0} style={{ minWidth: 0, flex: 1 }}>
-              <Text size="xs" fw={600} truncate style={{ maxWidth: 100 }}>{cell.serviceName}</Text>
+              <Group gap={3} wrap="nowrap">
+                {/* ⚠ Per cell, from the server's coverage read — not from the row. Under a
+                    single-service stage one période covers a whole run, so the trailing columns of a
+                    published run are published too and nothing on this grid used to say so. A native
+                    title again: this renders once per cell. */}
+                {cell.isPublished && (
+                  <IconRocket
+                    size={10}
+                    stroke={1.5}
+                    color="#16a34a"
+                    style={{ flexShrink: 0 }}
+                  />
+                )}
+                <Text size="xs" fw={600} truncate style={{ maxWidth: 100 }}>{cell.serviceName}</Text>
+              </Group>
               <Text size="xs" c="dimmed" truncate style={{ maxWidth: 100 }}>{cell.hospitalName}</Text>
             </Stack>
-            <ActionIcon size={12} variant="transparent" color="red" onClick={onClear} style={{ flexShrink: 0 }}>
+            {/* A published cell cannot be cleared — the périodes materialised from it are what the
+                chefs and the attendance hang off, and only « Dépublier » may undo that, naming what
+                it costs. Refused server-side; said here so the refusal is not the way it is learnt. */}
+            <ActionIcon
+              size={12}
+              variant="transparent"
+              color="red"
+              disabled={cell.isPublished}
+              title={cell.isPublished
+                ? 'Cellule publiée : dépubliez la cohorte avant de la retirer.'
+                : undefined}
+              onClick={onClear}
+              style={{ flexShrink: 0 }}
+            >
               <IconX size={10} />
             </ActionIcon>
           </Group>
@@ -1009,20 +1039,34 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
             <Card padding="xl" radius="lg" withBorder>
               <Stack align="center" gap="xs">
                 <IconCalendarTime size={32} stroke={1} color="#94A3B8" />
-                {/* This branch is only reached when BOTH are empty, so the old ternary could never
-                    show its second arm. Name both — after the legacy import that is the real state
-                    of every stage: rotations were imported, the planning grid never existed. */}
                 <Text c="dimmed" size="sm" ta="center">
                   Ni cohorte ni créneau pour cette année.
                 </Text>
-                <Text c="dimmed" size="xs" ta="center" maw={320}>
-                  Créez les cohortes du stage, puis ajoutez ses créneaux (P1, P2…) — ils sont propres
-                  à chaque année universitaire.
+                {/* ⚠ The server's sentence, not one written here. A blank table has three causes —
+                    this year predates the planning grid, no axis has been laid, or the axis is laid
+                    and nobody is arranged into it — and only the store can tell them apart. Reading
+                    the first as the second is how an axis gets laid over a year already served. */}
+                <Text c="dimmed" size="xs" ta="center" maw={380}>
+                  {schedule?.summary.emptyGridNote
+                    ?? 'Créez les cohortes du stage, puis ajoutez ses créneaux (P1, P2…) — ils sont '
+                       + 'propres à chaque année universitaire.'}
                 </Text>
               </Stack>
             </Card>
           ) : (
             <>
+              {/* Silent as soon as one cell exists — a note that fires whatever the data says is
+                  noise, and noise is dismissed, which puts the real one out of sight. */}
+              {schedule.summary.emptyGridNote && (
+                <Alert
+                  icon={<IconCalendarTime size={16} />}
+                  color={schedule.summary.declaredSlotCount === 0 ? 'gray' : 'blue'}
+                  variant="light"
+                  radius="md"
+                >
+                  <Text size="xs">{schedule.summary.emptyGridNote}</Text>
+                </Alert>
+              )}
               <SaturationSummary summary={schedule.summary} />
               <ScrollArea>
               <Table withTableBorder withColumnBorders fz="xs" style={{ minWidth: 400 + schedule.slots.length * 170 }}>

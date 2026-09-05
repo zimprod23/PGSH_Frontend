@@ -25,6 +25,8 @@ import {
   IconSnowflake,
   IconBook2,
   IconSchool,
+  IconHistory,
+  IconMapSearch,
   IconUsersGroup,
   IconBuildingHospital,
   IconBriefcase,
@@ -98,6 +100,7 @@ const NAV: NavEntry[] = [
       { kind: 'leaf', label: 'Niveaux',            icon: IconSchool,     path: `${ROOT}/levels`         },
       { kind: 'leaf', label: 'CNPN (programme)',    icon: IconBook2,      path: `${ROOT}/curriculum`     },
       { kind: 'leaf', label: 'Groupes',            icon: IconUsersGroup, path: `${ROOT}/groups`             },
+      { kind: 'leaf', label: 'Placements',        icon: IconMapSearch,  path: `${ROOT}/placements`         },
     ],
   },
   {
@@ -135,6 +138,7 @@ const NAV: NavEntry[] = [
     icon: IconDatabaseExport,
     items: [
       { kind: 'leaf', label: 'Sauvegardes', icon: IconDatabaseExport, path: `${ROOT}/sauvegardes` },
+      { kind: 'leaf', label: 'Journal des actions', icon: IconHistory, path: `${ROOT}/journal` },
     ],
   },
   {

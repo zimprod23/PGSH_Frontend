@@ -25,7 +25,8 @@ import { useDisclosure } from '@mantine/hooks';
 import {
   IconAlertTriangle,
   IconArrowLeft,
-  IconBuildingHospital,
+  IconChevronDown,
+  IconChevronUp,
   IconCalendar,
   IconCalendarTime,
   IconCircleCheck,
@@ -53,11 +54,13 @@ import {
   usePublishScheduleMutation,
   usePublishStageScheduleMutation,
   useUnpublishScheduleMutation,
+  useUnpublishStageScheduleMutation,
   useGetAcademicYearsQuery,
   useGetAcademicGroupOptionsQuery,
   useGetServicesQuery,
   useAddAllowedServiceMutation,
   useRemoveAllowedServiceMutation,
+  useSetAllowedServiceOrderMutation,
   useDeleteAllStageCohortsMutation,
 } from '../api/adminApi';
 import { ScheduleGridModal } from '../components/ScheduleGridModal';
@@ -93,6 +96,7 @@ export default function StageDetailPage() {
   const [publishSchedule]    = usePublishScheduleMutation();
   const [publishStageSchedule] = usePublishStageScheduleMutation();
   const [unpublishSchedule]  = useUnpublishScheduleMutation();
+  const [unpublishStageSchedule] = useUnpublishStageScheduleMutation();
   const [deleteAllCohorts, { isLoading: resettingCohorts }] = useDeleteAllStageCohortsMutation();
 
   const [assigningCohortId,   setAssigningCohortId]   = useState<number | null>(null);
@@ -171,6 +175,31 @@ export default function StageDetailPage() {
   const handleRemoveService = async (serviceId: number) => {
     try { await removeAllowedService({ stageId, serviceId }).unwrap(); }
     catch { notify.error('Impossible de retirer ce service'); }
+  };
+
+  // ── Rotation order ───────────────────────────────────────────────────────
+  // ⚠ This is a planning input, not a display preference. RotationArranger emits each service's
+  // block of the queue consecutively and the first période takes phase 0, so the service placed
+  // first receives the first run of group numbers. It is what lets a nominative placement fall out
+  // of the plan instead of being a cell edited by hand on the grid afterwards — an edit the printed
+  // répartition shows, because a range cannot merge across the hole it leaves.
+  const [setAllowedServiceOrder, { isLoading: reordering }] = useSetAllowedServiceOrderMutation();
+
+  const moveService = async (index: number, direction: -1 | 1) => {
+    const services = stage?.allowedServices ?? [];
+    const target = index + direction;
+    if (target < 0 || target >= services.length) return;
+
+    // The whole list is sent, in the order wanted: the server refuses a partial one rather than
+    // completing it, so there is nothing to gain by sending a move.
+    const ids = services.map((s) => s.id);
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+
+    try { await setAllowedServiceOrder({ stageId, serviceIds: ids }).unwrap(); }
+    catch (err: unknown) {
+      const detail = (err as { data?: { detail?: string } })?.data?.detail;
+      notify.error(detail ?? 'Impossible de réordonner les services');
+    }
   };
   // The cohort-creation modal keeps its own year — provisioning next year's cohorts while looking at
   // this one is legitimate — but it opens on the navbar's year and follows it, so the common case
@@ -343,22 +372,51 @@ export default function StageDetailPage() {
     }
   };
 
+  // ⚠ ONE request, not one per cohorte. The loop this replaces awaited a request per cohorte — 134
+  // on the 3ᵉ MED — and each one invalidated the stage tag, so the page refetched a 134-row list
+  // after every single one. That refetch storm was the lag, and since errorMiddleware toasts every
+  // rejected mutation, a stage with rotations underway answered with one red toast per cohorte.
   const handleUnpublishAllConfirm = async () => {
-    const targets = yearCohorts.filter((c) => c.isSchedulePublished);
     closeUnpublishAll();
     setUnpublishingAll(true);
-    let removed = 0, failed = 0;
-    for (const cohort of targets) {
-      try {
-        // Never forced in bulk: a cohort whose rotation has begun is refused and counted, so a
-        // sweep over the stage cannot quietly take an evaluation with it.
-        const res = await unpublishSchedule({ cohortId: cohort.id, stageId }).unwrap();
-        removed += res.periodsRemoved;
-      } catch { failed++; }
+    try {
+      const res = await unpublishStageSchedule({ stageId, academicYearId: currentYearId ?? undefined }).unwrap();
+
+      // The server never forces in bulk, so a cohorte underway is skipped and counted — the message
+      // has to say so, or « 0 dépubliée » reads as a button that did nothing.
+      if (res.cohortsUnpublished === 0 && res.cohortsSkippedUnderway === 0) {
+        notify.info('Aucune répartition publiée à dépublier pour cette année.');
+      } else {
+        const parts = [
+          `${res.periodsRemoved} période(s) supprimée(s) sur ${res.cohortsUnpublished} cohorte(s)`,
+        ];
+        if (res.cohortsSkippedUnderway > 0) {
+          // The heaviest are NAMED, not just counted: « 4 cohortes conservées » tells the operator
+          // there is work left without saying where it is, and the per-cohorte « Dépublier » is the
+          // act that has to be aimed at one of them.
+          const named = res.heaviestSkipped.map((c) => c.label).join(', ');
+          parts.push(
+            `${res.cohortsSkippedUnderway} cohorte(s) déjà engagée(s) conservée(s) — ` +
+            `${res.periodsUnderway} période(s), ${res.evaluationsAtRisk} évaluation(s), ` +
+            `${res.attendanceDaysAtRisk} jour(s) de présence` +
+            (named ? ` (dont ${named})` : '') +
+            '. Dépubliez-les une par une pour voir ce que chacune coûte.',
+          );
+        }
+        if (res.adHocPeriodsKept > 0) {
+          parts.push(`${res.adHocPeriodsKept} période(s) hors grille conservée(s).`);
+        }
+        // ⚠ warning, not info: something was deliberately NOT done and the operator has to act on it.
+        // notify.info auto-closes in 4 s, which is not long enough to read this.
+        if (res.cohortsSkippedUnderway > 0) notify.warning(parts.join(' · '));
+        else notify.success(parts.join(' · '));
+      }
+    } catch (err: unknown) {
+      const detail = (err as { data?: { detail?: string } })?.data?.detail;
+      notify.error(detail ?? 'Impossible de dépublier les répartitions de ce stage');
+    } finally {
+      setUnpublishingAll(false);
     }
-    setUnpublishingAll(false);
-    if (failed > 0) notify.error(`${failed} cohorte(s) en erreur lors de la dépublication`);
-    else notify.success(`${removed} période(s) supprimée(s) sur ${targets.length} cohorte(s)`);
   };
 
   const handleStartAssignments = async (cohortId: number, label: string) => {
@@ -528,24 +586,57 @@ export default function StageDetailPage() {
                       </Alert>
                     ) : (
                       <Stack gap="xs">
-                        {stage?.allowedServices.map((svc) => (
+                        {/* The list is in ROTATION order, which is what the arranger walks — not
+                            alphabetical, which is what it used to show. The sentence is not
+                            decoration: being first here decides which groups land where, and
+                            nothing else on the screen says so. */}
+                        <Text size="xs" c="dimmed">
+                          Ordre de rotation : le 1ᵉʳ service reçoit les premiers groupes de la 1ʳᵉ
+                          période. Réordonnez pour placer une promotion sans retoucher la grille.
+                        </Text>
+
+                        {stage?.allowedServices.map((svc, index) => (
                           <Group key={svc.id} gap="sm" justify="space-between" wrap="nowrap">
                             <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-                              <ThemeIcon size={24} radius="sm" variant="light" color="teal">
-                                <IconBuildingHospital size={13} stroke={1.5} />
+                              <ThemeIcon
+                                size={24} radius="sm"
+                                variant={index === 0 ? 'filled' : 'light'} color="teal"
+                              >
+                                {/* The position, not a decorative icon: it is the number that
+                                    decides the placement. */}
+                                <Text size="xs" fw={700}>{index + 1}</Text>
                               </ThemeIcon>
                               <Stack gap={0} style={{ minWidth: 0 }}>
                                 <Text size="xs" fw={500} truncate>{svc.name}</Text>
                                 <Text size="xs" c="dimmed" truncate>{svc.hospitalName}</Text>
                               </Stack>
                             </Group>
-                            <ActionIcon
-                              size="xs" variant="subtle" color="red" radius="sm"
-                              loading={removingService}
-                              onClick={() => handleRemoveService(svc.id)}
-                            >
-                              <IconX size={12} stroke={1.5} />
-                            </ActionIcon>
+                            <Group gap={2} wrap="nowrap">
+                              <ActionIcon
+                                size="xs" variant="subtle" color="gray" radius="sm"
+                                aria-label={`Monter ${svc.name}`}
+                                disabled={index === 0 || reordering}
+                                onClick={() => moveService(index, -1)}
+                              >
+                                <IconChevronUp size={13} stroke={1.5} />
+                              </ActionIcon>
+                              <ActionIcon
+                                size="xs" variant="subtle" color="gray" radius="sm"
+                                aria-label={`Descendre ${svc.name}`}
+                                disabled={index === (stage?.allowedServices.length ?? 0) - 1 || reordering}
+                                onClick={() => moveService(index, 1)}
+                              >
+                                <IconChevronDown size={13} stroke={1.5} />
+                              </ActionIcon>
+                              <ActionIcon
+                                size="xs" variant="subtle" color="red" radius="sm"
+                                aria-label={`Retirer ${svc.name}`}
+                                loading={removingService}
+                                onClick={() => handleRemoveService(svc.id)}
+                              >
+                                <IconX size={12} stroke={1.5} />
+                              </ActionIcon>
+                            </Group>
                           </Group>
                         ))}
                       </Stack>
@@ -571,7 +662,8 @@ export default function StageDetailPage() {
                       onChange={(v) => {
                         if (!v) return;
                         const svc = (servicesPage?.items ?? []).find((s) => s.id === Number(v));
-                        if (svc) handleAddService({ id: svc.id, name: svc.name, hospitalName: svc.hospitalName });
+                        // rank 0 is the optimistic placeholder; the server ranks it last and the refetch says where.
+                        if (svc) handleAddService({ id: svc.id, name: svc.name, hospitalName: svc.hospitalName, rank: 0 });
                       }}
                       disabled={addingService}
                       leftSection={<IconPlus size={12} stroke={1.5} />}

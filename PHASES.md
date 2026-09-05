@@ -588,3 +588,118 @@ la réinscription par fichier, l'application d'un axe de rotation.
 ⚠ **Ce qui reste** : `BackupVerification.Restored` est une valeur que rien ne pose — l'écran sait
 faire relire la table des matières d'une archive, pas la restaurer à blanc. Backend `PHASES.md` §18.2,
 recette `SMOKE-TEST.md` §41.
+
+## Une demande nominative se résout par un groupe — session 41
+
+`PlacementsPage` (`/admin/placements`), plus `HospitalCoveragePanel` et `RosterPlacementCard`.
+
+Trois demandes réelles : « cet étudiant fait tous ses stages à l'hôpital militaire », « ces deux
+étudiantes ensemble, stage A en S1 et stage B en S2 », « ces frères dans le même service ». Elles se
+résolvent toutes par un **roster** — et la réponse la moins chère, « un groupe y va déjà », était
+inatteignable : rien ne permettait de demander quel groupe est au HMIMV.
+
+- **La page est un outil de décision, pas un tableau.** Elle porte l'ordre du moins cher au plus cher
+  (transférer vers un roster existant · un roster partagé par contrainte · épingler · un roster
+  dédié) parce que c'est la question que l'utilisateur pose réellement en arrivant.
+- ⚠ **L'état contradictoire est rendu irreprésentable plutôt que désactivé.** Le serveur refuse
+  `serviceId` + `hospitalId` ensemble (400) ; ici, choisir l'un **efface** l'autre. C'est plus fort
+  qu'un contrôle désactivé — il n'y a pas d'état invalide à expliquer. Le commutateur
+  « Exclusivement », lui, est bien *désactivé avec sa raison* : il n'a rien à quoi être exclusif tant
+  qu'aucun lieu n'est nommé.
+- ⚠ **Trois verdicts, trois phrases — jamais une phrase paramétrée.** « Aucun groupe ne correspond »
+  et « rien n'est encore réparti » sont séparés par `summary.placedRosters`, et la couleur change
+  avec eux. C'est l'état de la base aujourd'hui, donc c'est le premier écran que l'utilisateur voit.
+- ⚠ **Aucun verdict n'est recalculé côté client** — `hospitalPlacement` et `coverage` viennent du
+  serveur. Même règle que `ServicePeriodResponse.State` et `RegistrationHoldResponse.blocksPlanning` :
+  une règle écrite des deux côtés d'une frontière réseau est deux règles.
+- **La liste est un contenant : chaque roster affiche son effectif** (§1b-bis), et un roster de 1-2
+  étudiants porte un avertissement — il occupe dans la file d'un service une place dimensionnée pour
+  un roster moyen. Rien côté serveur ne le signale ; c'est ici que ça se dit, là où quelqu'un choisit.
+- Paginée pour de vrai, filtres dans l'URL (`useListParams`), promotion obligatoire — la requête est
+  `skip`ée tant qu'elle manque plutôt que d'aller chercher un 400.
+
+**Reste ouvert (backend `PHASES.md` §19.2)** : rien ne distingue une cellule choisie par un humain
+d'une cellule calculée, donc un placement épinglé est détruit au prochain « auto-répartir ce stage ».
+Tant que ce marqueur n'existe pas, publier cohorte par cohorte après avoir épinglé.
+
+### Ce que le pilotage dans le navigateur a trouvé (2026-09-04)
+
+`tsc --noEmit` propre, `npm run lint` propre, 1 474 tests backend verts — et **deux défauts**, tous
+deux du genre qu'aucune de ces trois vérifications ne peut voir.
+
+1. ⚠ **Le panneau de faisabilité survivait au `skip`.** Lu sur `data` au lieu de `currentData`, il
+   affichait encore « Faisabilité — Hôpital Militaire Mohammed V » après que le choix d'un service
+   d'un *autre* hôpital eut vidé le filtre hôpital. Un panneau qui **nomme** son sujet ne montre pas
+   une donnée en retard, il montre une phrase fausse. Voir `CLAUDE.md` §1i.
+2. ⚠ **La réponse vide avait trois causes, pas deux.** La 6ᵉ MED 2026-2027 n'a **aucun groupe** ;
+   le message écrit pour « des groupes existent mais rien n'est réparti » disait alors « Les 0
+   groupe(s) de cette promotion ne tiennent aucune cellule » et renvoyait vers la répartition —
+   alors que le premier geste est de **découper** la promotion. C'est exactement le défaut que
+   `placedRosters` existe pour éviter, reproduit un cran plus haut. Trois états, trois phrases.
+
+**Vérifié à l'écran, sur la base vivante :**
+
+| ce qui a été piloté | résultat |
+|---|---|
+| arrivée sans promotion | aucun appel à `/groups/placements` — le `skip` tient |
+| 3ᵉ MED 2026-2027 | 134 groupes, le croisement lisible : partition A = Cardio P1 → Chirurgie P2 → Endocrino P3 → Médecine P4 → Pneumo P5 → Rhumato P6 |
+| 4ᵉ MED 2026-2027 | **Pédiatrie · P1, P2** — une série `SingleService` pliée en une entrée portant deux créneaux |
+| faisabilité 6ᵉ MED / HMIMV | « Toute la rotation peut se faire ici » — 6/6 |
+| faisabilité 5ᵉ MED / HMIMV | « **impossible pour cette promotion** », nommant *Santé Publique* (1 service autorisé, ailleurs) |
+| Hôpital puis Service | l'hôpital se vide seul, l'URL perd `hospital=2` — l'état interdit est irreprésentable |
+| « Exclusivement » sans lieu | désactivé, raison dans l'infobulle |
+| 6ᵉ MED 2026-2027 | orange « Cette promotion n'a aucun groupe » (0 roster) |
+| 6ᵉ MED 2025-2026 | orange « Rien n'est encore réparti » (100 rosters, 0 réparti) + « reste à répartir » par stage |
+| 5ᵉ MED 2026-2027 + Exclusivement | **gris** « Aucun groupe ne correspond » (121 répartis) |
+| changement d'année | la liste se recharge, les filtres de lieu survivent |
+
+## « Qui a fait ça, et quand ? » — session 42
+
+`AuditLogPage` (`/admin/journal`, Système) + `components/audit/auditActions.ts`.
+
+Le 02/09/2026, 66 rosters sont apparus sur la 7ᵉ MED et personne n'a pu dire d'où. Le registre
+existait — 35 commandes y écrivaient — mais **rien ne pouvait l'ouvrir** : ni route, ni écran.
+
+- **Un code sans libellé français s'affiche tel quel**, jamais masqué ni renommé « Autre ». La table
+  de libellés est une amélioration de lisibilité, pas un filtre : c'est le serveur qui décide de ce
+  qui existe, et un acte que l'écran ne sait pas nommer reste un acte qui a eu lieu. L'infobulle le
+  dit.
+- **Les métadonnées sont analysées dans un `try/catch` et rendues brutes si elles ne parsent pas.**
+  Les commandes les plus anciennes interpolent leur JSON à la main ; une entrée illisible reste une
+  entrée.
+- ⚠ **Trois états d'auteur, trois rendus.** « Quelqu'un », « non résolu » (identifiant présent, compte
+  introuvable) et « système » (aucun identifiant, tâche planifiée). Un blanc les confondrait, et
+  c'est justement quand quelque chose a mal tourné qu'on les distingue.
+- ⚠ **La page ignore l'année de la barre du haut, délibérément** — une entrée est datée d'une
+  horloge. C'est le seul écran d'administration dans ce cas, et le bandeau le dit pour que l'absence
+  d'effet du sélecteur ne se lise pas comme une panne.
+- ⚠ **Elle rendait `null` en cas d'erreur** — trouvé au premier pilotage, l'API tournant sans la
+  route : filtres, puis un vide absolu. `errorMiddleware` laisse volontairement passer les 404 sur
+  une lecture (§1e), donc c'est à l'écran de rendre cet état. Une 404 a maintenant sa phrase — « le
+  processus API est plus ancien que cette page » — distincte d'une panne de service.
+
+### Ce que le pilotage a trouvé sur le journal (04/09/2026)
+
+Deux défauts, aucun visible au type-check, au lint ni aux 1 509 tests.
+
+1. ⚠ **`String(value)` sur une métadonnée imbriquée.** `ApplyRotationCycleCommand` écrit `stages`
+   comme un tableau d'objets ; la colonne Critères affichait
+   « `stages : [object Object],[object Object]…` » sur les cinq lignes de bloc de rotation. Cette
+   colonne existe pour dire *ce qui a été demandé à l'acte* — une valeur illisible y est pire
+   qu'absente, parce qu'elle occupe la place de la réponse. Les objets sont désormais sérialisés,
+   les tableaux de valeurs simples restent joints (`stageIds : 3, 6, 5, 4, 7`), et toute valeur
+   longue est tronquée avec l'intégralité en infobulle.
+2. ⚠ **Le filtre de dates comparait dans un autre repère que l'affichage.** Trois entrées lues
+   « 03/09/2026 » et un filtre « du 3 au 3 » n'en rendait que deux : celle de 22:16 UTC, affichée
+   « 03/09 00:16 » ici, tombait hors d'une fenêtre bornée à minuit **UTC**. Les bornes sont
+   maintenant des instants, et **c'est la page qui définit la journée** (`dayStartUtc`) — le serveur
+   ne suppose plus aucun fuseau. Voir la note dans `audit.types.ts`.
+
+**Vérifié à l'écran, sur le journal réel :** les 11 entrées dans l'ordre décroissant, les libellés
+français, les actes destructeurs en rouge, l'auteur résolu, le filtre par type avec « N sur M au
+total dans le journal », les deux états vides distincts, et les filtres conservés dans l'URL.
+
+⚠ **Non vérifié : le filtre de dates après correction** — l'API en cours porte encore les bornes
+`DateOnly`, donc la requête reste en attente. Elle nécessite un redémarrage. C'est aussi une
+occurrence vivante de `HANDOFF.md` item 15 : sans timeout RTK Query, une API muette est
+indiscernable d'un chargement.

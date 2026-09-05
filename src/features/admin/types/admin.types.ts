@@ -137,8 +137,16 @@ export interface ServiceSummaryResponse {
   restrictedLevelCount: number;
   hospitalId: number;
   hospitalName: string;
+  /** The employee **linked** through `Service.ServiceChefId` — configuration, and the column this
+   *  list filters by. ⚠ It is null on all 148 services of the base, which is why a « Chef de
+   *  service » column bound to it read « — » on every row while the fiche and the répartition named
+   *  somebody for 140 of them. Print `chefAttribution` instead. */
   serviceChefName: string | null;
   staffCount: number;
+  /** ⚠ **Print this, never re-rank the sources here.** Resolved server-side by the same
+   *  `ServiceChefDirectory` the fiche, the répartition and the stage export use. Absent only from an
+   *  API predating this change, and that means **unknown** — never « the link ». */
+  chefAttribution?: ServiceChefAttribution;
 }
 
 export interface CreateServiceRequest {
@@ -203,6 +211,13 @@ export interface AllowedServiceSummary {
   id: number;
   name: string;
   hospitalName: string;
+  /**
+   * Position in the rotation queue, 1-based — a planning fact, not a display preference.
+   * `RotationArranger` emits each service's block of the queue consecutively and the first période
+   * takes phase 0, so the service ranked 1 receives the first run of group numbers.
+   * 0 means nobody has authored an order for this stage; the arranger then falls back to id order.
+   */
+  rank: number;
 }
 
 export interface StageDetailResponse {
@@ -591,6 +606,16 @@ export interface SlotCellResponse {
   isLevelQuota: boolean;
   /** False when the service refuses this promotion outright — publish will reject the cell. */
   admitsLevel: boolean;
+  /**
+   * Whether THIS cell has been materialised into périodes — narrower than the row's
+   * `isSchedulePublished`, and the only flag that says whether this cell may still be moved.
+   *
+   * ⚠ Resolved server-side from the coverage table, never from `ServicePeriod.CohortSlotAssignmentId`:
+   * that key names only the FIRST cell of a run, so under `SingleService` the trailing cells of a
+   * published run have nothing pointing at them — measured on Gynécologie Obstétrique 2026-2027, 363
+   * cells of which the key names 121.
+   */
+  isPublished: boolean;
 }
 
 export interface CohortScheduleRow {
@@ -656,6 +681,27 @@ export interface StageScheduleSummary {
    * the filter has just removed.
    */
   partitionUsage: PartitionSlotUse[];
+  /**
+   * Columns authored for this stage and year, arranged into or not — what separates « rien n'est
+   * réparti » from « aucun axe n'existe ici ». Never narrowed by the partition filter.
+   */
+  declaredSlotCount: number;
+  /**
+   * Périodes recorded for this stage and year, whatever their origin — and `null` when the question
+   * was not put, which is every grid that has an axis. ⚠ Null, never 0: « aucune période » is an
+   * answer and « on n'a pas regardé » is not.
+   */
+  servedPeriodCount: number | null;
+  /**
+   * Why the table is empty, in the server's own words — and `null` as soon as one cell exists.
+   *
+   * ⚠ Never re-derived here. From 2017-2018 to 2025-2026 the base holds 105 626 périodes for 0
+   * créneau (the Access import carried the rotations served, not a grid), so a past year shows an
+   * empty table while every dossier shows its périodes; « rien n'est réparti » and « cette année n'a
+   * jamais été planifiée ici » call for opposite acts, and one of them is laying an axis over a year
+   * that finished. One rule, one side of the boundary — as with `servicePeriodResponse.state`.
+   */
+  emptyGridNote: string | null;
 }
 
 export interface PartitionSlotUse {
@@ -1767,5 +1813,37 @@ export interface RevalidateStageRequest {
   startDate?: string;
   endDate?: string;
   reason?: string;
+}
+
+export interface UnpublishStageArgs {
+  stageId: number;
+  academicYearId?: number;
+  partitionLabels?: string[];
+}
+
+/** One skipped cohorte, named so the message points at something the operator can act on. */
+export interface SkippedCohort {
+  cohortId: number;
+  label: string;
+  periods: number;
+  started: number;
+  evaluations: number;
+  attendanceDays: number;
+}
+
+/**
+ * ⚠ `cohortsUnpublished === 0` has two causes calling for opposite acts — nothing was published, or
+ * everything has begun. Read `cohortsSkippedUnderway` to tell them apart; a bare zero collapses them.
+ */
+export interface UnpublishStageResult {
+  cohortsUnpublished: number;
+  periodsRemoved: number;
+  /** Périodes with no cell behind them — imported history, délocalisations, revalidations. */
+  adHocPeriodsKept: number;
+  cohortsSkippedUnderway: number;
+  periodsUnderway: number;
+  evaluationsAtRisk: number;
+  attendanceDaysAtRisk: number;
+  heaviestSkipped: SkippedCohort[];
 }
 

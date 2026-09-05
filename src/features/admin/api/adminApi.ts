@@ -35,6 +35,12 @@ import type {
 } from '../types/inscription.types';
 import type { StudentSummaryResponse, GetStudentsQuery, UpdateStudentRequest } from '../../student/types/student.types';
 import type { OccupancyReportRequest, OccupancyReportResponse } from '../types/occupancyReport.types';
+import type { AuditLogPage, AuditLogRequest } from '../types/audit.types';
+import type {
+  HospitalStageCoverageResponse,
+  RosterPlacementsRequest,
+  RosterPlacementsResponse,
+} from '../types/placement.types';
 import type {
   BackupPoint,
   CreateBackupPointRequest,
@@ -79,6 +85,8 @@ import type {
   StageDetailResponse,
   UnpublishScheduleResult,
   AllowedServiceSummary,
+  UnpublishStageArgs,
+  UnpublishStageResult,
   CreateStageRequest,
   UpdateStageRequest,
   GetStagesParams,
@@ -369,10 +377,13 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         const patch = dispatch(
           adminApiSlice.util.updateQueryData('getStageById', stageId, (draft) => {
             if (draft.allowedServices.some((s) => s.id === service.id)) return;
-            draft.allowedServices.push(service);
-            draft.allowedServices.sort(
-              (a, b) => a.hospitalName.localeCompare(b.hospitalName) || a.name.localeCompare(b.name),
-            );
+            // Appended, never sorted into place: the server ranks a newly authorised service last,
+            // and the list is shown in rotation order. Re-sorting by name here would show a position
+            // the arranger does not walk — the exact drift this ordering was built to remove.
+            draft.allowedServices.push({
+              ...service,
+              rank: draft.allowedServices.length + 1,
+            });
           }),
         );
         try { await queryFulfilled; } catch { patch.undo(); }
@@ -389,6 +400,40 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         const patch = dispatch(
           adminApiSlice.util.updateQueryData('getStageById', stageId, (draft) => {
             draft.allowedServices = draft.allowedServices.filter((s) => s.id !== serviceId);
+          }),
+        );
+        try { await queryFulfilled; } catch { patch.undo(); }
+      },
+      invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: stageId }],
+    }),
+
+    /**
+     * Authors the order the stage's services are walked in when a rotation is arranged.
+     *
+     * ⚠ A PUT of the WHOLE list, never a move: the server refuses a partial one rather than
+     * completing it, because a short list is far likelier to be a stale page than an intention to
+     * leave a service last — and this order decides which run of group numbers each service gets.
+     */
+    setAllowedServiceOrder: builder.mutation<void, { stageId: number; serviceIds: number[] }>({
+      query: ({ stageId, serviceIds }) => ({
+        url: `/stages/${stageId}/allowed-services/order`,
+        method: 'PUT',
+        body: { serviceIds },
+      }),
+      async onQueryStarted({ stageId, serviceIds }, { dispatch, queryFulfilled }) {
+        const patch = dispatch(
+          adminApiSlice.util.updateQueryData('getStageById', stageId, (draft) => {
+            const byId = new Map(draft.allowedServices.map((s) => [s.id, s]));
+            const reordered = serviceIds
+              .map((id, index) => {
+                const service = byId.get(id);
+                return service ? { ...service, rank: index + 1 } : undefined;
+              })
+              .filter((s): s is NonNullable<typeof s> => s !== undefined);
+
+            // Only when the optimistic list is complete. A partial one is exactly what the server
+            // refuses, so painting it would show an order that is about to be rolled back.
+            if (reordered.length === draft.allowedServices.length) draft.allowedServices = reordered;
           }),
         );
         try { await queryFulfilled; } catch { patch.undo(); }
@@ -858,6 +903,33 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     }),
 
     /**
+     * Undoes a whole stage's publication in ONE request.
+     *
+     * ⚠ It used to be a client-side loop — one request per cohorte, awaited in sequence, each
+     * invalidating the stage tag so the page refetched a 134-row list after every one. The lag was
+     * the refetch storm, not the deletion; and since `errorMiddleware` toasts every rejected
+     * mutation, a stage with rotations underway answered with one red toast per cohorte.
+     *
+     * ⚠ There is no `force`, deliberately. A cohorte whose rotation has begun is skipped and
+     * counted; undoing it is the per-cohorte « Dépublier », which names what that one costs and asks
+     * twice. A bulk sweep must never become the way round it.
+     */
+    unpublishStageSchedule: builder.mutation<UnpublishStageResult, UnpublishStageArgs>({
+      query: ({ stageId, ...body }) => ({
+        url: `/stages/${stageId}/schedule/unpublish`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: `cohorts-${stageId}` },
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Stage' as const, id: 'TIMELINE' },
+        { type: 'Stage' as const, id: 'REPARTITION' },
+      ],
+    }),
+
+    /**
      * Lays the block's axis out from one start date. A query, not a mutation — it writes nothing, and
      * caching it means changing the unit back and forth does not re-hit the server. Server-side because
      * the working-day count needs the holiday table.
@@ -1136,6 +1208,64 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     >({
       query: (params) => ({ url: '/groups/partitioning', params }),
       providesTags: [{ type: 'Level' as const, id: 'PARTITIONING' }],
+    }),
+
+    /**
+     * « Quel groupe va deja la ou cet etudiant doit aller ? »
+     *
+     * The cheapest answer to a nominative placement request is « un roster y va deja » — the student
+     * is then one transfer away, no cell is pinned and no roster of two is invented. That answer was
+     * unreachable until this read: nothing could be asked which roster is at a given hospital, so
+     * the only route was to read every stage's planning grid by eye.
+     *
+     * Paged, and scoped by the promotion the server resolves — the summary beside it is what says
+     * whether an empty result means « personne n'y va » or « rien n'est encore reparti ».
+     */
+    getRosterPlacements: builder.query<RosterPlacementsResponse, RosterPlacementsRequest>({
+      query: (params) => ({ url: '/groups/placements', params }),
+      // Cells are what this read is about, so it must follow an arrange or a publish as well as a
+      // roster change: Assignment/LIST is what the schedule mutations invalidate.
+      providesTags: [
+        { type: 'Level' as const, id: 'PLACEMENTS' },
+        { type: 'Assignment' as const, id: 'LIST' },
+      ],
+    }),
+
+    /**
+     * « Cet hopital peut-il accueillir toute la rotation de cette promotion ? » — posee AVANT la
+     * promesse, jamais decouverte a la sixieme cellule.
+     *
+     * Deliberately not year-scoped: stages, services, hospitals and the allowed-services list are
+     * year-invariant catalogue, so there is no year for this answer to be wrong about.
+     */
+    getHospitalStageCoverage: builder.query<
+      HospitalStageCoverageResponse,
+      { hospitalId: number; levelId: number }
+    >({
+      query: ({ hospitalId, levelId }) => ({
+        url: `/hospitals/${hospitalId}/stage-coverage`,
+        params: { levelId },
+      }),
+      providesTags: (_r, _e, { hospitalId, levelId }) => [
+        { type: 'Hospital' as const, id: `coverage-${hospitalId}-${levelId}` },
+        // The verdict is read off Stage.AllowedServices, so authoring that list must refresh it.
+        { type: 'Stage' as const, id: 'LIST' },
+      ],
+    }),
+
+    /**
+     * « Qui a fait ca, et quand ? » — la premiere lecture capable d'ouvrir `AuditLogs`.
+     *
+     * Trente-cinq commandes y ecrivaient et rien ne pouvait le relire : la table etait en ecriture
+     * seule, consultable seulement en interrogeant la base a la main.
+     *
+     * ⚠ Volontairement **hors** de l'annee de la barre du haut : une entree d'audit est datee d'une
+     * horloge, pas d'une annee academique — le geste qui touche 2026-2027 a pu etre fait en juillet.
+     * C'est la seule lecture de ce dossier ou l'absence d'annee n'est pas un defaut.
+     */
+    getAuditLog: builder.query<AuditLogPage, AuditLogRequest>({
+      query: (params) => ({ url: '/audit-log', params }),
+      providesTags: [{ type: 'Audit' as const, id: 'LIST' }],
     }),
 
     getHolidayCoverage: builder.query<HolidayCoverage, { academicYearId?: number }>({
@@ -1821,6 +1951,7 @@ export const {
   useDeleteStageMutation,
   useAddAllowedServiceMutation,
   useRemoveAllowedServiceMutation,
+  useSetAllowedServiceOrderMutation,
   useGetCohortsByStageQuery,
   useGetCohortByIdQuery,
   useCreateCohortMutation,
@@ -1844,6 +1975,7 @@ export const {
   useClearSlotAssignmentsMutation,
   usePublishScheduleMutation,
   useUnpublishScheduleMutation,
+  useUnpublishStageScheduleMutation,
   useAutoArrangeStageScheduleMutation,
   usePublishStageScheduleMutation,
   useGenerateMacroPlanMutation,
@@ -1906,6 +2038,9 @@ export const {
   useRecordRegistrationOutcomeMutation,
   useReopenRegistrationYearMutation,
   useAssignStudentToGroupMutation,
+  useGetAuditLogQuery,
+  useGetRosterPlacementsQuery,
+  useGetHospitalStageCoverageQuery,
   useLazyGetStudentsExportQuery,
   useLazyGetStageAssignmentsExportQuery,
 } = adminApiSlice;

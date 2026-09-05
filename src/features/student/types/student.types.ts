@@ -200,8 +200,32 @@ export interface StudentServiceDetailResponse {
   hospitalDescription: string | null;
   latitude: string | null;
   longitude: string | null;
+  /** The employee **linked** to the service. ⚠ Null on all 148 services of the base — printing it
+   *  alone is what made this page say « aucun chef de service désigné » while the student's own
+   *  répartition named one. It carries the grade and the PPR, which the resolved name does not. */
   serviceChef: ServiceChefSummary | null;
   staff: ServiceStaffMember[];
+  /** ⚠ **Who the server names as the chef, printed as-is.** Resolved by `ServiceChefDirectory` —
+   *  the same rule the admin fiche, the répartition and the stage export use — so this page cannot
+   *  disagree with the document the student is holding. Absent only from an API predating the
+   *  field, and that means **unknown**, never « nobody ». */
+  chefAttribution?: ServiceChefAttribution;
+}
+
+/**
+ * Who PGSH names as a service's chef today, and on what authority.
+ *
+ * Mirrors the server's `ServiceChefAttributionResponse`, as each feature slice mirrors the DTOs it
+ * reads. ⚠ The one thing that must never be mirrored is the *rule*: rank the sources here and this
+ * page starts disagreeing with the documents again.
+ */
+export interface ServiceChefAttribution {
+  /** Null when nobody is named at all. */
+  name: string | null;
+  /** The name comes from the service's undated import note rather than a dated affectation. */
+  fromSourceNote: boolean;
+  /** A chef is linked but is deliberately not the name above — so « personne » would be false. */
+  linkedChefWithheld: boolean;
 }
 
 export interface ServiceChefSummary {

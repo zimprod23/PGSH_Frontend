@@ -24,6 +24,7 @@ export const PATHS = {
     HOLDS:           'signalements',
     GROUPS:          'groups',
     GROUP_DETAIL:    'groups/:id',
+    PLACEMENTS:      'placements',
     TIMELINE:        'timeline',
     REPARTITION:     'repartition',
     OCCUPANCY:       'charge-services',
@@ -39,6 +40,7 @@ export const PATHS = {
     ATTENDANCE:      'attendance',
     ASSIGNMENTS:     'assignments',
     BACKUPS:         'sauvegardes',
+    AUDIT_LOG:       'journal',
   },
 
   EMPLOYEE: {

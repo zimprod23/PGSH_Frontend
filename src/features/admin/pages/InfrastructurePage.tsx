@@ -41,7 +41,7 @@ import {
   useAssignChefMutation,
   useRemoveChefMutation,
 } from '../api/adminApi';
-import type { CenterSummaryResponse, HospitalSummaryResponse, ServiceSummaryResponse, StaffMemberResponse } from '../types/admin.types';
+import type { CenterSummaryResponse, HospitalSummaryResponse, ServiceChefAttribution, ServiceSummaryResponse, StaffMemberResponse } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import { ServiceFormModal } from '../components/ServiceFormModal';
@@ -548,7 +548,7 @@ function ServicesTab() {
                     </Tooltip>
                   )}
                 </Table.Td>
-                <Table.Td><Text size="sm" c={s.serviceChefName ? undefined : 'dimmed'}>{s.serviceChefName ?? '—'}</Text></Table.Td>
+                <Table.Td><ServiceChefCell chef={s.chefAttribution} /></Table.Td>
                 <Table.Td>
                   <Group gap={4} justify="flex-end" wrap="nowrap">
                     <Tooltip label="Gérer le personnel">
@@ -589,6 +589,66 @@ function ServicesTab() {
 }
 
 // ─── Page shell ──────────────────────────────────────────────────────────────
+
+/**
+ * Who this row names as the service's chef.
+ *
+ * ⚠ **The server's answer, printed — never re-ranked here.** This column used to be bound to
+ * `serviceChefName`, i.e. `Service.ServiceChefId`, which is null on all 148 services of the base:
+ * it read « — » on every row while the fiche, the répartition and the stage export all named
+ * somebody for 140 of them. One rule, two sides of a network boundary — the same class as
+ * `servicePeriodResponse.state`.
+ *
+ * Three outcomes, and they are three different sentences: a name (flagged when it comes from the
+ * undated import note), « rattaché, non nommé » for a service whose only chef is a link the current
+ * policy holds back, and « — » for a service nobody has named at all.
+ */
+function ServiceChefCell({ chef }: { chef?: ServiceChefAttribution }) {
+  // Absent from an API predating the field. Unknown is not « personne », so it does not borrow that
+  // dash silently.
+  if (!chef) {
+    return (
+      <Tooltip label="Attribution non résolue par le serveur (version d'API antérieure).">
+        <Text size="sm" c="dimmed">?</Text>
+      </Tooltip>
+    );
+  }
+
+  if (chef.name) {
+    return (
+      <Group gap={6} wrap="nowrap">
+        <Text size="sm">{chef.name}</Text>
+        {chef.fromSourceNote && (
+          <Tooltip
+            multiline
+            w={300}
+            label={
+              chef.linkedChefWithheld
+                ? "Nom repris de la note d'import — non daté. Un chef est pourtant rattaché à ce service : il n'est pas encore imprimé."
+                : "Nom repris de la note d'import — non daté. Désignez un chef de service pour que l'attribution soit datée."
+            }
+          >
+            <Badge size="xs" variant="light" color="yellow" radius="xl">note</Badge>
+          </Tooltip>
+        )}
+      </Group>
+    );
+  }
+
+  if (chef.linkedChefWithheld) {
+    return (
+      <Tooltip
+        multiline
+        w={300}
+        label="Un chef est rattaché à ce service, mais aucun nom n'est imprimé pour l'instant, et la fiche ne porte aucune note d'import."
+      >
+        <Text size="sm" c="dimmed" fs="italic">rattaché, non nommé</Text>
+      </Tooltip>
+    );
+  }
+
+  return <Text size="sm" c="dimmed">—</Text>;
+}
 
 export default function InfrastructurePage() {
   return (

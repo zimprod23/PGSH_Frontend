@@ -32,6 +32,8 @@ const AdminStudentDetailPage  = lazy(() => import('../features/admin/pages/stude
 const AcademicYearsPage       = lazy(() => import('../features/admin/pages/AcademicYearsPage'));
 const YearClosurePage         = lazy(() => import('../features/admin/pages/YearClosurePage'));
 const RegistrationHoldsPage   = lazy(() => import('../features/admin/pages/RegistrationHoldsPage'));
+const PlacementsPage          = lazy(() => import('../features/admin/pages/PlacementsPage'));
+const AuditLogPage            = lazy(() => import('../features/admin/pages/AuditLogPage'));
 const LevelsPage              = lazy(() => import('../features/admin/pages/LevelsPage'));
 const CurriculumPage          = lazy(() => import('../features/admin/pages/CurriculumPage'));
 const GroupsPage              = lazy(() => import('../features/admin/pages/GroupsPage'));
@@ -138,6 +140,8 @@ export const router = createBrowserRouter([
               { path: PATHS.ADMIN.TIMELINE,    element: wrap(<StageTimelinePage />) },
               { path: PATHS.ADMIN.REPARTITION, element: wrap(<RepartitionPage />)   },
               { path: PATHS.ADMIN.OCCUPANCY, element: wrap(<OccupancyReportPage />) },
+              { path: PATHS.ADMIN.PLACEMENTS, element: wrap(<PlacementsPage />) },
+              { path: PATHS.ADMIN.AUDIT_LOG, element: wrap(<AuditLogPage />) },
               { path: PATHS.ADMIN.ROTATION_CYCLE, element: wrap(<RotationCyclePage />) },
               { path: PATHS.ADMIN.HOLIDAYS,    element: wrap(<HolidaysPage />)       },
               { path: PATHS.ADMIN.HOSPITALS,    element: wrap(<InfrastructurePage />) },

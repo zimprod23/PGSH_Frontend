@@ -422,6 +422,15 @@ interface StageResponse {
   durationInDays: number;
   levelResponse: LevelSummary | null;
   stageObjectiveResponse: StageObjectiveResponse[];
+  /** In ROTATION order — the order RotationArranger walks — never alphabetical. */
+  allowedServices: AllowedServiceSummary[];
+}
+interface AllowedServiceSummary {
+  id: number;
+  name: string;
+  hospitalName: string;
+  /** 1-based position in the rotation queue. 0 = nobody has authored an order for this stage. */
+  rank: number;
 }
 interface StageObjectiveResponse {
   label: string;
@@ -434,6 +443,29 @@ interface StageObjectiveResponse {
 #### POST `/stages` — `CreateStageCommand` body
 #### PUT `/stages/{id}` — `UpdateStageCommand` body
 #### DELETE `/stages/{id}` — `204 No Content`
+
+#### POST `/stages/{id}/allowed-services` — `{ serviceId }`, `204`
+Appended **last** in the rotation order. A newly authorised service has no claim on a position
+somebody chose for the others.
+
+#### DELETE `/stages/{id}/allowed-services/{serviceId}` — `204`
+The survivors keep their relative order with the hole closed.
+
+#### PUT `/stages/{id}/allowed-services/order` — `{ serviceIds: number[] }`, `204`
+Authors the order the services are walked in when a rotation is arranged.
+
+⚠ **A planning input, not a display preference.** `BuildServiceQueue` emits each service's block of
+the queue consecutively and the first période takes phase 0, so **the service ranked 1 receives the
+first run of group numbers**. That is what lets a nominative placement fall out of the plan instead
+of being a cell edited on the grid afterwards — an edit the printed répartition shows, because a
+range cannot merge across the hole it leaves.
+
+⚠ **Send the WHOLE list, in the order wanted.** A partial one is refused (`409`,
+`Stages.ServiceOrderNotAPermutation`) rather than completed: a short list is far likelier to be a
+page opened before somebody else authorised a service than an intention to leave one last. The
+refusal names which of missing / unknown / duplicated applies.
+
+It writes no cell — the order is read by the **next** auto-arrange.
 
 ---
 
@@ -579,6 +611,28 @@ interface StageScheduleSummary {
   occupiedSlotIds: number[];
   /** ⚠ Read across the WHOLE stage: it answers a question about the rows the filter removed. */
   partitionUsage: { rotationGroup: string | null; stageSlotId: number }[];
+  /** Columns authored for this stage and year, arranged into or not. Never narrowed by the filter. */
+  declaredSlotCount: number;
+  /**
+   * Périodes recorded for this stage and year, whatever their origin — `null` when the question was
+   * not put, which is every grid that has an axis. ⚠ Null, never 0: « aucune période » is an answer
+   * and « on n'a pas regardé » is not.
+   */
+  servedPeriodCount: number | null;
+  /**
+   * Why the table is empty, in one sentence — and `null` as soon as one cell exists.
+   *
+   * ⚠ **Print it; never re-derive it.** An empty grid has three causes calling for different acts:
+   * this year predates the planning grid (2017-2018 → 2025-2026 hold 105 626 périodes for 0 créneau,
+   * because the Access import carried the rotations served and the source had no grid), no axis has
+   * been laid, or the axis is laid and nobody is arranged into it — and inside the last, a promotion
+   * with no cohorte at all is told to provision rather than to arrange. Read as « rien n'est
+   * réparti », the first sends an admin to lay an axis over a year that finished.
+   *
+   * ⚠ It describes the **stage and the year**, never the filtered selection: under `rotationGroup`
+   * an empty answer is the filter's doing, and the row counter already says so.
+   */
+  emptyGridNote: string | null;
 }
 
 interface SaturatedCellResponse {
@@ -627,8 +681,46 @@ interface SlotCellResponse {
   occupiedSeats: number;
   isLevelQuota: boolean;
   admitsLevel: boolean;
+  /**
+   * Whether THIS cell has been materialised into périodes — narrower than the row's
+   * `isSchedulePublished`, which stays correct because one période makes a strictly weaker claim.
+   *
+   * ⚠ Resolved server-side from the coverage table, never from `ServicePeriod.CohortSlotAssignmentId`:
+   * that key names only the FIRST cell of a run, so under `SingleService` the trailing cells of a
+   * published run have nothing pointing at them — measured on Gynécologie Obstétrique 2026-2027, 363
+   * cells of which the key names 121, i.e. 242 published cells would read as free.
+   *
+   * ⚠ A marker, not a guard: editing is still refused per **row** (the command refuses on « the
+   * cohorte holds a grid-linked période »). What it does gate client-side is *clearing* a published
+   * cell, which the clear command already refuses.
+   */
+  isPublished: boolean;
 }
 ```
+
+#### POST `/stages/{stageId}/schedule/unpublish` — `{ academicYearId?, partitionLabels? }`
+Undoes a whole stage's publication in **one** request. Replaces the client-side loop, whose cost was
+the per-request cache invalidation (the page refetched its whole cohort list after every one), not
+the deletion.
+
+⚠ **No `force`.** A cohorte whose rotation has begun is **skipped and counted**, never swept — undo
+those with the per-cohorte `DELETE /cohorts/{id}/publish-schedule`, which names what that one costs.
+
+```typescript
+interface UnpublishStageResult {
+  cohortsUnpublished: number;
+  periodsRemoved: number;
+  adHocPeriodsKept: number;       // imported history, délocalisations, revalidations — never touched
+  cohortsSkippedUnderway: number;
+  periodsUnderway: number;
+  evaluationsAtRisk: number;
+  attendanceDaysAtRisk: number;
+  heaviestSkipped: SkippedCohort[];
+}
+```
+
+⚠ `cohortsUnpublished === 0` has **two** causes — nothing was published, or everything has begun.
+Read `cohortsSkippedUnderway` to tell them apart before writing a message.
 
 #### POST `/stages/{stageId}/schedule/publish`
 Publishes the stage's configured, unpublished cohortes in **one** call — use this, never a loop of
@@ -762,9 +854,28 @@ interface GetServicesQuery {
   pageSize?: number;
 }
 // Response: PaginatedResponse<ServiceSummaryResponse>
+
+interface ServiceSummaryResponse {
+  // …id, name, serviceType, specialty, capacity, restrictedLevelCount, hospitalId, hospitalName…
+  /** The employee **linked** through `Service.ServiceChefId` — configuration, and what
+   *  `?serviceChefId=` filters on. ⚠ Null on all 148 services of the base: a « Chef de service »
+   *  column bound to it read « — » on every row while the fiche named somebody for 140 of them. */
+  serviceChefName: string | null;
+  /** ⚠ **Print this.** Who PGSH *names*, resolved by the same `ServiceChefDirectory` the fiche, the
+   *  répartition and the stage export use — resolved over the ids of **this page**, so it costs
+   *  nothing on a catalogue-wide filter. Absent from an API predating the field, and that means
+   *  *unknown*, never « nobody ». */
+  chefAttribution?: ServiceChefAttribution;
+}
 ```
 
-#### GET `/services/{id}` — includes staff, serviceChef
+#### GET `/services/{id}` — includes staff, serviceChef, `chefAttribution`
+
+⚠ **The student portal reads this same route.** It is not an admin-only endpoint: the portal's
+service page used to print `serviceChef` (the link, null everywhere) and said « aucun chef de service
+désigné » for services whose chef the student's own répartition names. It prints `chefAttribution`
+now — with « D'après la fiche du service » under a name that comes from the undated import note, and
+never a grade, a PPR or an invented « Dr. », because no `Employee` is behind such a name.
 #### POST `/services` — `CreateServiceCommand` body
 #### PUT `/services/{id}` — Request body with `ServiceType` string
 #### DELETE `/services/{id}` — `204 No Content`
@@ -847,6 +958,97 @@ interface AutoArrangeGroupsRequest {
 }
 // Response: BulkResponse<studentId (string), groupId (number)>
 ```
+
+#### GET `/groups/placements`
+« Quel groupe va déjà là où cet étudiant doit aller ? » — la lecture qui rend atteignable la réponse
+la moins chère à une demande nominative. Avant elle, trouver le bon roster existant supposait de lire
+la grille de planification de chaque stage à l'œil, et la voie pratique devenait donc la plus
+coûteuse : créer un groupe de un ou deux étudiants.
+
+```typescript
+interface RosterPlacementsRequest {
+  levelId: number;            // obligatoire — un n° de groupe sans sa promotion n'identifie rien
+  academicYearId?: number;    // omis = l'année en cours, jamais « toutes »
+  stageId?: number;
+  serviceId?: number;         // ⚠ exclusif avec hospitalId — 400 si les deux
+  hospitalId?: number;
+  match?: 'Anywhere' | 'Exclusively';   // 400 si « Exclusively » sans lieu
+  pageNumber?: number;
+  pageSize?: number;          // défaut 25
+}
+```
+
+⚠ **`summary.placedRosters` est ce qui donne son sens à une liste vide.** « Personne n'y va » et
+« rien n'est encore réparti » appellent des gestes opposés, et un zéro nu se lit comme le premier.
+Même forme que `RepartitionSummary.declaredSlotCount`.
+
+⚠ **`hospitalPlacement` vient du serveur, jamais recalculé côté client.** `Unplaced` n'est pas un
+détail de complétude : « toutes ses cellules sont au HMIMV » est *vrai à vide* d'un roster que
+personne n'a réparti, donc un écran qui déduirait le verdict d'un décompte le ressortirait comme la
+meilleure correspondance de la promotion. `matches` et `hospitalPlacement` sont `null` quand aucun
+lieu n'a été nommé — à distinguer de « ne correspond pas ».
+
+Voir `src/features/admin/types/placement.types.ts` pour la réponse complète.
+
+#### GET `/hospitals/{hospitalId}/stage-coverage?levelId=`
+La faisabilité, posée **avant** la promesse : cet hôpital peut-il accueillir toute la rotation de
+cette promotion, et sinon quels stages exactement. Mesuré sur le catalogue — le HMIMV couvre les 6
+stages de la 6ᵉ année, et **6 des 7** de la 5ᵉ : *Santé Publique* n'autorise qu'un service et il est
+ailleurs. Sans cette lecture, cette ligne se découvre à la sixième cellule.
+
+```typescript
+type StageHospitalCoverage = 'NoServicesAuthored' | 'NotAtThisHospital' | 'Covered';
+```
+
+⚠ **`NoServicesAuthored` n'est pas un « non couvert » plus faible.** Une liste de services autorisés
+vide n'est pas appliquée par le serveur : le stage est donc ouvert à *tous* les services, et le blanc
+dit « personne n'a saisi la liste ». Les deux appellent des gestes opposés — changer d'hôpital, ou
+saisir la liste — et les confondre envoie l'utilisateur résoudre le mauvais problème.
+
+Volontairement **non scopée par année** : stages, services, hôpitaux et la liste des services
+autorisés sont du catalogue invariant.
+
+#### GET `/audit-log`
+« Qui a fait ça, et quand ? » — la première route capable de **relire** `AuditLogs`. Trente-cinq
+commandes y écrivaient depuis des mois et il n'existait ni route ni écran : la table était en
+écriture seule, consultable seulement en interrogeant la base à la main.
+
+```typescript
+interface AuditLogRequest {
+  action?: string;      // un code exact : PARTITIONS_ASSIGNED, GROUP_EMPTIED…
+  entityType?: string;
+  entityId?: string;
+  from?: string;        // instant UTC ISO 8601, INCLUS
+  to?: string;          // instant UTC ISO 8601, EXCLU
+  pageNumber?: number;
+  pageSize?: number;    // défaut 50
+}
+```
+
+Réservé à `Roles.Administrative` (403 sinon).
+
+⚠ **Des instants, jamais des jours — c'est le correctif d'un défaut mesuré le 04/09/2026.** Les
+bornes étaient des `YYYY-MM-DD` que le serveur résolvait à minuit **UTC**, alors que l'écran affiche
+l'heure du **navigateur** : une entrée écrite le 02/09 à 22:16 UTC se lit « 03/09 00:16 » à
+Casablanca, et un filtre « du 3 au 3 » la faisait disparaître. **La journée appartient au calendrier
+de celui qui lit**, donc c'est le client qui la traduit — « au 3 inclus » devient « < 4 septembre
+00:00 locale », converti en UTC. Le serveur ne suppose aucun fuseau, ce qu'il ne saurait pas faire
+correctement (le Maroc bascule à UTC+0 pendant le ramadan).
+
+⚠ **`actions` est compté sur tout le journal, jamais sur la fenêtre courante.** Ce sont les valeurs
+avec lesquelles on filtre : réduites au filtre actif, il n'y aurait plus de chemin de retour vers les
+autres actes. `totalEntries` accompagne la page pour la même raison — il sépare « rien ne correspond
+au filtre » de « le journal est vide ».
+
+⚠ **`performedBy` peut être `null` sans que `performedByUserId` le soit**, et cela ne veut pas dire
+« personne » : il n'y a aucune clé étrangère derrière l'identifiant (c'est le `sub` Keycloak), donc
+le compte peut avoir été supprimé ou la base restaurée sans son royaume Keycloak. Trois états à
+distinguer à l'écran — quelqu'un, « non résolu », et « système » (les deux ids nuls, un acte hors
+session utilisateur).
+
+⚠ **Un acte refusé n'écrit rien.** Le registre est la liste de ce qui a eu lieu, pas des tentatives.
+
+Voir `src/features/admin/types/audit.types.ts`.
 
 ### Backups (points de restauration)
 

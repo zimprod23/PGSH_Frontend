@@ -83,7 +83,11 @@ export default function ServiceDetailPage() {
   const { data: service, isLoading } = useGetServiceByIdQuery(Number(serviceId), { skip: !serviceId });
 
   const hasMap     = !!(service?.latitude && service?.longitude);
-  const hasChef    = !!service?.serviceChef;
+  // ⚠ Both read the server's attribution, never `serviceChef`. That field is the *link*, null on all
+  // 148 services of the base — bound to it, this page said « aucun chef de service désigné » while
+  // the student's own répartition named one for 140 of them.
+  const chef       = service?.chefAttribution;
+  const hasChef    = !!chef?.name;
   const staffCount = service?.staff.length ?? 0;
 
   return (
@@ -256,12 +260,36 @@ export default function ServiceDetailPage() {
                 <Divider />
                 {isLoading ? (
                   <Skeleton height={64} radius="md" />
-                ) : !service?.serviceChef ? (
+                ) : !chef ? (
+                  /* Unknown, not « personne » — an API predating the field. The two call for
+                     different reactions, so they do not share a sentence. */
                   <Stack align="center" gap="xs" py="sm">
                     <ThemeIcon size={36} radius="xl" variant="light" color="gray">
                       <IconUser size={18} stroke={1.5} />
                     </ThemeIcon>
-                    <Text size="sm" c="dimmed">Aucun chef de service désigné</Text>
+                    <Text size="sm" c="dimmed">Information non disponible</Text>
+                  </Stack>
+                ) : !chef.name ? (
+                  <Stack align="center" gap="xs" py="sm">
+                    <ThemeIcon size={36} radius="xl" variant="light" color="gray">
+                      <IconUser size={18} stroke={1.5} />
+                    </ThemeIcon>
+                    <Text size="sm" c="dimmed">
+                      {chef.linkedChefWithheld ? 'Non communiqué' : 'Aucun chef de service désigné'}
+                    </Text>
+                  </Stack>
+                ) : !service?.serviceChef || chef.fromSourceNote ? (
+                  /* The name comes from the service's own fiche: there is no employee record behind
+                     it, so no grade and no PPR — and it is undated, which the line below says
+                     without jargon. Inventing a « Dr. » or an avatar from initials here would dress
+                     a note up as a personnel record. */
+                  <Stack gap={4} p="sm" style={{
+                    background: '#F8FAFC',
+                    borderRadius: rem(10),
+                    border: '1px solid #E2E8F0',
+                  }}>
+                    <Text size="sm" fw={700}>{chef.name}</Text>
+                    <Text size="xs" c="dimmed">D'après la fiche du service</Text>
                   </Stack>
                 ) : (
                   <Group
