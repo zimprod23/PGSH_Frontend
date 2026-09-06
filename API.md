@@ -565,6 +565,90 @@ Error: `Schedule.NotPublished`
 
 ---
 
+#### GET `/groups?levelId=…` — le cadrage des sélecteurs de groupe
+
+Tout écran qui demande «&nbsp;quel autre groupe&nbsp;?&nbsp;» — transfert, changement de groupe,
+échange, délocalisation en masse — passe `levelId` et **ne montre que la promotion concernée**. Un
+roster d'une autre promotion suit des stages que cet étudiant ne doit pas&nbsp;: l'acte est refusé à
+l'arrivée, donc l'option ne doit pas exister.
+
+- La promotion se lit sur la ligne elle-même (`GroupDetailResponse.levelId`, ou
+  `StageDetailResponse.levelResponse.id`), **jamais** en cherchant le roster courant dans la liste
+  d'options&nbsp;: celle-ci demande 200 des 1 003 rosters, et au-delà la promotion revient `null`.
+- ⚠ **`levelId` est volontairement plus large que «&nbsp;les rosters de cette promotion&nbsp;»**&nbsp;:
+  il attrape aussi un roster **sans niveau** contenant une inscription de ce niveau, pour que
+  «&nbsp;Non réparti&nbsp;» reste trouvable sur l'écran où la scolarité affecte. Un sélecteur écarte
+  donc lui-même `levelId === null` — ce groupe n'a de cohorte sur aucun stage.
+
+### Délocalisation — un stage fait hors faculté
+
+Quatre routes, toutes réservées à la scolarité (403 sinon&nbsp;: il n'existe aucun chef à qui borner
+l'acte pour un service externe, donc le contrôle porte sur *qui vous êtes*).
+
+#### POST `/stages/delocalize` — un étudiant
+```typescript
+interface DelocalizeStudentRequest {
+  registrationId: string;
+  stageId: number;
+  serviceId: number;
+  reason: string;                 // requis — c'est ce que le dossier affichera des années après
+  /** ⚠ Les deux ou aucune. Omises, le serveur reprend la fenêtre officielle du stage pour cette
+   *  promotion — et **refuse** (409 `Delocalizations.NoWindow`) si le stage n'a aucun créneau, plutôt
+   *  que d'inventer des dates qui ressembleraient à un fait enregistré. */
+  startDate?: string;             // YYYY-MM-DD
+  endDate?: string;
+  /** La validation papier, quand elle est déjà là. Omise, elle se saisit plus tard — y compris par
+   *  le canevas d'évaluation du stage, portée « stage entier ». */
+  verdict?: {
+    mode: 'Numeric' | 'ValidatePeriod' | 'ValidateObjectives';
+    totalScore?: number;          // Numeric
+    outcome?: 'Validated' | 'NotValidated';   // ValidatePeriod
+    objectiveScores?: ObjectiveScoreDto[];    // ValidateObjectives
+    supervisorComment?: string;
+    ficheReference?: string;
+  };
+}
+// 204. Refus notables : 409 Delocalizations.OverMark (une note est enregistrée — elle ne s'efface pas)
+```
+
+#### POST `/stages/delocalize/bulk/preview` — l'aperçu
+⚠ **Un POST bien qu'il n'écrive rien** : la sélection est un corps — des rosters entiers, des étudiants
+nommés et une liste collée — et pas une chaîne de requête.
+
+#### POST `/stages/delocalize/bulk` — l'application
+Même corps, plus `reason` et `confirmedCount`.
+
+```typescript
+interface BulkDelocalizationReport {
+  // …stageId, stageName, serviceId, serviceName, serviceIsExternal, academicYearId,
+  //   academicYearLabel, startDate, endDate…
+  /** Les lignes à afficher, **refus d'abord**, et **plafonnées à 200**. Une sélection est une
+   *  promotion entière quand on la demande (933 étudiants sur la 3ᵉ MED), et un objet unique portant
+   *  une ligne par étudiant est exactement la forme qui a fait tomber le navigateur avec 4 725
+   *  étudiants. Les refus sont les lignes conservées : ce sont celles sur lesquelles il faut agir. */
+  rows: BulkDelocalizationRow[];
+  totalRowCount: number;
+  rowsTruncated: boolean;
+  /** ⚠ **Mesurés avant le plafond.** Ne jamais les recompter depuis `rows`. */
+  applicableCount: number;   // le nombre que l'application renvoie en `confirmedCount`
+  refusedCount: number;
+  underwayCount: number;     // des rotations commencées seront supprimées
+  replacedCount: number;     // déjà délocalisés, la période est remplacée
+  isEmpty: boolean;
+}
+```
+
+⚠ **`confirmedCount` est le nombre que l'aperçu a renvoyé, jamais recalculé.** L'acte tombe sur des
+étudiants dont personne n'a tapé le nom&nbsp;; une inscription créée, transférée ou évaluée entre
+l'aperçu et l'application change ce que fait l'acte sans rien changer à l'écran. Décalage → **409
+`BulkDelocalization.CountMismatch`**, et rien n'est écrit. Une case à cocher ne peut pas attraper ça.
+
+#### POST `/stages/delocalize/cancel` — le retour en arrière
+`{ registrationId, stageId }` → 204. **Refusé** (409 `Delocalizations.AlreadyMarked`) une fois la
+validation papier saisie&nbsp;: c'est la seule trace d'un stage que personne ici n'a supervisé.
+Annuler retire la période et rend l'étudiant à la répartition&nbsp;; les cellules de la grille n'ont
+jamais été touchées, donc republier restaure sa rotation.
+
 ### Stage Schedule Grid
 
 #### GET `/stages/{stageId}/schedule`
@@ -590,6 +674,17 @@ interface StageScheduleResponse {
   slots: StageSlotResponse[];                      // every column — bounded by T, never paged
   cohorts: PaginatedResponse<CohortScheduleRow>;   // one page of rows
   summary: StageScheduleSummary;                   // the whole selection
+}
+
+interface CohortScheduleRow {
+  // …cohortId, cohortLabel, academicGroupId, academicGroupLabel, rotationGroup, isSchedulePublished, cells…
+  /** The cohorte's membership, délocalisés included — they are still members. */
+  studentCount: number;
+  /** How many of them serve this stage outside the faculty. ⚠ **Say it on screen.** The cells are
+   *  loaded with `studentCount − delocalizedCount`, so a roster délocalisé en masse shows a full
+   *  membership beside cells carrying nothing — which reads as a bug, and the next person
+   *  re-arranges everyone back into the CHU. 0 is the ordinary case: draw the rare state only. */
+  delocalizedCount: number;
 }
 
 /**
@@ -881,6 +976,12 @@ interface ServiceSummaryResponse {
    *  base — a chef refusing the overrun is an act. ⚠ Mark the **rare** state only: a lock beside all
    *  148 rows says nothing. */
   allowsOverCapacity: boolean;
+  /** A place the faculty does not run — a CHU in another region, a private clinic. It cannot be
+   *  authorised on a stage, cannot be placed in a cell, is dropped from the arranger's pool and
+   *  never enters the saturation maths; students reach it only through a délocalisation. **False on
+   *  every service of the base** until somebody creates one, so mark the rare state only — and do
+   *  not print a capacity for it, since it has no ceiling anybody authored. */
+  isExternal: boolean;
   /** The employee **linked** through `Service.ServiceChefId` — configuration, and what
    *  `?serviceChefId=` filters on. ⚠ Null on all 148 services of the base: a « Chef de service »
    *  column bound to it read « — » on every row while the fiche named somebody for 140 of them. */

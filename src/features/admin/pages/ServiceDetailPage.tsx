@@ -96,6 +96,21 @@ export default function ServiceDetailPage() {
           table means "open to everyone", not "not configured yet". Both are said out loud here,
           because both read as the opposite of what they mean. */}
       <Card withBorder radius="md" padding="md">
+        {/* ⚠ An external service has no limit at all, so the whole card would otherwise print a
+            ceiling that governs nothing — the exact reading error this card exists to prevent, in
+            the other direction. Nobody is planned here; the students arrive by délocalisation. */}
+        {service.isExternal ? (
+          <Stack gap={4}>
+            <Text size="xs" tt="uppercase" c="dimmed" fw={600}>Service hors faculté</Text>
+            <Badge size="lg" variant="light" color="teal">Aucune limite — hors rotation</Badge>
+            <Text size="xs" c="dimmed">
+              Ce service ne peut pas être autorisé sur un stage ni placé dans une cellule du planning,
+              et sa charge n’entre dans aucun calcul de saturation. Les étudiants y sont enregistrés
+              par une <strong>délocalisation</strong>, et la validation revient sur papier&nbsp;: aucun
+              chef n’y est rattaché.
+            </Text>
+          </Stack>
+        ) : (
         <Group justify="space-between" align="flex-start" wrap="wrap" gap="lg">
           <Stack gap={4}>
             <Text size="xs" tt="uppercase" c="dimmed" fw={600}>Limite en vigueur</Text>
@@ -138,6 +153,8 @@ export default function ServiceDetailPage() {
           )}
         </Group>
 
+        )}
+        {!service.isExternal && (<>
         {/* ⚠ Stated whichever way it reads, and it is the « allowed » side that needed saying: the
             limit above looks binding and, on 148 of 148 services, is not — « autoriser le
             dépassement » lifts it, and it is ticked as a matter of routine on a base where two
@@ -173,6 +190,7 @@ export default function ServiceDetailPage() {
             </Text>
           </div>
         </Group>
+        </>)}
       </Card>
 
       {/* ── Occupancy ─────────────────────────────────────────────────────────────────────────── */}

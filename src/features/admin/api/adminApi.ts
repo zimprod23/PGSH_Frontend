@@ -65,7 +65,11 @@ import type {
   RevalidationContextResponse,
   RevalidationContextParams,
   RevalidateStageRequest,
+  ApplyBulkDelocalizationRequest,
+  BulkDelocalizationReport,
+  CancelDelocalizationRequest,
   DelocalizeStudentRequest,
+  PreviewBulkDelocalizationRequest,
   AdminLevelResponse,
   CreateAcademicYearRequest,
   UpdateAcademicYearRequest,
@@ -1186,6 +1190,46 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    cancelDelocalization: builder.mutation<void, CancelDelocalizationRequest>({
+      query: (body) => ({ url: '/stages/delocalize/cancel', method: 'POST', body }),
+      invalidatesTags: (_r, _e, { registrationId, stageId }) => [
+        { type: 'Registration' as const, id: registrationId },
+        { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+      ],
+    }),
+
+    /**
+     * ⚠ A **mutation** although it writes nothing: the selection is a body — whole rosters, named
+     * students and a pasted list — and not a query string. Nothing is invalidated, because nothing
+     * changed.
+     */
+    previewBulkDelocalization: builder.mutation<
+      BulkDelocalizationReport, PreviewBulkDelocalizationRequest
+    >({
+      query: (body) => ({ url: '/stages/delocalize/bulk/preview', method: 'POST', body }),
+    }),
+
+    /**
+     * ⚠ `confirmedCount` is the number the **preview** returned, sent back rather than re-derived.
+     * A registration created, transferred into the roster or evaluated in between changes what the
+     * act does without changing anything the operator saw; the server refuses on a mismatch.
+     */
+    applyBulkDelocalization: builder.mutation<
+      BulkDelocalizationReport, ApplyBulkDelocalizationRequest
+    >({
+      query: (body) => ({ url: '/stages/delocalize/bulk', method: 'POST', body }),
+      // ⚠ The service list too: the load of every service the promotion was standing in has just
+      // changed, and the grid's saturation is drawn from it.
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Service' as const, id: 'LIST' },
+      ],
+    }),
+
     autoArrangeGroups: builder.mutation<BulkResponse<string, number>, AutoArrangeRequest>({
       query: (body) => ({ url: '/groups/auto-arrange', method: 'POST', body }),
     }),
@@ -1987,6 +2031,9 @@ export const {
   useChangeStudentGroupMutation,
   useSwapStudentGroupsMutation,
   useDelocalizeStudentMutation,
+  useCancelDelocalizationMutation,
+  usePreviewBulkDelocalizationMutation,
+  useApplyBulkDelocalizationMutation,
   useAutoArrangeGroupsMutation,
   useAssignRotationGroupsMutation,
   useBulkCreateCohortsFromPartitionsMutation,

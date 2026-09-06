@@ -526,14 +526,22 @@ function ServicesTab() {
                     the plan's side: a bare count of "services saturés" and a publish refusal one
                     service at a time. */}
                 <Table.Td>
-                  <Anchor
-                    component={Link}
-                    to={`${PATHS.ADMIN.ROOT}/services/${s.id}`}
-                    size="sm"
-                    fw={500}
-                  >
-                    {s.name}
-                  </Anchor>
+                  <Group gap={6} wrap="nowrap">
+                    <Anchor
+                      component={Link}
+                      to={`${PATHS.ADMIN.ROOT}/services/${s.id}`}
+                      size="sm"
+                      fw={500}
+                    >
+                      {s.name}
+                    </Anchor>
+                    {/* Same rule as the lock beside the capacity: drawn on the rare state only. A
+                        service hors faculté is a handful of rows among 148, and it is the one an
+                        admin looks for when recording a délocalisation. */}
+                    {s.isExternal && (
+                      <Badge variant="light" color="teal" radius="xl" size="xs">hors faculté</Badge>
+                    )}
+                  </Group>
                 </Table.Td>
                 <Table.Td><Text size="sm" c="dimmed">{s.hospitalName}</Text></Table.Td>
                 <Table.Td><Badge variant="light" color={TYPE_COLOR[s.serviceType] ?? 'gray'} radius="xl" size="sm">{s.serviceType}</Badge></Table.Td>
@@ -545,8 +553,12 @@ function ServicesTab() {
                     whatever the data says is noise, and noise is dismissed. */}
                 <Table.Td>
                   <Group gap={6} wrap="nowrap">
-                    <Text size="sm" ff="monospace">{s.capacity}</Text>
-                    {!s.allowsOverCapacity && (
+                    {/* No number for an external service: it has no ceiling anybody authored, and
+                        printing one invites a capacity decision that never applies to it. */}
+                    <Text size="sm" ff="monospace" c={s.isExternal ? 'dimmed' : undefined}>
+                      {s.isExternal ? '—' : s.capacity}
+                    </Text>
+                    {!s.isExternal && !s.allowsOverCapacity && (
                       <Tooltip label="Ce service n'autorise pas le dépassement d'effectif : la publication est refusée au-delà, sans possibilité de forcer">
                         <IconLock size={rem(13)} stroke={1.6} color="var(--mantine-color-orange-6)" />
                       </Tooltip>

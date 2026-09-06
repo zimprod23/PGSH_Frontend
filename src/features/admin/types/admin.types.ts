@@ -1,5 +1,9 @@
 import type { AcademicProgram, PaginatedResponse, RegistrationStatus } from '../../../common/types';
-import type { ServiceEvaluationDetail } from '../../evaluations/types/evaluation.types';
+import type {
+  EvaluationMode,
+  ObjectiveScoreDto,
+  ServiceEvaluationDetail,
+} from '../../evaluations/types/evaluation.types';
 
 export interface AcademicYearResponse {
   id: number;
@@ -139,6 +143,12 @@ export interface ServiceSummaryResponse {
    * chef refusing the overrun is an act, and the flag is that act.
    */
   allowsOverCapacity: boolean;
+  /**
+   * A place the faculty does not run — a CHU in another region, a private clinic. It cannot be used
+   * in a rotation and has no capacity worth reading; students reach it only through a
+   * délocalisation. **False on every service of the base** until somebody creates one.
+   */
+  isExternal: boolean;
   /** 0 = no intake rules, i.e. open to every promotion. */
   restrictedLevelCount: number;
   hospitalId: number;
@@ -173,6 +183,13 @@ export interface CreateServiceRequest {
    * detail, which states it.
    */
   allowsOverCapacity?: boolean;
+  /**
+   * Whether this is a place the faculty does not run. ⚠ On an **update**, omitting it means
+   * « unchanged » server-side — deliberately unlike `allowsOverCapacity`, because pulling an
+   * external service back into the rotation while students already stand on it is not a default
+   * anybody would want. The form still sends it, read from the detail.
+   */
+  isExternal?: boolean;
 }
 
 // ─── Stages ─────────────────────────────────────────────────────────────────
@@ -637,7 +654,16 @@ export interface CohortScheduleRow {
   academicGroupId: number;
   academicGroupLabel: string;
   rotationGroup: string | null;
+  /** The cohorte's membership, délocalisés included — they are still members. */
   studentCount: number;
+  /**
+   * How many of them serve this stage outside the faculty, and therefore occupy none of the services
+   * on this row's cells. ⚠ **Say it on screen.** The cells are measured on
+   * `studentCount - delocalizedCount`, so a roster délocalisé en masse shows a full membership beside
+   * cells loading nothing — which reads as a bug, and the next person re-arranges everyone back into
+   * the CHU. 0 is the ordinary case.
+   */
+  delocalizedCount: number;
   isSchedulePublished: boolean;
   cells: (SlotCellResponse | null)[];
 }
@@ -867,6 +893,15 @@ export interface GroupDetailResponse {
   rotationGroup: string | null;
   academicYearId: number;
   academicYearLabel: string;
+  /**
+   * The promotion this roster belongs to — a roster is keyed (year, level, number), so this is half
+   * of its identity. ⚠ **Every « quel autre groupe ? » picker scopes on it**, server-side. They used
+   * to derive it by looking the current roster up in the options list, which asks for 200 of the
+   * 1 003 rosters — past that page the promotion came back null and the pickers offered every group
+   * of the year. Null when the roster carries no level at all (inferred rosters may not).
+   */
+  levelId: number | null;
+  levelLabel: string | null;
   /** Whole roster, independent of the page being viewed. */
   studentCount: number;
   /**
@@ -966,16 +1001,113 @@ export interface GroupSwapReport {
 
 export type DelocalizationOutcome = 'Validated' | 'NotValidated';
 
+/**
+ * The verdict the external hospital sent back, in whichever form it sent it — a note /20, a
+ * pass/fail, or a fiche ticked objective by objective. Deliberately the same shape as a chef's own
+ * evaluation, because it ends up in the same record and is read by the same scoring.
+ */
+export interface DelocalizationVerdict {
+  mode: EvaluationMode;
+  totalScore?: number;
+  outcome?: DelocalizationOutcome;
+  objectiveScores?: ObjectiveScoreDto[];
+  supervisorComment?: string;
+  ficheReference?: string;
+}
+
 export interface DelocalizeStudentRequest {
   registrationId: string;
   stageId: number;
   serviceId: number;
-  startDate: string; // YYYY-MM-DD
-  endDate: string;   // YYYY-MM-DD
   reason: string;
-  // Optional paper-validation verdict + fiche reference, when recorded after the student returns.
-  outcome?: DelocalizationOutcome;
-  ficheReference?: string;
+  /** Both or neither. Omitted, the server uses the stage's own window for that promotion. */
+  startDate?: string; // YYYY-MM-DD
+  endDate?: string;   // YYYY-MM-DD
+  /** The paper validation, when it is already in hand. Omitted, it is entered later. */
+  verdict?: DelocalizationVerdict;
+}
+
+export interface CancelDelocalizationRequest {
+  registrationId: string;
+  stageId: number;
+}
+
+// ─── Delocalization in bulk ───────────────────────────────────────────────────
+
+/**
+ * Who goes. The three ways of naming students are unioned — « le G3 au complet, plus ces douze-là,
+ * plus la liste du formulaire ». ⚠ Rosters are named by **id**: a partition label repeats in every
+ * promotion.
+ */
+export interface DelocalizationTargets {
+  academicGroupIds?: number[];
+  registrationIds?: string[];
+  /** A CNE or an Apogée per line, pasted from the form. Matched on both columns, case-insensitively. */
+  identifiers?: string[];
+}
+
+export type BulkDelocalizationRowStatus =
+  | 'WillDelocalize'
+  | 'WillReplace'
+  | 'WillDropUnderway'
+  | 'AlreadyMarked'
+  | 'NoRoster'
+  | 'NoCohort'
+  | 'NotFound'
+  | 'WrongYear';
+
+export interface BulkDelocalizationRow {
+  registrationId: string | null;
+  studentName: string;
+  cne: string | null;
+  appogee: string | null;
+  groupLabel: string | null;
+  status: BulkDelocalizationRowStatus;
+  message: string;
+  /** The pasted line this row came from, so an unmatched one can be found in the file. */
+  sourceIdentifier: string | null;
+}
+
+export interface BulkDelocalizationReport {
+  stageId: number;
+  stageName: string;
+  serviceId: number;
+  serviceName: string;
+  serviceIsExternal: boolean;
+  academicYearId: number;
+  academicYearLabel: string;
+  startDate: string;
+  endDate: string;
+  /**
+   * The lines to show, refusals first. ⚠ **Capped server-side** — a selection is a whole promotion
+   * when the operator asks for one, and a single object carrying 900 rows is what took the browser
+   * down once already. Every count below is measured *before* the cap, so never recount from here.
+   */
+  rows: BulkDelocalizationRow[];
+  /** How many lines the selection produced in all, cap or no cap. */
+  totalRowCount: number;
+  /** True when the list is not the whole story, so the screen can say so. */
+  rowsTruncated: boolean;
+  applicableCount: number;
+  refusedCount: number;
+  underwayCount: number;
+  replacedCount: number;
+  isEmpty: boolean;
+}
+
+export interface PreviewBulkDelocalizationRequest {
+  stageId: number;
+  serviceId: number;
+  targets: DelocalizationTargets;
+  academicYearId?: number;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface ApplyBulkDelocalizationRequest extends PreviewBulkDelocalizationRequest {
+  reason: string;
+  /** The number the preview showed. ⚠ Sent back, never re-derived — see the command's remarks. */
+  confirmedCount: number;
 }
 
 // ─── Service Periods ─────────────────────────────────────────────────────────
@@ -1031,6 +1163,12 @@ export interface InternshipAssignmentSummaryResponse {
   result: StageAssignmentResult | null;
   isPaused: boolean;
   allPeriodsEvaluated: boolean;
+  /**
+   * True when the stage is served outside the faculty. ⚠ The status cannot tell: a délocalisation is
+   * `Completed`, exactly like a stage served here — and the two acts a screen can offer are
+   * opposites (délocaliser / annuler la délocalisation).
+   */
+  isDelocalized: boolean;
 }
 
 export interface GetAssignmentsParams {
@@ -1369,6 +1507,12 @@ export interface ServiceDetailResponse {
    * chef refusing the overrun is an act, and the flag is that act.
    */
   allowsOverCapacity: boolean;
+  /**
+   * A place the faculty does not run. It cannot be authorised on a stage, cannot be placed in a cell
+   * of the planning grid, is dropped from the arranger's pool, and never enters the saturation
+   * maths. It has no chef and never will.
+   */
+  isExternal: boolean;
   hospitalId: number;
   hospitalName: string;
   hospitalCity: string;

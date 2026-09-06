@@ -17,6 +17,7 @@ type ServiceFormState = Coordinates & {
   capacity: number;
   description: string;
   allowsOverCapacity: boolean;
+  isExternal: boolean;
 };
 
 /**
@@ -69,6 +70,7 @@ export function ServiceFormModal({
                   specialty: detail.specialty ?? '',
                   capacity: detail.capacity,
                   allowsOverCapacity: detail.allowsOverCapacity,
+                  isExternal: detail.isExternal,
                   description: detail.description ?? '',
                   // Only the service's OWN coordinates. The detail falls back to the hospital's for
                   // display, and writing those back would freeze a position that should keep
@@ -81,6 +83,8 @@ export function ServiceFormModal({
                   name: '', hospitalId: '', serviceType: 'Medical', specialty: '', capacity: 10,
                   // A new service has refused nothing, exactly like the 148 the import created.
                   allowsOverCapacity: true,
+                  // …and it is one of ours until somebody says otherwise.
+                  isExternal: false,
                   description: '', ...EMPTY_COORDINATES,
                 }
           }
@@ -132,6 +136,10 @@ function ServiceForm({
       // would silently re-open a service its chef had closed — the shape that erased a description
       // once, from a summary response that did not carry the field the form wrote back.
       allowsOverCapacity: form.allowsOverCapacity,
+      // ⚠ Always sent too, and for a stronger reason: omitted on an update the server keeps the
+      // stored value, so a form that forgets it cannot corrupt anything — but a form that *shows*
+      // an unticked switch while the service is external would be lying about what it saves.
+      isExternal: form.isExternal,
       description: form.description.trim(),
       ...coordinatePayload(form),
       levelCapacities: quotas,
@@ -190,6 +198,25 @@ function ServiceForm({
       {!form.allowsOverCapacity && (
         <Text size="xs" c="orange.7" mt={-8}>
           Les plannings déjà publiés ne sont pas touchés&nbsp;: le refus porte sur les publications à venir.
+        </Text>
+      )}
+
+      <Switch
+        checked={form.isExternal}
+        /* Same reading rule as above — the value is hoisted out of the event. */
+        onChange={(e) => {
+          const external = e.currentTarget.checked;
+          setForm((p) => ({ ...p, isExternal: external }));
+        }}
+        color="teal"
+        label="Service hors faculté"
+        description={form.isExternal
+          ? "Un lieu que la faculté ne gère pas (CHU d'une autre région, clinique, étranger). Il ne peut pas figurer dans la rotation d'un stage ni dans une cellule du planning, et sa capacité n'entre dans aucun calcul de charge : les étudiants n'y arrivent que par une délocalisation."
+          : 'Par défaut. Le service appartient au réseau de la faculté et participe normalement aux rotations.'}
+      />
+      {form.isExternal && (
+        <Text size="xs" c="teal.7" mt={-8}>
+          Aucun chef ne sera rattaché&nbsp;: la validation revient sur papier et se saisit à la scolarité.
         </Text>
       )}
 

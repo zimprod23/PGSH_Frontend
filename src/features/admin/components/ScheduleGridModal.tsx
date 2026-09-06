@@ -909,8 +909,12 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
           // has to be, not a count anybody acts on, and the exact figures live in the saturation
           // report — which the server computes over the whole selection.
           const sample = (schedule?.cohorts.items ?? []).filter((c) => !c.isSchedulePublished);
+          // Délocalisés excluded, exactly as the server measures a cell's load: advising a capacity
+          // for students who are not in the country is advice for a problem nobody has.
           const avgStudents = sample.length > 0
-            ? Math.ceil(sample.reduce((sum, c) => sum + c.studentCount, 0) / sample.length)
+            ? Math.ceil(
+                sample.reduce((sum, c) => sum + Math.max(0, c.studentCount - c.delocalizedCount), 0)
+                / sample.length)
             : 0;
           problems.push(
             `${res.saturatedServices} service(s) saturé(s) — capacité insuffisante par service : ` +
@@ -1178,7 +1182,19 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
                                 <Badge size="xs" variant="dot" color="violet" radius="xl" style={{ flexShrink: 0 }}>{row.rotationGroup}</Badge>
                               )}
                             </Group>
-                            <Text size="xs" c="dimmed" truncate>{row.academicGroupLabel} · {row.studentCount} étud.</Text>
+                            {/* ⚠ « dont N hors CHU » is not decoration. The cells below are loaded
+                                with studentCount − delocalizedCount, so a roster délocalisé en masse
+                                shows a full membership beside cells carrying nothing — which reads as
+                                a bug, and the next person re-arranges everyone back into the CHU.
+                                Drawn on the rare state only: 0 is the ordinary case. */}
+                            <Text size="xs" c="dimmed" truncate>
+                              {row.academicGroupLabel} · {row.studentCount} étud.
+                              {row.delocalizedCount > 0 && (
+                                <Text span size="xs" c="teal.7" fw={500}>
+                                  {' '}· dont {row.delocalizedCount} hors CHU
+                                </Text>
+                              )}
+                            </Text>
                           </Stack>
                         </Group>
                       </Table.Td>

@@ -703,3 +703,51 @@ total dans le journal », les deux états vides distincts, et les filtres conser
 `DateOnly`, donc la requête reste en attente. Elle nécessite un redémarrage. C'est aussi une
 occurrence vivante de `HANDOFF.md` item 15 : sans timeout RTK Query, une API muette est
 indiscernable d'un chargement.
+
+---
+
+## Un stage fait hors faculté, pour toute une promotion — session 48
+
+**La demande.** Un formulaire propose aux étudiants d'aller à **Kénitra** vu la saturation ; il fallait
+pouvoir enregistrer ça pour beaucoup d'étudiants à la fois, et saisir ensuite les validations
+rapportées sur papier.
+
+### Ce qui a changé côté écran
+
+- **`ServiceFormModal` — « Service hors faculté »**, décoché par défaut. La description dit la
+  **conséquence** plutôt que de nommer le réglage : « ne peut pas figurer dans la rotation d'un stage
+  ni dans une cellule du planning, et sa capacité n'entre dans aucun calcul de charge ».
+- **La liste des services marque l'état rare** (§1k) : un badge « hors faculté » à côté du nom, et
+  **aucun nombre** dans la colonne Capacité — un service que la faculté ne gère pas n'a pas de plafond
+  que quelqu'un aurait saisi, et en afficher un invite à une décision de capacité qui ne s'applique
+  jamais.
+- **La fiche d'un service externe remplace toute la carte « Limite en vigueur »** par ce qu'il est.
+  Imprimer un plafond qui ne gouverne rien est précisément l'erreur de lecture que cette carte existe
+  pour empêcher, dans l'autre sens.
+- **`BulkDelocalizationModal`** — aperçu puis application, sélection par groupes + liste collée de
+  CNE/Apogée. Le bouton porte **le nombre de l'aperçu** et n'est armé que par lui.
+- **La modale de délocalisation d'un étudiant** accepte désormais une note /20 et porte **l'annulation
+  à côté de l'acte** — un stage délocalisé par erreur se corrige là, par la personne qui vient de le
+  faire.
+- **La grille dit « dont N hors CHU »** sur la ligne d'un roster. Sans ça, un effectif plein devant des
+  cellules qui ne chargent rien se lit comme un bug.
+
+### ⚠ Ce que la relecture des règles maison a rattrapé
+
+- **Le double toast (§1e).** La modale existante faisait `notify.error(...)` dans son `catch` alors
+  qu'`errorMiddleware` affiche déjà la phrase du serveur — deux messages pour un refus. Supprimé ; le
+  `catch` ne sert plus qu'au contrôle de flux.
+- **Une liste non bornée dans un objet unique (§1b).** L'aperçu renvoyait une ligne par étudiant, et
+  une sélection *est* une promotion entière quand on la demande. Le serveur plafonne désormais à 200
+  lignes, **refus d'abord**, et porte les compteurs mesurés **avant** le plafond — un nombre recompté
+  depuis une liste tronquée est un nombre qui se lit bas en silence.
+- **Lire `e.currentTarget` hors de l'updater (§1l)** sur les deux nouveaux interrupteurs.
+
+### Ce qui reste
+
+- **Rien n'a été piloté au navigateur** — `SMOKE-TEST.md` §49, et il faut d'abord créer le service
+  « Stage hors CHU — Kénitra », qui n'existe dans aucune base.
+- **La validation par objectif ne se saisit pas dans la modale de délocalisation** : elle a besoin des
+  objectifs du stage, et la requête existante est indexée par *période* — laquelle n'existe pas encore
+  au moment où on enregistre. Elle se saisit après coup depuis le dossier de l'étudiant, sur la
+  période créée, par le chemin normal.

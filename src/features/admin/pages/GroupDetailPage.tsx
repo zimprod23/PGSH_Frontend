@@ -9,6 +9,7 @@ import {
   Group,
   Loader,
   Modal,
+  NumberInput,
   Pagination,
   SegmentedControl,
   Select,
@@ -48,6 +49,7 @@ import {
   useChangeStudentGroupMutation,
   useSwapStudentGroupsMutation,
   useDelocalizeStudentMutation,
+  useCancelDelocalizationMutation,
   useEmptyGroupMutation,
 } from '../api/adminApi';
 import type {
@@ -63,9 +65,11 @@ import { PATHS } from '../../../routes/paths';
 
 // ─── Transfer modal ───────────────────────────────────────────────────────────
 
-function TransferModal({ student, academicYearId, currentGroupId, opened, onClose }: {
+function TransferModal({ student, academicYearId, levelId, currentGroupId, opened, onClose }: {
   student: GroupStudentResponse | null;
   academicYearId: number;
+  /** The roster's promotion — the only one a transfer may target. Null = the roster carries none. */
+  levelId: number | null;
   currentGroupId: number;
   opened: boolean;
   onClose: () => void;
@@ -78,8 +82,11 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
   const [reason, setReason]               = useState('');
   const [transfer, { isLoading }]         = useTransferStudentMutation();
 
+  // ⚠ Scoped to the roster's own promotion, server-side. A transfer towards another promotion moves
+  // the student into rosters running stages he does not owe — refused on arrival, so it must not be
+  // offered. See siblingRosterOptions.
   const { data: groups = [] } = useGetAcademicGroupOptionsQuery(
-    academicYearId ? { academicYearId } : {}
+    academicYearId ? { academicYearId, levelId: levelId ?? undefined } : {}
   );
 
   // A temporary transfer moves one stage only, so list this student's still-movable assignments.
@@ -92,9 +99,10 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
     .map((a) => ({ value: String(a.stageId), label: a.stageName }));
 
   // Exclude the student's own group — you can't transfer someone into the group they're already in.
-  const groupOptions = groups
-    .filter((g) => g.id !== currentGroupId)
-    .map((g) => ({ value: String(g.id), label: g.label }));
+  const groupOptions = useMemo(
+    () => siblingRosterOptions(groups, currentGroupId, levelId),
+    [groups, currentGroupId, levelId],
+  );
 
   const stageMissing = type === 'Temporary' && !stageId;
   const canSubmit = !!targetGroupId && !!reason.trim() && !stageMissing;
@@ -208,22 +216,30 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
 // ─── Changement de groupe ─────────────────────────────────────────────────────
 
 /**
- * The rosters a correction may target.
+ * The rosters an act on one student may target: **his own promotion, and nothing else**.
  *
  * ⚠ Same promotion only, and never « Non réparti ». Both are refused server-side — a roster of
  * another promotion runs stages this student does not owe, and the bucket carries no cohorte at all —
  * but an option that can only produce a refusal is one the admin has to try before learning it is not
- * one. The promotion is read off the current roster rather than passed in: `GroupDetailResponse`
- * carries no level, and the options list already knows.
+ * one.
+ *
+ * ⚠ **The scoping is the server's now.** `promotionId` comes from the roster's own row and is passed
+ * to `/groups?levelId=`, so the list arrives already narrowed. This function only drops the current
+ * roster. Deriving the promotion here — by looking the roster up among the options — was the old
+ * shape and it had a hole: the options query asks for 200 of the 1 003 rosters, so past that page the
+ * promotion read null and every group of the year was offered. The fallback is kept for a roster
+ * carrying no level at all, where there is nothing to scope by.
  */
-function siblingRosterOptions(groups: AcademicGroupResponse[], currentGroupId: number) {
-  const promotionId = groups.find((g) => g.id === currentGroupId)?.levelId ?? null;
+function siblingRosterOptions(
+  groups: AcademicGroupResponse[], currentGroupId: number, promotionId: number | null,
+) {
+  const promotion = promotionId ?? groups.find((g) => g.id === currentGroupId)?.levelId ?? null;
 
   return groups
     .filter((g) =>
       g.id !== currentGroupId
       && g.levelId !== null
-      && (promotionId === null || g.levelId === promotionId))
+      && (promotion === null || g.levelId === promotion))
     .map((g) => ({ value: String(g.id), label: `${g.label} — ${g.studentCount} étudiant(s)` }));
 }
 
@@ -250,9 +266,11 @@ function SilentActNotice() {
   );
 }
 
-function ChangeGroupModal({ student, academicYearId, currentGroupId, opened, onClose }: {
+function ChangeGroupModal({ student, academicYearId, levelId, currentGroupId, opened, onClose }: {
   student: GroupStudentResponse | null;
   academicYearId: number;
+  /** The roster's promotion — the only one a correction may target. */
+  levelId: number | null;
   currentGroupId: number;
   opened: boolean;
   onClose: () => void;
@@ -263,12 +281,12 @@ function ChangeGroupModal({ student, academicYearId, currentGroupId, opened, onC
   const [change, { isLoading }]           = useChangeStudentGroupMutation();
 
   const { data: groups = [] } = useGetAcademicGroupOptionsQuery(
-    academicYearId ? { academicYearId } : {}
+    academicYearId ? { academicYearId, levelId: levelId ?? undefined } : {}
   );
 
   const groupOptions = useMemo(
-    () => siblingRosterOptions(groups, currentGroupId),
-    [groups, currentGroupId],
+    () => siblingRosterOptions(groups, currentGroupId, levelId),
+    [groups, currentGroupId, levelId],
   );
 
   const reset = () => {
@@ -355,9 +373,11 @@ function ChangeGroupModal({ student, academicYearId, currentGroupId, opened, onC
  * partner is picked from a roster rather than from the whole promotion: « échange-le avec quelqu’un
  * du groupe 12 » is the way the question is actually asked, and it keeps the list bounded.
  */
-function SwapModal({ student, academicYearId, currentGroupId, opened, onClose }: {
+function SwapModal({ student, academicYearId, levelId, currentGroupId, opened, onClose }: {
   student: GroupStudentResponse | null;
   academicYearId: number;
+  /** The roster's promotion — the only one an exchange may reach into. */
+  levelId: number | null;
   currentGroupId: number;
   opened: boolean;
   onClose: () => void;
@@ -371,12 +391,12 @@ function SwapModal({ student, academicYearId, currentGroupId, opened, onClose }:
   const [swap, { isLoading }]               = useSwapStudentGroupsMutation();
 
   const { data: groups = [] } = useGetAcademicGroupOptionsQuery(
-    academicYearId ? { academicYearId } : {}
+    academicYearId ? { academicYearId, levelId: levelId ?? undefined } : {}
   );
 
   const groupOptions = useMemo(
-    () => siblingRosterOptions(groups, currentGroupId),
-    [groups, currentGroupId],
+    () => siblingRosterOptions(groups, currentGroupId, levelId),
+    [groups, currentGroupId, levelId],
   );
 
   // A roster holds six or seven students, so one page is the whole list; the debounced search is
@@ -496,17 +516,39 @@ function DelocalizeModal({ student, opened, onClose }: {
   const [debouncedServiceSearch]            = useDebouncedValue(serviceSearch, 300);
   const [range, setRange]                   = useState<[string | null, string | null]>([null, null]);
   const [reason, setReason]                 = useState('');
-  const [outcome, setOutcome]               = useState<'none' | DelocalizationOutcome>('none');
+  const [verdictMode, setVerdictMode]       = useState<'none' | 'ValidatePeriod' | 'Numeric'>('none');
+  const [outcome, setOutcome]               = useState<DelocalizationOutcome>('Validated');
+  const [score, setScore]                   = useState<number | ''>('');
   const [fiche, setFiche]                   = useState('');
   const [delocalize, { isLoading }]         = useDelocalizeStudentMutation();
+  const [cancelDelocalization, { isLoading: cancelling }] = useCancelDelocalizationMutation();
 
-  // Délocalisation is a whole-stage move out of faculty, so only stages not yet started qualify.
+  // ⚠ Every stage the student still holds, not only the planned ones. A student who left for the
+  // external hospital mid-rotation is the ordinary case — our dates are a formality the place he
+  // goes to does not follow — and the server drops a started period like a planned one. The only
+  // thing it refuses is a stage already carrying a mark, and those are excluded here rather than
+  // offered and then refused.
   const { data: assignments } = useGetInternshipAssignmentsQuery(
     student ? { registrationId: student.registrationId, pageSize: 200 } : skipToken
   );
   const stageOptions = (assignments?.items ?? [])
-    .filter((a) => a.status === 'Planned')
-    .map((a) => ({ value: String(a.stageId), label: a.stageName }));
+    .filter((a) => !a.isDelocalized && !a.allPeriodsEvaluated && a.status !== 'Validated')
+    .map((a) => ({
+      value: String(a.stageId),
+      label: a.status === 'Ongoing' ? `${a.stageName} — en cours` : a.stageName,
+    }));
+
+  const delocalized = (assignments?.items ?? []).filter((a) => a.isDelocalized);
+
+  const handleCancel = async (stageId: number, stageName: string) => {
+    if (!student) return;
+    try {
+      await cancelDelocalization({ registrationId: student.registrationId, stageId }).unwrap();
+      notify.success(`${stageName} — délocalisation annulée, l'étudiant revient dans la répartition`);
+    } catch {
+      // errorMiddleware names the refusal — « la validation est déjà enregistrée », typically.
+    }
+  };
 
   const { data: servicesPage, isFetching: servicesFetching } = useGetServicesQuery(
     { searchTerm: debouncedServiceSearch || undefined, pageSize: 20 },
@@ -520,10 +562,14 @@ function DelocalizeModal({ student, opened, onClose }: {
   }, [servicesPage, service]);
 
   const [startDate, endDate] = range;
-  const datesValid = !!startDate && !!endDate && endDate >= startDate;
-  const ficheMissing = outcome !== 'none' && !fiche.trim();
+  // Both or neither. Neither means « take the stage's own window », which is the ordinary case
+  // rather than an omission to correct — so an empty range is valid and a half-filled one is not.
+  const datesOmitted = !startDate && !endDate;
+  const datesValid = datesOmitted || (!!startDate && !!endDate && endDate >= startDate);
+  const ficheMissing = verdictMode !== 'none' && !fiche.trim();
+  const scoreMissing = verdictMode === 'Numeric' && (score === '' || score < 0 || score > 20);
   const canSubmit =
-    !!stageId && !!service && datesValid && !!reason.trim() && !ficheMissing;
+    !!stageId && !!service && datesValid && !!reason.trim() && !ficheMissing && !scoreMissing;
 
   const reset = () => {
     setStageId(null);
@@ -531,28 +577,37 @@ function DelocalizeModal({ student, opened, onClose }: {
     setServiceSearch('');
     setRange([null, null]);
     setReason('');
-    setOutcome('none');
+    setVerdictMode('none');
+    setOutcome('Validated');
+    setScore('');
     setFiche('');
   };
 
   const handleDelocalize = async () => {
-    if (!student || !canSubmit || !service || !startDate || !endDate) return;
+    if (!student || !canSubmit || !service) return;
     try {
       await delocalize({
         registrationId: student.registrationId,
         stageId:        Number(stageId),
         serviceId:      Number(service.value),
-        startDate,
-        endDate,
         reason:         reason.trim(),
-        outcome:        outcome === 'none' ? undefined : outcome,
-        ficheReference: outcome === 'none' ? undefined : fiche.trim(),
+        ...(datesOmitted ? {} : { startDate: startDate!, endDate: endDate! }),
+        ...(verdictMode === 'none' ? {} : {
+          verdict: {
+            mode:           verdictMode,
+            ficheReference: fiche.trim(),
+            ...(verdictMode === 'Numeric'
+              ? { totalScore: Number(score) }
+              : { outcome }),
+          },
+        }),
       }).unwrap();
       notify.success(`${student.fullName} — stage délocalisé enregistré`);
       reset();
       onClose();
     } catch {
-      notify.error('Impossible d’enregistrer la délocalisation');
+      // No toast here: errorMiddleware already shows the server's own sentence, and a second one
+      // stacks two messages for one refusal (CLAUDE.md §1e). The catch keeps the modal open.
     }
   };
 
@@ -570,6 +625,31 @@ function DelocalizeModal({ student, opened, onClose }: {
           n’a aucun contrôle sur le déroulement ; la période est enregistrée comme terminée et la
           validation est saisie à partir de la fiche papier rapportée par l’étudiant.
         </Text>
+
+        {/* The undo sits beside the act rather than on a menu of its own: a délocalisation entered on
+            the wrong stage is corrected here, by the person who has just made it. ⚠ Refused once the
+            paper verdict is recorded — the server says so, and that refusal is the point. */}
+        {delocalized.length > 0 && (
+          <Card withBorder radius="md" padding="sm" bg="gray.0">
+            <Stack gap="xs">
+              <Text size="xs" fw={600}>Stages déjà délocalisés</Text>
+              {delocalized.map((a) => (
+                <Group key={a.stageId} justify="space-between" wrap="nowrap">
+                  <Text size="sm">{a.stageName}</Text>
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    color="red"
+                    loading={cancelling}
+                    onClick={() => handleCancel(a.stageId, a.stageName)}
+                  >
+                    Annuler
+                  </Button>
+                </Group>
+              ))}
+            </Stack>
+          </Card>
+        )}
 
         <Select
           label="Stage concerné"
@@ -624,15 +704,41 @@ function DelocalizeModal({ student, opened, onClose }: {
 
         <SegmentedControl
           fullWidth
-          value={outcome}
-          onChange={(v) => setOutcome(v as 'none' | DelocalizationOutcome)}
+          value={verdictMode}
+          onChange={(v) => setVerdictMode(v as 'none' | 'ValidatePeriod' | 'Numeric')}
           data={[
-            { value: 'none',         label: 'Validation plus tard' },
-            { value: 'Validated',    label: 'Validé' },
-            { value: 'NotValidated', label: 'Non validé' },
+            { value: 'none',           label: 'Validation plus tard' },
+            { value: 'ValidatePeriod', label: 'Validé / non validé' },
+            { value: 'Numeric',        label: 'Note /20' },
           ]}
         />
-        {outcome !== 'none' && (
+
+        {verdictMode === 'ValidatePeriod' && (
+          <SegmentedControl
+            fullWidth
+            value={outcome}
+            onChange={(v) => setOutcome(v as DelocalizationOutcome)}
+            data={[
+              { value: 'Validated',    label: 'Validé' },
+              { value: 'NotValidated', label: 'Non validé' },
+            ]}
+          />
+        )}
+
+        {verdictMode === 'Numeric' && (
+          <NumberInput
+            label="Note rapportée sur la fiche"
+            placeholder="0 à 20"
+            value={score}
+            onChange={(v: string | number) => setScore(v === '' ? '' : Number(v))}
+            min={0}
+            max={20}
+            decimalScale={2}
+            required
+          />
+        )}
+
+        {verdictMode !== 'none' && (
           <TextInput
             label="Référence de la fiche de validation"
             placeholder="N° / lien / note de la fiche papier"
@@ -640,6 +746,15 @@ function DelocalizeModal({ student, opened, onClose }: {
             onChange={(e) => setFiche(e.currentTarget.value)}
             required
           />
+        )}
+
+        {verdictMode === 'none' && (
+          <Text size="xs" c="dimmed">
+            La validation se saisit ensuite depuis le dossier de l’étudiant (« Évaluer » sur la
+            période), ou en masse par le canevas d’évaluation du stage — portée « stage entier », la
+            seule qui atteigne une délocalisation. C’est aussi le seul chemin pour une validation
+            <strong> par objectif</strong>.
+          </Text>
         )}
 
         <Group justify="flex-end">
@@ -952,6 +1067,7 @@ export default function GroupDetailPage() {
       <TransferModal
         student={transferTarget}
         academicYearId={group?.academicYearId ?? 0}
+        levelId={group?.levelId ?? null}
         currentGroupId={groupId}
         opened={modalOpen}
         onClose={() => { closeModal(); setTransferTarget(null); }}
@@ -960,6 +1076,7 @@ export default function GroupDetailPage() {
       <ChangeGroupModal
         student={changeTarget}
         academicYearId={group?.academicYearId ?? 0}
+        levelId={group?.levelId ?? null}
         currentGroupId={groupId}
         opened={changeOpen}
         onClose={() => { closeChange(); setChangeTarget(null); }}
@@ -968,6 +1085,7 @@ export default function GroupDetailPage() {
       <SwapModal
         student={swapTarget}
         academicYearId={group?.academicYearId ?? 0}
+        levelId={group?.levelId ?? null}
         currentGroupId={groupId}
         opened={swapOpen}
         onClose={() => { closeSwap(); setSwapTarget(null); }}

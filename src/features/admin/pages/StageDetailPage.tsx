@@ -34,6 +34,7 @@ import {
   IconPlus,
   IconRefresh,
   IconRocket,
+  IconPlaneDeparture,
   IconRocketOff,
   IconStethoscope,
   IconTrash,
@@ -64,6 +65,7 @@ import {
   useDeleteAllStageCohortsMutation,
 } from '../api/adminApi';
 import { ScheduleGridModal } from '../components/ScheduleGridModal';
+import { BulkDelocalizationModal } from '../components/BulkDelocalizationModal';
 import type { AllowedServiceSummary } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
@@ -136,6 +138,7 @@ export default function StageDetailPage() {
   };
 
   const [rotationOpen, { open: openRotation, close: closeRotation }] = useDisclosure(false);
+  const [bulkDelocOpen, { open: openBulkDeloc, close: closeBulkDeloc }] = useDisclosure(false);
   const [modalOpen, { open, close }] = useDisclosure(false);
 
   // Confirm modals state
@@ -700,6 +703,18 @@ export default function StageDetailPage() {
                           Tout affecter
                         </Button>
                       </Tooltip>
+                      <Tooltip
+                        label="Enregistrer que des groupes ou des étudiants font ce stage hors faculté"
+                        position="top"
+                      >
+                        <Button
+                          size="xs" color="teal" radius="md" variant="subtle"
+                          leftSection={<IconPlaneDeparture size={12} stroke={1.5} />}
+                          onClick={openBulkDeloc}
+                        >
+                          Délocaliser en masse
+                        </Button>
+                      </Tooltip>
                       <Tooltip label="Configurer la grille de planning des rotations" position="top">
                         <Button
                           size="xs" color="violet" radius="md" variant="light"
@@ -889,6 +904,19 @@ export default function StageDetailPage() {
         academicYearId={currentYearId ?? undefined}
         allowedServiceIds={stage?.allowedServices.map((s) => s.id) ?? []}
       />
+
+      {/* Mounted only with a year: the act is scoped to one promotion, and a modal that opened on
+          « toutes les années » would be a délocalisation whose scope nobody chose. */}
+      {currentYearId !== null && currentYearId !== undefined && (
+        <BulkDelocalizationModal
+          opened={bulkDelocOpen}
+          onClose={closeBulkDeloc}
+          stageId={stageId}
+          stageName={stage?.name ?? ''}
+          academicYearId={currentYearId}
+          levelId={stage?.levelResponse?.id ?? null}
+        />
+      )}
 
       <Modal opened={modalOpen} onClose={close} title="Créer des cohortes" radius="lg" size="md">
         <Stack gap="md">

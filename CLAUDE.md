@@ -228,6 +228,18 @@ Rules:
   and a promotion adds ~100 rosters a year — past 200 every one of those numbers read low, including
   the one whose only job is to say a gap-fill is owed. Raising the page size moves the cliff; the fix
   is an aggregate endpoint (`getPromotionPartitioning`). If a number must be right, the server counts it.
+- ⚠ **A *scope* derived from a page widens in silence, exactly like a count.** The transfer, the
+  changement de groupe and the échange all restricted their target list to the student's own
+  promotion — and read that promotion by finding the current roster inside the options list, which
+  asks for 200 of the 1 003 rosters. Past that page the lookup returned `undefined`, the promotion
+  read `null`, and the filter fell through to « tous les groupes de l'année », across every
+  promotion. The scope now comes from the row itself (`GroupDetailResponse.levelId`) and goes to the
+  server as `?levelId=`. **If a filter's own parameter is derived from a paged list, it is a filter
+  that stops filtering.**
+  - ⚠ …and the server's `?levelId=` is deliberately *wider* than « rosters of this promotion »: it
+    also matches the level-less « Non réparti » bucket when it holds a registration of that level, so
+    that bucket stays findable on the screen scolarité assigns from. A picker drops `levelId === null`
+    itself. Read the handler before assuming a parameter means what its name suggests.
 - **Anything year-scoped passes `academicYearId` to the server.** `AttendancePage` fetched every
   year's cohorts and filtered client-side; `StageDetailPage` did the same. Both now scope the query.
 
