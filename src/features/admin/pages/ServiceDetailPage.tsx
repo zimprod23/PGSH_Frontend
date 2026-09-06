@@ -6,7 +6,7 @@ import {
   SimpleGrid, Stack, Table, Text, Title, Tooltip,
 } from '@mantine/core';
 import {
-  IconAlertTriangle, IconBuildingHospital, IconEdit, IconInfoCircle, IconUsers,
+  IconAlertTriangle, IconBuildingHospital, IconEdit, IconInfoCircle, IconLock, IconUsers,
 } from '@tabler/icons-react';
 import {
   useGetHospitalsQuery,
@@ -136,6 +136,42 @@ export default function ServiceDetailPage() {
               </Text>
             </Alert>
           )}
+        </Group>
+
+        {/* ⚠ Stated whichever way it reads, and it is the « allowed » side that needed saying: the
+            limit above looks binding and, on 148 of 148 services, is not — « autoriser le
+            dépassement » lifts it, and it is ticked as a matter of routine on a base where two
+            thirds of the planned cells are over capacity. A page printing a ceiling without saying
+            whether anything holds it up is the reason a chef thought his number was being ignored. */}
+        <Divider my="md" />
+        <Group gap="xs" wrap="nowrap" align="flex-start">
+          {service.allowsOverCapacity ? (
+            <IconInfoCircle size={16} style={{ marginTop: 2, opacity: 0.6, flexShrink: 0 }} />
+          ) : (
+            <IconLock size={16} color="var(--mantine-color-orange-6)" style={{ marginTop: 2, flexShrink: 0 }} />
+          )}
+          <div>
+            <Text size="sm" fw={600}>
+              {service.allowsOverCapacity
+                ? 'Dépassement d’effectif autorisé'
+                : 'Dépassement d’effectif refusé'}
+            </Text>
+            <Text size="xs" c="dimmed">
+              {service.allowsOverCapacity ? (
+                <>
+                  À la publication d’un planning, un administrateur peut cocher «&nbsp;autoriser le
+                  dépassement d’effectif&nbsp;» et dépasser {restricted ? 'ces quotas' : 'ce plafond'}.
+                  C’est le comportement par défaut&nbsp;: la limite est un objectif.
+                </>
+              ) : (
+                <>
+                  La publication est refusée dès que {restricted ? 'un quota est dépassé' : 'ce plafond est dépassé'},
+                  et la case «&nbsp;autoriser le dépassement&nbsp;» ne lève pas ce refus. La limite
+                  ci-dessus est ferme.
+                </>
+              )}
+            </Text>
+          </div>
         </Group>
       </Card>
 

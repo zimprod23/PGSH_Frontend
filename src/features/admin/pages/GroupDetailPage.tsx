@@ -1,8 +1,10 @@
 import {
   ActionIcon,
+  Alert,
   Badge,
   Button,
   Card,
+  Checkbox,
   Container,
   Group,
   Loader,
@@ -26,10 +28,13 @@ import { usePagedFilters } from '../../../common/hooks/usePagedFilters';
 import { skipToken } from '@reduxjs/toolkit/query';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
 import {
+  IconAlertTriangle,
   IconArrowLeft,
+  IconArrowsExchange,
   IconArrowsTransferUp,
   IconPlaneDeparture,
   IconTrash,
+  IconUserEdit,
   IconUsers,
 } from '@tabler/icons-react';
 import { useMemo, useState } from 'react';
@@ -40,10 +45,17 @@ import {
   useGetInternshipAssignmentsQuery,
   useGetServicesQuery,
   useTransferStudentMutation,
+  useChangeStudentGroupMutation,
+  useSwapStudentGroupsMutation,
   useDelocalizeStudentMutation,
   useEmptyGroupMutation,
 } from '../api/adminApi';
-import type { DelocalizationOutcome, GroupStudentResponse, TransferType } from '../types/admin.types';
+import type {
+  AcademicGroupResponse,
+  DelocalizationOutcome,
+  GroupStudentResponse,
+  TransferType,
+} from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { RegistrationBadge } from '../../student/components/RegistrationBadge';
 
@@ -186,6 +198,283 @@ function TransferModal({ student, academicYearId, currentGroupId, opened, onClos
             onClick={handleTransfer}
           >
             Transférer
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+// ─── Changement de groupe ─────────────────────────────────────────────────────
+
+/**
+ * The rosters a correction may target.
+ *
+ * ⚠ Same promotion only, and never « Non réparti ». Both are refused server-side — a roster of
+ * another promotion runs stages this student does not owe, and the bucket carries no cohorte at all —
+ * but an option that can only produce a refusal is one the admin has to try before learning it is not
+ * one. The promotion is read off the current roster rather than passed in: `GroupDetailResponse`
+ * carries no level, and the options list already knows.
+ */
+function siblingRosterOptions(groups: AcademicGroupResponse[], currentGroupId: number) {
+  const promotionId = groups.find((g) => g.id === currentGroupId)?.levelId ?? null;
+
+  return groups
+    .filter((g) =>
+      g.id !== currentGroupId
+      && g.levelId !== null
+      && (promotionId === null || g.levelId === promotionId))
+    .map((g) => ({ value: String(g.id), label: `${g.label} — ${g.studentCount} étudiant(s)` }));
+}
+
+/** The sentence both modals show, because it is the whole difference from a transfert. */
+function SilentActNotice() {
+  return (
+    <Alert
+      variant="light"
+      color="orange"
+      radius="md"
+      icon={<IconAlertTriangle size={16} stroke={1.5} />}
+    >
+      <Text size="xs">
+        Ce n’est pas un transfert : aucune trace n’est conservée sur le dossier de l’étudiant. Ses
+        affectations, ses cohortes et ses périodes sont réécrites sur le groupe d’arrivée, et tout se
+        lira comme s’il y avait été réparti dès le départ. Le groupe d’origine ne sera plus indiqué
+        nulle part — seul le journal des actions en gardera la trace.
+      </Text>
+      <Text size="xs" mt={6}>
+        À utiliser pour <b>corriger</b> une répartition. Si l’étudiant a réellement commencé ses
+        rotations dans son groupe actuel, l’action sera refusée : utilisez alors un transfert.
+      </Text>
+    </Alert>
+  );
+}
+
+function ChangeGroupModal({ student, academicYearId, currentGroupId, opened, onClose }: {
+  student: GroupStudentResponse | null;
+  academicYearId: number;
+  currentGroupId: number;
+  opened: boolean;
+  onClose: () => void;
+}) {
+  const notify = useNotify();
+  const [targetGroupId, setTargetGroupId] = useState<string | null>(null);
+  const [understood, setUnderstood]       = useState(false);
+  const [change, { isLoading }]           = useChangeStudentGroupMutation();
+
+  const { data: groups = [] } = useGetAcademicGroupOptionsQuery(
+    academicYearId ? { academicYearId } : {}
+  );
+
+  const groupOptions = useMemo(
+    () => siblingRosterOptions(groups, currentGroupId),
+    [groups, currentGroupId],
+  );
+
+  const reset = () => {
+    setTargetGroupId(null);
+    setUnderstood(false);
+  };
+
+  const handleChange = async () => {
+    if (!student || !targetGroupId || !understood) return;
+    try {
+      const report = await change({
+        registrationId: student.registrationId,
+        targetGroupId:  Number(targetGroupId),
+        studentId:      student.studentId,
+        sourceGroupId:  currentGroupId,
+      }).unwrap();
+
+      // The origin roster is named here because this is the last place it exists: the act deliberately
+      // writes it nowhere on the student's file.
+      notify.success(
+        `${report.studentName} — ${report.fromGroupLabel} → ${report.toGroupLabel}`
+        + ` · ${report.affectationsMoved} affectation(s) déplacée(s)`
+        + (report.affectationsCreated > 0 ? `, ${report.affectationsCreated} créée(s)` : '')
+        + ` · ${report.periodsCreated} période(s) reconstruite(s)`
+        + (report.adHocPeriodsKept > 0 ? ` · ${report.adHocPeriodsKept} hors grille conservée(s)` : ''),
+      );
+      reset();
+      onClose();
+    } catch {
+      // errorMiddleware already toasts the server's own sentence — and here it is the sentence that
+      // matters, since every refusal names what to do instead.
+    }
+  };
+
+  return (
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      title={`Changer de groupe — ${student?.fullName ?? ''}`}
+      radius="lg"
+      size="md"
+    >
+      <Stack gap="md">
+        <SilentActNotice />
+
+        <Select
+          label="Groupe d’arrivée"
+          placeholder={groupOptions.length ? 'Choisir un groupe' : 'Aucun autre groupe de cette promotion'}
+          data={groupOptions}
+          value={targetGroupId}
+          onChange={setTargetGroupId}
+          disabled={!groupOptions.length}
+          searchable
+          required
+        />
+
+        <Checkbox
+          checked={understood}
+          onChange={(e) => setUnderstood(e.currentTarget.checked)}
+          label="Je comprends que ce changement ne laissera aucune trace sur le dossier de l’étudiant"
+        />
+
+        <Group justify="flex-end">
+          <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
+          <Button
+            color="orange"
+            loading={isLoading}
+            disabled={!targetGroupId || !understood}
+            leftSection={<IconUserEdit size={16} stroke={1.5} />}
+            onClick={handleChange}
+          >
+            Changer de groupe
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+/**
+ * Échanger deux étudiants — two changements in one act.
+ *
+ * ⚠ It exists because moving one student alone leaves one roster short and the other over. The
+ * partner is picked from a roster rather than from the whole promotion: « échange-le avec quelqu’un
+ * du groupe 12 » is the way the question is actually asked, and it keeps the list bounded.
+ */
+function SwapModal({ student, academicYearId, currentGroupId, opened, onClose }: {
+  student: GroupStudentResponse | null;
+  academicYearId: number;
+  currentGroupId: number;
+  opened: boolean;
+  onClose: () => void;
+}) {
+  const notify = useNotify();
+  const [partnerGroupId, setPartnerGroupId] = useState<string | null>(null);
+  const [partnerId, setPartnerId]           = useState<string | null>(null);
+  const [search, setSearch]                 = useState('');
+  const [debouncedSearch]                   = useDebouncedValue(search, 350);
+  const [understood, setUnderstood]         = useState(false);
+  const [swap, { isLoading }]               = useSwapStudentGroupsMutation();
+
+  const { data: groups = [] } = useGetAcademicGroupOptionsQuery(
+    academicYearId ? { academicYearId } : {}
+  );
+
+  const groupOptions = useMemo(
+    () => siblingRosterOptions(groups, currentGroupId),
+    [groups, currentGroupId],
+  );
+
+  // A roster holds six or seven students, so one page is the whole list; the debounced search is
+  // there for the admin who knows the name and not the group.
+  const { data: partnerGroup, isFetching } = useGetGroupByIdQuery(
+    partnerGroupId
+      ? {
+          id: Number(partnerGroupId),
+          pageSize: 50,
+          searchTerm: debouncedSearch.length >= 2 ? debouncedSearch : undefined,
+        }
+      : skipToken,
+  );
+
+  const partnerOptions = (partnerGroup?.students.items ?? [])
+    .map((s) => ({ value: s.registrationId, label: `${s.fullName} — ${s.cne}` }));
+
+  const reset = () => {
+    setPartnerGroupId(null);
+    setPartnerId(null);
+    setSearch('');
+    setUnderstood(false);
+  };
+
+  const handleSwap = async () => {
+    if (!student || !partnerId || !understood) return;
+    try {
+      const report = await swap({
+        firstRegistrationId:  student.registrationId,
+        secondRegistrationId: partnerId,
+        firstGroupId:         currentGroupId,
+        secondGroupId:        Number(partnerGroupId),
+      }).unwrap();
+
+      notify.success(
+        `${report.first.studentName} → ${report.first.toGroupLabel}`
+        + ` · ${report.second.studentName} → ${report.second.toGroupLabel}`,
+      );
+      reset();
+      onClose();
+    } catch {
+      // errorMiddleware toasts the server's sentence; a refusal on either half moved nobody.
+    }
+  };
+
+  return (
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      title={`Échanger — ${student?.fullName ?? ''}`}
+      radius="lg"
+      size="md"
+    >
+      <Stack gap="md">
+        <SilentActNotice />
+
+        <Select
+          label="Groupe du second étudiant"
+          placeholder={groupOptions.length ? 'Choisir un groupe' : 'Aucun autre groupe de cette promotion'}
+          data={groupOptions}
+          value={partnerGroupId}
+          onChange={(v) => { setPartnerGroupId(v); setPartnerId(null); setSearch(''); }}
+          disabled={!groupOptions.length}
+          searchable
+          required
+        />
+
+        <Select
+          label="Étudiant à échanger"
+          placeholder={partnerGroupId ? 'Choisir un étudiant' : 'Choisissez d’abord un groupe'}
+          data={partnerOptions}
+          value={partnerId}
+          onChange={setPartnerId}
+          disabled={!partnerGroupId}
+          searchable
+          searchValue={search}
+          onSearchChange={setSearch}
+          rightSection={isFetching ? <Loader size={14} /> : null}
+          nothingFoundMessage={isFetching ? 'Recherche…' : 'Aucun étudiant'}
+          required
+        />
+
+        <Checkbox
+          checked={understood}
+          onChange={(e) => setUnderstood(e.currentTarget.checked)}
+          label="Je comprends que cet échange ne laissera aucune trace sur les deux dossiers"
+        />
+
+        <Group justify="flex-end">
+          <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
+          <Button
+            color="orange"
+            loading={isLoading}
+            disabled={!partnerId || !understood}
+            leftSection={<IconArrowsExchange size={16} stroke={1.5} />}
+            onClick={handleSwap}
+          >
+            Échanger
           </Button>
         </Group>
       </Stack>
@@ -380,8 +669,12 @@ export default function GroupDetailPage() {
 
   const [transferTarget, setTransferTarget] = useState<GroupStudentResponse | null>(null);
   const [delocTarget,    setDelocTarget]    = useState<GroupStudentResponse | null>(null);
+  const [changeTarget,   setChangeTarget]   = useState<GroupStudentResponse | null>(null);
+  const [swapTarget,     setSwapTarget]     = useState<GroupStudentResponse | null>(null);
   const [modalOpen,   { open: openModal,  close: closeModal  }] = useDisclosure(false);
   const [delocOpen,   { open: openDeloc,  close: closeDeloc  }] = useDisclosure(false);
+  const [changeOpen,  { open: openChange, close: closeChange }] = useDisclosure(false);
+  const [swapOpen,    { open: openSwap,   close: closeSwap   }] = useDisclosure(false);
   const [emptyOpen,   { open: openEmpty,  close: closeEmpty  }] = useDisclosure(false);
   // What emptying would strand, when the server refuses because the roster still holds affectations.
   // Confirming a second time re-sends with dropAffectations.
@@ -559,6 +852,28 @@ export default function GroupDetailPage() {
                               <IconArrowsTransferUp size={14} stroke={1.5} />
                             </ActionIcon>
                           </Tooltip>
+                          <Tooltip
+                            label="Changer de groupe (correction, sans trace)"
+                            position="left"
+                          >
+                            <ActionIcon
+                              variant="subtle" color="orange" size="sm" radius="md"
+                              onClick={() => { setChangeTarget(s); openChange(); }}
+                            >
+                              <IconUserEdit size={14} stroke={1.5} />
+                            </ActionIcon>
+                          </Tooltip>
+                          <Tooltip
+                            label="Échanger avec un étudiant d'un autre groupe (sans trace)"
+                            position="left"
+                          >
+                            <ActionIcon
+                              variant="subtle" color="orange" size="sm" radius="md"
+                              onClick={() => { setSwapTarget(s); openSwap(); }}
+                            >
+                              <IconArrowsExchange size={14} stroke={1.5} />
+                            </ActionIcon>
+                          </Tooltip>
                           <Tooltip label="Délocaliser un stage (hors faculté)" position="left">
                             <ActionIcon
                               variant="subtle" color="teal" size="sm" radius="md"
@@ -640,6 +955,22 @@ export default function GroupDetailPage() {
         currentGroupId={groupId}
         opened={modalOpen}
         onClose={() => { closeModal(); setTransferTarget(null); }}
+      />
+
+      <ChangeGroupModal
+        student={changeTarget}
+        academicYearId={group?.academicYearId ?? 0}
+        currentGroupId={groupId}
+        opened={changeOpen}
+        onClose={() => { closeChange(); setChangeTarget(null); }}
+      />
+
+      <SwapModal
+        student={swapTarget}
+        academicYearId={group?.academicYearId ?? 0}
+        currentGroupId={groupId}
+        opened={swapOpen}
+        onClose={() => { closeSwap(); setSwapTarget(null); }}
       />
 
       <DelocalizeModal

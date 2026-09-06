@@ -644,6 +644,16 @@ interface SaturatedCellResponse {
   occupiedSeats: number;
   capacity: number;                        // 0 when `reason` is 'Refused' — there is no room to be under
   reason: 'Total' | 'Quota' | 'Refused';   // service total · promotion quota · promotion not admitted
+  /** Whether « autoriser le dépassement d'effectif » would let this cell through: false for
+   *  `Refused`, and false on a service whose chef has refused the override
+   *  (`Service.allowsOverCapacity`).
+   *
+   *  ⚠ **Not derivable from `reason`** — the numbers of a firm service and of a permissive one are
+   *  identical, and only the service says which. It is sent for the reason
+   *  `ServicePeriodResponse.state` is: one rule, two sides of a network boundary. Absent from an API
+   *  predating the field, where the honest reading is the old behaviour, i.e. forceable. Saturations
+   *  are ordered **unforceable first**. */
+  forceable?: boolean;
 }
 
 interface StageSlotResponse {
@@ -731,16 +741,26 @@ interface PublishStageRequest {
   academicYearId?: number;      // omitted = the current year
   partitionLabels?: string[];
   periodNumbers?: number[];
-  allowOverCapacity?: boolean;  // lifts the numbers only, never an inadmissible service
+  allowOverCapacity?: boolean;  // a *request*: see the two limits below
 }
 // Response: { publishedCohorts, periodsCreated, skippedCohorts, skippedAlreadyServed }
 ```
 
+⚠ **`allowOverCapacity` is a request, not a decision, and it has two limits.** It never admits a
+promotion the service does not take (`Schedule.LevelNotAdmitted`), and — since 06/09/2026 — it never
+forces a service whose chef has refused the overrun (`Schedule.OverCapacityRefusedByService`, i.e.
+`Service.allowsOverCapacity === false`). Which cells fall in that second half is knowable **before**
+the click: `SaturatedCellResponse.forceable` on the planning grid's summary. A checkbox that promises
+a power it lacks is worse than no checkbox — the admin ticks it, gets the same refusal, and concludes
+the screen is broken rather than that the plan is.
+
 ⚠ **One refusal, not one per cell.** When several cells breach at once the call returns a single
-`Schedule.PublishRefusedByIntake` naming how many, how many of those are the unforceable
-admissibility half, and the heaviest three. A single breach keeps its own specific code
-(`Schedule.CapacityExceeded`, `Schedule.LevelCapacityExceeded`, `Schedule.LevelNotAdmitted`).
-Nothing is written when it refuses.
+`Schedule.PublishRefusedByIntake` naming how many, how many of those are the **unforceable** halves —
+counted separately, since a promotion the service does not take and a service standing on its number
+are fixed in different places — and the heaviest three. It stops offering the checkbox when nothing
+waivable is left. A single breach keeps its own specific code (`Schedule.CapacityExceeded`,
+`Schedule.LevelCapacityExceeded`, `Schedule.LevelNotAdmitted`,
+`Schedule.OverCapacityRefusedByService`). Nothing is written when it refuses.
 
 #### POST `/stages/{stageId}/slots`
 Create a new time period column.
@@ -857,6 +877,10 @@ interface GetServicesQuery {
 
 interface ServiceSummaryResponse {
   // …id, name, serviceType, specialty, capacity, restrictedLevelCount, hospitalId, hospitalName…
+  /** False when this service refuses to be published over its number. True on every service of the
+   *  base — a chef refusing the overrun is an act. ⚠ Mark the **rare** state only: a lock beside all
+   *  148 rows says nothing. */
+  allowsOverCapacity: boolean;
   /** The employee **linked** through `Service.ServiceChefId` — configuration, and what
    *  `?serviceChefId=` filters on. ⚠ Null on all 148 services of the base: a « Chef de service »
    *  column bound to it read « — » on every row while the fiche named somebody for 140 of them. */
@@ -879,6 +903,13 @@ never a grade, a PPR or an invented « Dr. », because no `Employee` is behind s
 #### POST `/services` — `CreateServiceCommand` body
 #### PUT `/services/{id}` — Request body with `ServiceType` string
 #### DELETE `/services/{id}` — `204 No Content`
+
+⚠ **Both bodies carry `allowsOverCapacity`, and both default it to `true` when it is absent.** The
+column governs whether a publication may be forced past the service's number, and it lands on 148
+services no chef has been asked about — so an omission has to read « le client n'en dit rien », never
+« refuser ». Consequence for a form: **always send it**, read from `GET /services/{id}`, or saving a
+service silently re-opens one its chef had closed. Same shape as the summary response that omitted
+`description` and had the edit form erase it.
 
 #### GET `/services/occupancy-report` — every service's year at once
 ```typescript
@@ -958,6 +989,70 @@ interface AutoArrangeGroupsRequest {
 }
 // Response: BulkResponse<studentId (string), groupId (number)>
 ```
+
+#### POST `/groups/change-student-group`
+
+« Changement de groupe » — une **correction**, pas un transfert : l'étudiant est dans le groupe
+d'arrivée et le dossier dit désormais qu'il y a toujours été.
+
+```ts
+// request
+{ registrationId: string; targetGroupId: number }
+
+// 200 — GroupChangeReport
+{
+  registrationId: string;
+  studentName: string;
+  fromGroupLabel: string;   // le SEUL endroit où le groupe d'origine est encore nommé
+  toGroupLabel: string;
+  affectationsMoved: number;
+  affectationsCreated: number;
+  periodsCreated: number;
+  periodsReplaced: number;
+  adHocPeriodsKept: number; // délocalisations, revalidations, historique importé
+}
+```
+
+⚠ **Il n'y a pas de champ `reason`, et ce n'est pas un oubli.** L'acte *est* l'absence de trace sur la
+fiche de l'étudiant : aucune ligne `HistoryType.GroupTransfer` n'est écrite, et la
+`CohortMembership` ouverte est réécrite sur place au lieu d'être close et remplacée. Un motif n'aurait
+nulle part où aller. Ce que l'opérateur a fait est dans le journal des actions
+(`STUDENT_GROUP_CHANGED`), qui est un autre document avec un autre lecteur — et le seul endroit où le
+groupe d'origine survit, l'acte n'étant pas réversible.
+
+Refus (409), tous avant la moindre écriture :
+
+| `title` | quand |
+|---|---|
+| `GroupChange.RotationsUnderway` | une période démarrée, une note ou une présence. **Non forçable** — le message nomme les quatre chiffres et renvoie vers le transfert |
+| `GroupChange.NotInAGroup` | aucun groupe à corriger → `POST /groups/assign-student` |
+| `GroupChange.AlreadyInTargetGroup` | déjà là |
+| `GroupChange.TargetIsUnassignedRoster` | « Non réparti » ne porte aucune cohorte → « Vider le groupe » |
+| `GroupChange.TargetRosterMissingStage` | le groupe d'arrivée ne fait pas un stage qu'il doit |
+| `GroupChange.AlreadyAffectedInTargetCohort` | il tient déjà une affectation là (revalidation posée à la main) |
+| `AcademicGroups.TargetGroupInAnotherYear` / `…InAnotherLevel` | les deux gardes de tout pointeur de roster |
+
+`403` hors rôle administratif, `401` sans identité.
+
+#### POST `/groups/swap-students`
+
+Deux changements en un acte : A prend le groupe de B et B celui de A, donc les deux effectifs sont
+inchangés. Les mêmes règles s'appliquent deux fois — un étudiant dont les rotations ont commencé
+refuse l'échange comme il refuserait un changement simple.
+
+```ts
+// request
+{ firstRegistrationId: string; secondRegistrationId: string }
+
+// 200 — GroupSwapReport
+{ first: GroupChangeReport; second: GroupChangeReport }
+```
+
+⚠ **Un seul `SaveChanges` pour les deux moitiés** : un refus sur la seconde laisse la première
+exactement où elle était. Un échange à moitié fait, ce sont deux groupes de la mauvaise taille et rien
+qui dise pourquoi.
+
+Refus supplémentaires : `GroupChange.CannotSwapWithSelf`, `GroupChange.SwapWithinOneGroup`.
 
 #### GET `/groups/placements`
 « Quel groupe va déjà là où cet étudiant doit aller ? » — la lecture qui rend atteignable la réponse

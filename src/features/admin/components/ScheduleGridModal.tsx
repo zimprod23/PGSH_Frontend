@@ -73,6 +73,54 @@ const PAGE_SIZE = 25;
 
 // ─── Saturation summary bar ──────────────────────────────────────────────────
 
+/**
+ * The saturations « autoriser le dépassement d'effectif » will not lift: a promotion the service
+ * does not take, and — since a service may now refuse the override — a service standing on its
+ * number.
+ *
+ * ⚠ `forceable` is the server's, never re-derived from `reason`: the numbers of a firm service and
+ * of a permissive one are identical, and only the service says which. `=== false` rather than
+ * `!c.forceable` so an API predating the field reads as the old behaviour (forceable) instead of
+ * marking every saturation as a wall.
+ *
+ * ⚠ The list is capped and the count is not, so a cap can hide more of these — except that the
+ * server sorts the unforceable ones first, so the only ambiguous case is a cap reached entirely
+ * inside them. That is what `capped` says, and it is why the sentence reads « au moins ».
+ */
+function unforceableSaturations(summary: StageScheduleSummary) {
+  const rows = summary.saturations.filter((c) => c.forceable === false);
+  const listed = summary.saturations.length;
+
+  return { rows, capped: rows.length === listed && listed < summary.saturatedCellCount };
+}
+
+/** The half of those that is a firm service rather than an inadmissible promotion. */
+function firmServiceSaturations(summary: StageScheduleSummary) {
+  const { rows, capped } = unforceableSaturations(summary);
+  const firm = rows.filter((c) => c.reason !== 'Refused');
+
+  return { count: firm.length, capped, services: [...new Set(firm.map((c) => c.serviceName))] };
+}
+
+/**
+ * The sentence under the publish checkbox. It has to name every power the box lacks, or an admin
+ * ticks it, gets the same refusal, and concludes the screen is broken rather than that the plan is.
+ */
+function overCapacityCheckboxDescription(summary?: StageScheduleSummary): string {
+  const base = "Publie malgré tout lorsqu'un service dépasse sa capacité totale ou le quota d'une "
+    + "promotion. Ne force pas un service qui n'accueille pas cette promotion, "
+    + "ni un service qui n'autorise pas le dépassement d'effectif.";
+
+  if (!summary) return base;
+
+  const firm = firmServiceSaturations(summary);
+  if (firm.count === 0) return base;
+
+  return `${base} ⚠ ${firm.capped ? 'Au moins ' : ''}${firm.count} affectation(s) portent sur `
+    + `${firm.services.length} service(s) qui refusent le dépassement (${firm.services.slice(0, 3).join(', ')})`
+    + ` : elles seront refusées quoi qu'il arrive.`;
+}
+
 function SaturationSummary(
   { summary }: { summary: StageScheduleSummary },
 ) {
@@ -86,6 +134,7 @@ function SaturationSummary(
   const saturated = summary.saturations;
   if (saturated.length === 0) return null;
 
+  const unforceable = unforceableSaturations(summary);
   const top = saturated.slice(0, 3);
   const totalOverflow = saturated.reduce((sum, c) => sum + (c.occupiedSeats - c.capacity), 0);
   const listed = saturated.length;
@@ -103,6 +152,14 @@ function SaturationSummary(
               Un service dépasse sa capacité — totale, ou le quota accordé à cette promotion.
               Ajustez la fiche du service ou répartissez sur d'autres services.
             </Text>
+            {/* ⚠ Said here as well as in the publish dialog, because this bar is where somebody
+                decides whether the plan is finished. « Saturé » alone reads as a warning to tick
+                past; some of these cannot be ticked past at all. */}
+            {unforceable.rows.length > 0 && (
+              <Badge color="orange" variant="filled" radius="sm" size="sm">
+                dont {unforceable.capped ? 'au moins ' : ''}{unforceable.rows.length} non forçable(s)
+              </Badge>
+            )}
           </Group>
           <Button size="compact-xs" variant="light" color="red" radius="md" onClick={openReport}>
             Voir le rapport
@@ -167,11 +224,21 @@ function SaturationSummary(
                   </Table.Td>
                   <Table.Td ta="center">P{c.periodNumber}</Table.Td>
                   <Table.Td ta="center">
-                    <Text size="xs" c="dimmed">
-                      {c.reason === 'Refused' ? 'Promotion non admise'
-                        : c.reason === 'Quota' ? 'Quota promotion'
-                        : 'Capacité totale'}
-                    </Text>
+                    <Stack gap={2} align="center">
+                      <Text size="xs" c="dimmed">
+                        {c.reason === 'Refused' ? 'Promotion non admise'
+                          : c.reason === 'Quota' ? 'Quota promotion'
+                          : 'Capacité totale'}
+                      </Text>
+                      {/* The row's whole point once services can refuse the override: two lines
+                          reading « Capacité totale · 25/20 » are the same problem with opposite
+                          remedies, and only this word separates them. */}
+                      {c.forceable === false && (
+                        <Badge color="orange" variant="light" radius="sm" size="xs">
+                          non forçable
+                        </Badge>
+                      )}
+                    </Stack>
                   </Table.Td>
                   <Table.Td ta="center">
                     <Badge color="red" variant="light" radius="sm" size="sm">
@@ -623,9 +690,11 @@ const PublishButton = memo(function PublishButton(
 // ─── Publish all unpublished cohorts ─────────────────────────────────────────
 
 function PublishAllButton(
-  { stageId, academicYearId, publishableCount, activePartition }: {
+  { stageId, academicYearId, publishableCount, activePartition, summary }: {
     stageId: number;
     academicYearId?: number;
+    /** Read only to say what the checkbox below cannot lift — see {@link overCapacityCheckboxDescription}. */
+    summary: StageScheduleSummary;
     /**
      * ⚠ The server's count over the whole selection, never the visible rows'. With the grid paged,
      * counting what the client holds would have offered « Publier tout (25) » on a selection of 90
@@ -685,10 +754,11 @@ function PublishAllButton(
           onChange={(e) => setAllowOverCapacity(e.currentTarget.checked)}
           label="Autoriser le dépassement d'effectif"
           /* Was also promising to force a service that does not admit the promotion, and the server
-             used to honour that. It no longer does, and a checkbox describing a power it lacks is
-             worse than no checkbox: the admin ticks it, gets the same refusal, and concludes the
-             screen is broken rather than that the plan is. */
-          description="Publie malgré tout lorsqu'un service dépasse sa capacité totale ou le quota d'une promotion. Ne force pas un service qui n'accueille pas cette promotion — corrigez le service, ou ajoutez-lui un quota."
+             used to honour that. It no longer does — and since a chef may now refuse the override on
+             his own service, there is a second power it lacks. A checkbox describing a power it
+             lacks is worse than no checkbox: the admin ticks it, gets the same refusal, and
+             concludes the screen is broken rather than that the plan is. */
+          description={overCapacityCheckboxDescription(summary)}
           color="orange"
         />
       </ConfirmModal>
@@ -765,9 +835,11 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
     try {
       await publish({ cohortId: publishTarget, stageId, allowOverCapacity }).unwrap();
       notify.success('Planning publié');
-    } catch (err: unknown) {
-      const detail = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(detail ?? 'Erreur lors de la publication');
+    } catch {
+      // ⚠ Rien ici. `errorMiddleware` a déjà affiché le refus **dans les mots du serveur** ; le
+      //   doubler affichait deux fois la même phrase — vu le 06/09/2026 sur le refus d'un service
+      //   qui n'autorise pas le dépassement, en « Conflit » puis en « Erreur ». Le `catch` reste
+      //   parce que `unwrap()` rejette et qu'une promesse rejetée non traitée n'est pas un refus.
     } finally {
       setPublishTarget(null);
     }
@@ -969,6 +1041,7 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
                   academicYearId={yearId}
                   publishableCount={summary.configuredUnpublishedCohorts}
                   activePartition={activePartition}
+                  summary={summary}
                 />
               )}
               {/* Both preconditions the server enforces (Schedule.NoSlots / NoAllowedServices), stated
@@ -1219,10 +1292,11 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
           onChange={(e) => setAllowOverCapacity(e.currentTarget.checked)}
           label="Autoriser le dépassement d'effectif"
           /* Was also promising to force a service that does not admit the promotion, and the server
-             used to honour that. It no longer does, and a checkbox describing a power it lacks is
-             worse than no checkbox: the admin ticks it, gets the same refusal, and concludes the
-             screen is broken rather than that the plan is. */
-          description="Publie malgré tout lorsqu'un service dépasse sa capacité totale ou le quota d'une promotion. Ne force pas un service qui n'accueille pas cette promotion — corrigez le service, ou ajoutez-lui un quota."
+             used to honour that. It no longer does — and since a chef may now refuse the override on
+             his own service, there is a second power it lacks. A checkbox describing a power it
+             lacks is worse than no checkbox: the admin ticks it, gets the same refusal, and
+             concludes the screen is broken rather than that the plan is. */
+          description={overCapacityCheckboxDescription(summary)}
           color="orange"
         />
       </ConfirmModal>

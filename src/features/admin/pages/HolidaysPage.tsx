@@ -361,7 +361,11 @@ export default function HolidaysPage() {
             label="Nom"
             placeholder="Aïd al-Adha"
             value={form.name}
-            onChange={(e) => setForm((p) => ({ ...p, name: e.currentTarget.value }))}
+            /* ⚠ La valeur est lue avant l'updater : React remet `currentTarget` à `null` une fois
+               l'événement propagé, et un updater fonctionnel s'exécute au rendu suivant. Écrit
+               dedans, ce champ faisait tomber la fenêtre dans l'ErrorBoundary — vérifié le
+               06/09/2026 sur « Date confirmée ». `PGSH.Frontend/CLAUDE.md` §1l. */
+            onChange={(e) => { const v = e.currentTarget.value; setForm((p) => ({ ...p, name: v })); }}
             radius="md"
             required
           />
@@ -380,7 +384,7 @@ export default function HolidaysPage() {
             label="Date confirmée"
             description="Décochez tant que le décret n'a pas fixé la date — la fenêtre reste comptée, mais signalée comme susceptible de bouger."
             checked={form.isConfirmed}
-            onChange={(e) => setForm((p) => ({ ...p, isConfirmed: e.currentTarget.checked }))}
+            onChange={(e) => { const v = e.currentTarget.checked; setForm((p) => ({ ...p, isConfirmed: v })); }}
           />
 
           <Group justify="flex-end">

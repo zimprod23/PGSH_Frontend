@@ -58,6 +58,10 @@ import type {
   AcademicGroupResponse,
   GroupDetailResponse,
   TransferStudentRequest,
+  ChangeStudentGroupRequest,
+  SwapStudentGroupsRequest,
+  GroupChangeReport,
+  GroupSwapReport,
   RevalidationContextResponse,
   RevalidationContextParams,
   RevalidateStageRequest,
@@ -326,7 +330,9 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     updateService: builder.mutation<void, { id: number } & CreateServiceRequest>({
       query: ({ id, ...body }) => ({ url: `/services/${id}`, method: 'PUT', body }),
       // The occupancy verdict is computed *from* the quotas, so editing them changes every segment's
-      // answer. Without this the page keeps showing the breach you just fixed.
+      // answer. Without this the page keeps showing the breach you just fixed. The same holds for
+      // `allowsOverCapacity`: it decides `forceable` on every saturation of the planning grid, which
+      // is reached through Service/LIST — the tag `getStageSchedule` also provides.
       invalidatesTags: (_r, _e, { id }) => [
         { type: 'Service', id: 'LIST' },
         { type: 'Service', id: `detail-${id}` },
@@ -1126,6 +1132,47 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { registrationId }) => [
         { type: 'Registration' as const, id: registrationId },
         { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Assignment' as const, id: 'LIST' },
+      ],
+    }),
+
+    // « Changement de groupe » — a correction, not a transfer. It writes no history row, so the
+    // student's dossier and parcours are untouched; what has to be refreshed is everything that reads
+    // the roster or the plan.
+    changeStudentGroup: builder.mutation<GroupChangeReport, ChangeStudentGroupRequest>({
+      query: ({ registrationId, targetGroupId }) => ({
+        url: '/groups/change-student-group',
+        method: 'POST',
+        body: { registrationId, targetGroupId },
+      }),
+      // ⚠ Both group *detail* pages have to be named, and `GROUPS` is not enough: getGroupById
+      // provides `group-<id>`, a different tag from the list's. Measured in the browser 2026-09-06 —
+      // the POST returned 200, the student had moved in the database, and the page the act was
+      // launched from went on listing him, which reads as a button that did nothing.
+      invalidatesTags: (_r, _e, { registrationId, studentId, targetGroupId, sourceGroupId }) => [
+        { type: 'Registration' as const, id: registrationId },
+        ...(studentId ? [{ type: 'Registration' as const, id: studentId }] : []),
+        { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Level' as const, id: `group-${targetGroupId}` },
+        ...(sourceGroupId ? [{ type: 'Level' as const, id: `group-${sourceGroupId}` }] : []),
+        { type: 'Assignment' as const, id: 'LIST' },
+      ],
+    }),
+
+    swapStudentGroups: builder.mutation<GroupSwapReport, SwapStudentGroupsRequest>({
+      query: ({ firstRegistrationId, secondRegistrationId }) => ({
+        url: '/groups/swap-students',
+        method: 'POST',
+        body: { firstRegistrationId, secondRegistrationId },
+      }),
+      invalidatesTags: (
+        _r, _e, { firstRegistrationId, secondRegistrationId, firstGroupId, secondGroupId },
+      ) => [
+        { type: 'Registration' as const, id: firstRegistrationId },
+        { type: 'Registration' as const, id: secondRegistrationId },
+        { type: 'Level' as const, id: 'GROUPS' },
+        ...(firstGroupId ? [{ type: 'Level' as const, id: `group-${firstGroupId}` }] : []),
+        ...(secondGroupId ? [{ type: 'Level' as const, id: `group-${secondGroupId}` }] : []),
         { type: 'Assignment' as const, id: 'LIST' },
       ],
     }),
@@ -1937,6 +1984,8 @@ export const {
   useDeleteGroupMutation,
   useEmptyGroupMutation,
   useTransferStudentMutation,
+  useChangeStudentGroupMutation,
+  useSwapStudentGroupsMutation,
   useDelocalizeStudentMutation,
   useAutoArrangeGroupsMutation,
   useAssignRotationGroupsMutation,

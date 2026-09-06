@@ -457,6 +457,38 @@ Mohammed V » alors que le filtre venait d'être vidé par le choix d'un service
 - Même famille que §1d&nbsp;: une donnée périmée qui se corrige presque partout, donc qu'on ne voit
   que dans le cas précis où elle ne se corrige pas.
 
+### 1j ⚠ Une mutation invalide le tag de **chaque page** qu'elle change, pas seulement celui de la liste
+
+`getGroupById` fournit `{ type: 'Level', id: 'group-<id>' }` — un tag **différent** de celui de la
+liste, `{ type: 'Level', id: 'GROUPS' }`. `changeStudentGroup` n'invalidait que le second : le
+`POST` répondait 200, l'étudiant avait changé de groupe en base, et **la page depuis laquelle l'acte
+venait d'être lancé continuait de le lister**. Ce qui se lit comme un bouton qui n'a rien fait.
+
+Trouvé en pilotant l'écran le 06/09/2026. Invisible au type-check, au lint, aux 1 596 tests serveur
+et à la relecture — le seul symptôme est à l'écran, et le seul moyen de le confirmer est de lire le
+journal réseau : `POST … 200` suivi d'un refetch de `/api/groups` **et d'aucun refetch de
+`/api/groups/4121`**.
+
+- **Le repère : lister les *écrans* que l'acte périme, pas les *entités* qu'il touche.** Un
+  déplacement change deux pages de groupe — celle de départ et celle d'arrivée — plus la liste. Trois
+  tags, pas un.
+- ⚠ **Le tag de la page de départ n'est connu que de l'appelant.** La requête ne nomme que la
+  destination ; l'origine est dans l'état du composant. Elle se passe donc en champ *client-only* sur
+  l'argument de la mutation (`sourceGroupId`), comme `studentId` l'était déjà — un champ qui ne part
+  pas dans le corps et qui n'existe que pour la clé de cache.
+- **Vérifier avec le journal réseau, pas à l'œil.** Une page qui se rafraîchit *parce qu'on y revient*
+  masque exactement ce défaut ; ce qui le prouve est la liste des requêtes après le `POST`.
+- Même famille que §1d : une donnée périmée qui se corrige presque partout — ici, dès qu'on quitte la
+  page et qu'on y revient — donc qu'on ne voit que dans le cas où elle ne se corrige pas.
+
+#### …et un code d'acte nouveau a besoin de son libellé le jour même
+
+`auditActions.ts` affiche un code sans libellé **tel quel**, délibérément (un acte que l'écran ne sait
+pas nommer reste un acte qui a eu lieu). C'est le bon repli, et ce n'est pas une raison de le laisser :
+`STUDENT_GROUP_CHANGED` se serait lu en `SCREAMING_SNAKE` dans le journal — sur les deux seuls actes
+de l'application dont le journal est *l'unique* trace. Ajouter la ligne fait partie de l'ajout d'un
+`IAuditableCommand`, au même titre que le test.
+
 ### 2. Debounce every search / free-text-filtered query input
 
 Typing into a field that drives a server query must **not** fire a request per keystroke — it causes the
@@ -492,6 +524,49 @@ and makes the view shareable.
 - Use `isFetching` (not `isLoading`) for the in-place "refreshing" spinner so the list doesn't unmount.
 - For purely **client-side** filtering of an already-loaded small list, memoize the filter
   (`useMemo`) instead of recomputing on every render.
+
+### 1k ⚠ Un marqueur ne se dessine que sur l'état **rare**
+
+`Service.allowsOverCapacity` vaut `true` sur les 148 services de la base : un cadenas « autorisé » sur
+chaque ligne de la liste n'apprend rien, et il enterre le seul cas qu'on cherche — la poignée de
+services dont le plafond lie vraiment. La liste ne dessine donc que le refus.
+
+- **C'est la règle d'`ExportNotes`, côté écran** : un avertissement qui s'affiche quoi que disent les
+  données est du bruit, le bruit se congédie, et il emmène avec lui celui qui comptait.
+- ⚠ **La fiche, elle, dit les *deux* états — et ce n'est pas une contradiction.** Une liste sert à
+  *repérer*, une fiche à *comprendre* : sur la fiche d'un service, « dépassement autorisé » est une
+  information qu'on vient chercher, parce que le plafond affiché juste au-dessus a l'air contraignant
+  et ne l'est pas. Une page qui imprime une limite sans dire si quelque chose la tient est la raison
+  pour laquelle un chef a cru que son nombre était ignoré.
+- Le même partage vaut pour le formulaire, qui écrit la **conséquence** de la position choisie plutôt
+  que de nommer le réglage : « la publication sera refusée… » plutôt que « ferme ».
+
+### 1l ⚠ Lire `e.currentTarget` **avant** l'updater, jamais dedans
+
+```tsx
+// tombe dans l'ErrorBoundary : « Cannot read properties of null (reading 'checked') »
+onChange={(e) => setForm((p) => ({ ...p, allowsOverCapacity: e.currentTarget.checked }))}
+
+// correct — la valeur est lue pendant l'événement, l'updater ne touche plus à `e`
+onChange={(e) => { const v = e.currentTarget.checked; setForm((p) => ({ ...p, allowsOverCapacity: v })); }}
+```
+
+React remet `currentTarget` à **`null`** une fois l'événement propagé — c'est normal, la propriété
+change à chaque étape du bouillonnement et n'a de sens que pendant le dispatch. Un updater
+fonctionnel, lui, s'exécute **au rendu suivant** : il lit donc `null`. (`e.target` survit, ce qui
+explique que la même faute passe inaperçue à côté d'un `e.target.value`.)
+
+- **Le symptôme est un écran blanc, pas une valeur fausse** : l'exception part du réducteur d'état,
+  donc c'est le composant qui tombe, remplacé par « Un problème est survenu ». On croit à une page
+  cassée, pas à une ligne.
+- ⚠ **Invisible au type-check, au lint et aux tests** — `currentTarget` est typé non-nullable, et
+  aucun test ne monte ces formulaires. Trouvé le 06/09/2026 en cliquant l'interrupteur d'un service,
+  puis **cinq autres occurrences** en cherchant le motif : trois champs de `CnpnVersionsPanel` et
+  deux de `HolidaysPage` — dont « Date confirmée », vérifiée en cliquant : elle faisait tomber la
+  fenêtre « Ajouter un jour férié », donc **saisir un férié était impossible**, sur une page où les
+  fêtes lunaires ne peuvent qu'être saisies à la main.
+- Le bon repère existait déjà dans le dépôt : `EvaluationModal` hisse la valeur
+  (`const v = e.currentTarget.value;`) depuis toujours.
 
 ---
 

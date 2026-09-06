@@ -17,6 +17,11 @@ const LABELS: Record<string, string> = {
   PARTITIONS_ASSIGNED: 'Découpage en partitions',
   PARTITIONS_CLEARED: 'Partitions supprimées',
   STUDENT_ASSIGNED_TO_GROUP: 'Étudiant affecté à un groupe',
+  // ⚠ Ces deux-là ne laissent aucune trace sur le dossier de l'étudiant : le journal est le seul
+  // endroit où le groupe d'origine survit, et donc la seule ligne à pouvoir répondre « d'où
+  // vient-il ? » une fois l'acte passé.
+  STUDENT_GROUP_CHANGED: 'Changement de groupe (sans trace)',
+  STUDENT_GROUPS_SWAPPED: 'Échange de groupes (sans trace)',
 
   // Planification.
   ROTATION_CYCLE_APPLIED: 'Bloc de rotation appliqué',

@@ -1010,10 +1010,14 @@ export default function StageDetailPage() {
           checked={publishAllOverCapacity}
           onChange={(e) => setPublishAllOverCapacity(e.currentTarget.checked)}
           label="Autoriser le dépassement d'effectif"
-          /* Same wording as the grid's, and the same limit: it lifts the numbers, never a service
-             that does not admit the promotion. A checkbox promising a power it lacks is worse than
-             no checkbox — the admin ticks it, gets the same refusal, and blames the screen. */
-          description="Publie malgré tout lorsqu'un service dépasse sa capacité totale ou le quota d'une promotion. Ne force pas un service qui n'accueille pas cette promotion."
+          /* Same wording as the grid's, and the same two limits: it lifts the numbers, never a
+             service that does not admit the promotion, and never a service whose chef has refused
+             the dépassement. A checkbox promising a power it lacks is worse than no checkbox — the
+             admin ticks it, gets the same refusal, and blames the screen.
+             ⚠ Unlike the grid's, this dialog cannot name *which* services will refuse: it has no
+             saturation report, only the cohorte list. Saying less is right; saying it wrongly is
+             not, which is why the second limit is spelled out here too. */
+          description="Publie malgré tout lorsqu'un service dépasse sa capacité totale ou le quota d'une promotion. Ne force pas un service qui n'accueille pas cette promotion, ni un service qui n'autorise pas le dépassement d'effectif. Ouvrez la grille de planning pour voir lesquels."
           color="orange"
         />
       </ConfirmModal>

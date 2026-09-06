@@ -133,6 +133,12 @@ export interface ServiceSummaryResponse {
   serviceType: string;
   specialty: string | null;
   capacity: number;
+  /**
+   * Whether « autoriser le dépassement d'effectif » may lift this service's number when a plan is
+   * published. **True unless somebody has said otherwise**, which is every service of the base — a
+   * chef refusing the overrun is an act, and the flag is that act.
+   */
+  allowsOverCapacity: boolean;
   /** 0 = no intake rules, i.e. open to every promotion. */
   restrictedLevelCount: number;
   hospitalId: number;
@@ -160,6 +166,13 @@ export interface CreateServiceRequest {
   localizationY?: string;
   localizationZ?: string;
   levelCapacities?: ServiceLevelCapacity[];
+  /**
+   * ⚠ **Always send it on an update.** The command defaults it to true when absent, so a form that
+   * omits it silently re-opens a service its chef had closed — the same shape as the summary
+   * response that omitted `description` and had the edit form erase it. The form reads it from the
+   * detail, which states it.
+   */
+  allowsOverCapacity?: boolean;
 }
 
 // ─── Stages ─────────────────────────────────────────────────────────────────
@@ -655,6 +668,16 @@ export interface SaturatedCellResponse {
   occupiedSeats: number;
   capacity: number;
   reason: SaturationReason;
+  /**
+   * Whether « autoriser le dépassement d'effectif » would let this cell through. False for
+   * `Refused`, and false on a service whose chef has refused the override.
+   *
+   * ⚠ **Not derivable from `reason`** — the numbers of a firm service and of a permissive one are
+   * identical, and only the service says which. Sent by the server for the reason
+   * `ServicePeriodResponse.state` is: one rule, two sides of a network boundary. Absent only from an
+   * API predating this change, where the honest reading is the old behaviour, i.e. forceable.
+   */
+  forceable?: boolean;
 }
 
 /**
@@ -883,6 +906,60 @@ export interface TransferStudentRequest {
   stageId?: number;
   // Forced mid-stage hand-off: re-route the in-flight rotation to the target group's services.
   reschedule?: boolean;
+}
+
+// ─── Changement de groupe ──────────────────────────────────────────────────────
+
+/**
+ * A correction, not a transfer: the student is in the target roster and the record now says he
+ * always was.
+ *
+ * ⚠ There is no `reason` field and that is deliberate — the whole act is the absence of a trace on
+ * the student's file, so a motif would have nowhere to go. What the operator did is in the journal
+ * des actions, which is a different document with a different reader.
+ */
+export interface ChangeStudentGroupRequest {
+  registrationId: string;
+  targetGroupId: number;
+  /** Client-side only, for cache invalidation. */
+  studentId?: string;
+  /**
+   * Client-side only. ⚠ The roster the student is leaving — known to the caller and to nobody else,
+   * since the request names only the destination. Both group pages go stale and only their own tag
+   * refreshes them: without this the page the act was launched from keeps listing the student, which
+   * reads as an action that did nothing.
+   */
+  sourceGroupId?: number;
+}
+
+export interface SwapStudentGroupsRequest {
+  firstRegistrationId: string;
+  secondRegistrationId: string;
+  /** Client-side only — the two rosters whose detail pages both go stale. */
+  firstGroupId?: number;
+  secondGroupId?: number;
+}
+
+/**
+ * What the correction re-pointed. Shown once, because nothing afterwards can be asked about it:
+ * `fromGroupLabel` is the only place the roster the student came from survives.
+ */
+export interface GroupChangeReport {
+  registrationId: string;
+  studentName: string;
+  fromGroupLabel: string;
+  toGroupLabel: string;
+  affectationsMoved: number;
+  affectationsCreated: number;
+  periodsCreated: number;
+  periodsReplaced: number;
+  /** Délocalisations, revalidations, imported history — they hang off no cell and travel untouched. */
+  adHocPeriodsKept: number;
+}
+
+export interface GroupSwapReport {
+  first: GroupChangeReport;
+  second: GroupChangeReport;
 }
 
 // ─── Delocalization ────────────────────────────────────────────────────────────
@@ -1286,6 +1363,12 @@ export interface ServiceDetailResponse {
   serviceType: string;
   specialty: string | null;
   capacity: number;
+  /**
+   * Whether « autoriser le dépassement d'effectif » may lift this service's number when a plan is
+   * published. **True unless somebody has said otherwise**, which is every service of the base — a
+   * chef refusing the overrun is an act, and the flag is that act.
+   */
+  allowsOverCapacity: boolean;
   hospitalId: number;
   hospitalName: string;
   hospitalCity: string;

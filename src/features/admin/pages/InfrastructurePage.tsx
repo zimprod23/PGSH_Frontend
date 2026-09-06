@@ -25,7 +25,7 @@ import {
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { usePagedFilters } from '../../../common/hooks/usePagedFilters';
-import { IconBuildingFactory2, IconBuildingHospital, IconPencil, IconPlus, IconStarFilled, IconStethoscope, IconTrash, IconUsers } from '@tabler/icons-react';
+import { IconBuildingFactory2, IconBuildingHospital, IconLock, IconPencil, IconPlus, IconStarFilled, IconStethoscope, IconTrash, IconUsers } from '@tabler/icons-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -538,7 +538,21 @@ function ServicesTab() {
                 <Table.Td><Text size="sm" c="dimmed">{s.hospitalName}</Text></Table.Td>
                 <Table.Td><Badge variant="light" color={TYPE_COLOR[s.serviceType] ?? 'gray'} radius="xl" size="sm">{s.serviceType}</Badge></Table.Td>
                 <Table.Td><Text size="sm" c={s.specialty ? undefined : 'dimmed'}>{s.specialty ?? '—'}</Text></Table.Td>
-                <Table.Td><Text size="sm" ff="monospace">{s.capacity}</Text></Table.Td>
+                {/* ⚠ The lock is drawn on the *rare* state, never on both. A marker beside every
+                    row says nothing; what an admin needs to spot in a list of 148 is the handful of
+                    services whose number is actually binding — the others are targets, and the
+                    publish checkbox lifts them. Same rule as ExportNotes: a marker that fires
+                    whatever the data says is noise, and noise is dismissed. */}
+                <Table.Td>
+                  <Group gap={6} wrap="nowrap">
+                    <Text size="sm" ff="monospace">{s.capacity}</Text>
+                    {!s.allowsOverCapacity && (
+                      <Tooltip label="Ce service n'autorise pas le dépassement d'effectif : la publication est refusée au-delà, sans possibilité de forcer">
+                        <IconLock size={rem(13)} stroke={1.6} color="var(--mantine-color-orange-6)" />
+                      </Tooltip>
+                    )}
+                  </Group>
+                </Table.Td>
                 <Table.Td>
                   {s.restrictedLevelCount === 0 ? (
                     <Badge variant="light" color="success" radius="xl" size="sm">Toutes</Badge>

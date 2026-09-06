@@ -298,12 +298,12 @@ export function CnpnVersionsPanel({ versions, program }: Props) {
           <TextInput
             label="Référence de l’arrêté" placeholder="1650.25" required
             value={form.code}
-            onChange={(e) => setForm((p) => ({ ...p, code: e.currentTarget.value }))}
+            onChange={(e) => { const v = e.currentTarget.value; setForm((p) => ({ ...p, code: v })); }}
           />
           <TextInput
             label="Intitulé" placeholder="CNPN 2025 — Docteur en Médecine (6 ans)" required
             value={form.label}
-            onChange={(e) => setForm((p) => ({ ...p, label: e.currentTarget.value }))}
+            onChange={(e) => { const v = e.currentTarget.value; setForm((p) => ({ ...p, label: v })); }}
           />
           <NumberInput
             label="Durée du cursus (années)"
@@ -324,7 +324,7 @@ export function CnpnVersionsPanel({ versions, program }: Props) {
           <TextInput
             label="Publication" placeholder="BO 7422 du 17 juillet 2025"
             value={form.reference}
-            onChange={(e) => setForm((p) => ({ ...p, reference: e.currentTarget.value }))}
+            onChange={(e) => { const v = e.currentTarget.value; setForm((p) => ({ ...p, reference: v })); }}
           />
 
           {editing && editing.studentCount > 0 && (

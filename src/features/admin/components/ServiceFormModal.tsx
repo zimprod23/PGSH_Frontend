@@ -1,4 +1,4 @@
-import { Button, Divider, Group, Modal, NumberInput, Select, Skeleton, Stack, TextInput, Textarea } from '@mantine/core';
+import { Button, Divider, Group, Modal, NumberInput, Select, Skeleton, Stack, Switch, Text, TextInput, Textarea } from '@mantine/core';
 import { useState } from 'react';
 import { useCreateServiceMutation, useGetPromotionLevelsQuery, useGetServiceByIdQuery, useUpdateServiceMutation } from '../api/adminApi';
 import type { ServiceLevelCapacity } from '../types/admin.types';
@@ -16,6 +16,7 @@ type ServiceFormState = Coordinates & {
   specialty: string;
   capacity: number;
   description: string;
+  allowsOverCapacity: boolean;
 };
 
 /**
@@ -67,6 +68,7 @@ export function ServiceFormModal({
                   serviceType: detail.serviceType,
                   specialty: detail.specialty ?? '',
                   capacity: detail.capacity,
+                  allowsOverCapacity: detail.allowsOverCapacity,
                   description: detail.description ?? '',
                   // Only the service's OWN coordinates. The detail falls back to the hospital's for
                   // display, and writing those back would freeze a position that should keep
@@ -75,7 +77,12 @@ export function ServiceFormModal({
                   localizationY: detail.hasOwnLocalization ? detail.localizationY ?? '' : '',
                   localizationZ: detail.hasOwnLocalization ? detail.localizationZ ?? '' : '',
                 }
-              : { name: '', hospitalId: '', serviceType: 'Medical', specialty: '', capacity: 10, description: '', ...EMPTY_COORDINATES }
+              : {
+                  name: '', hospitalId: '', serviceType: 'Medical', specialty: '', capacity: 10,
+                  // A new service has refused nothing, exactly like the 148 the import created.
+                  allowsOverCapacity: true,
+                  description: '', ...EMPTY_COORDINATES,
+                }
           }
           initialQuotas={detail && serviceId !== null
             ? detail.levelCapacities.map((c) => ({ levelId: c.levelId, capacity: c.capacity }))
@@ -121,6 +128,10 @@ function ServiceForm({
       serviceType: form.serviceType,
       specialty: form.specialty.trim() || undefined,
       capacity: form.capacity,
+      // ⚠ Always sent. The command defaults it to true when the field is absent, so omitting it here
+      // would silently re-open a service its chef had closed — the shape that erased a description
+      // once, from a summary response that did not carry the field the form wrote back.
+      allowsOverCapacity: form.allowsOverCapacity,
       description: form.description.trim(),
       ...coordinatePayload(form),
       levelCapacities: quotas,
@@ -160,6 +171,28 @@ function ServiceForm({
           radius="md"
         />
       </Group>
+      <Switch
+        checked={form.allowsOverCapacity}
+        /* ⚠ La valeur est lue **avant** l'updater. React remet `currentTarget` à `null` une fois
+           l'événement propagé, et un updater fonctionnel s'exécute au rendu suivant — donc le lire
+           dedans lève « Cannot read properties of null ». Trouvé en cliquant l'interrupteur le
+           06/09/2026 : la modale tombait dans l'ErrorBoundary. Même forme que `EvaluationModal`. */
+        onChange={(e) => {
+          const allows = e.currentTarget.checked;
+          setForm((p) => ({ ...p, allowsOverCapacity: allows }));
+        }}
+        color="navy"
+        label="Autoriser le dépassement d'effectif"
+        description={form.allowsOverCapacity
+          ? 'Par défaut. Un administrateur peut publier un planning qui dépasse la limite ci-dessus en cochant « autoriser le dépassement » — la limite est un objectif.'
+          : 'La publication sera refusée dès que la limite est dépassée, et la case « autoriser le dépassement » ne lèvera pas ce refus. À décider avec le chef de service.'}
+      />
+      {!form.allowsOverCapacity && (
+        <Text size="xs" c="orange.7" mt={-8}>
+          Les plannings déjà publiés ne sont pas touchés&nbsp;: le refus porte sur les publications à venir.
+        </Text>
+      )}
+
       <Textarea label="Description" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} radius="md" autosize minRows={2} />
 
       <LocalizationFields
