@@ -148,6 +148,12 @@ import type {
   PromotionPartitioning,
   HolidayCoverage,
   HolidayInput,
+  PromotionPause,
+  PromotionPauseInput,
+  PromotionPauseImpact,
+  PromotionPauseDeclaredResult,
+  PromotionPauseCorrectedResult,
+  PromotionPauseRevokedResult,
   SeedNationalHolidaysResult,
   DeleteHolidayResult,
   UpdateHolidayResult,
@@ -165,6 +171,10 @@ const BACKUPS_CHANGED = [
 const CALENDAR_CHANGED = [
   { type: 'Calendar' as const, id: 'HOLIDAYS' },
   { type: 'Calendar' as const, id: 'AXIS' },
+  // ⚠ The axis is laid on the promotion's calendar, so a window declared here changes the columns the
+  // rotation-cycle screen last generated. Invalidating only 'HOLIDAYS' would leave a cached axis on
+  // screen that no longer steps over the exam week it is now supposed to.
+  { type: 'Calendar' as const, id: 'PAUSES' },
 ];
 
 export const adminApiSlice = apiSlice.injectEndpoints({
@@ -1391,6 +1401,51 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: CALENDAR_CHANGED,
     }),
 
+    /**
+     * The windows one year's promotions have declared. Scoped by year server-side — an omitted year is
+     * the current one, never all of them.
+     */
+    getPromotionPauses: builder.query<
+      PaginatedResponse<PromotionPause>,
+      { academicYearId?: number; levelId?: number; pageNumber?: number; pageSize?: number }
+    >({
+      query: (params) => ({ url: '/calendar/promotion-pauses', params }),
+      providesTags: [{ type: 'Calendar' as const, id: 'PAUSES' }],
+    }),
+
+    /**
+     * The dry run. A mutation rather than a query because the window is posted as a body, not because
+     * it writes — it writes nothing, and it returns the numbers the declaration will report.
+     */
+    previewPromotionPause: builder.mutation<
+      PromotionPauseImpact,
+      PromotionPauseInput & { excludingPauseId?: number }
+    >({
+      query: (body) => ({ url: '/calendar/promotion-pauses/preview', method: 'POST', body }),
+    }),
+
+    declarePromotionPause: builder.mutation<PromotionPauseDeclaredResult, PromotionPauseInput>({
+      query: (body) => ({ url: '/calendar/promotion-pauses', method: 'POST', body }),
+      invalidatesTags: CALENDAR_CHANGED,
+    }),
+
+    correctPromotionPause: builder.mutation<
+      PromotionPauseCorrectedResult,
+      { id: number } & Omit<PromotionPauseInput, 'levelId' | 'academicYearId'>
+    >({
+      query: ({ id, ...body }) => ({
+        url: `/calendar/promotion-pauses/${id}`,
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: CALENDAR_CHANGED,
+    }),
+
+    revokePromotionPause: builder.mutation<PromotionPauseRevokedResult, number>({
+      query: (id) => ({ url: `/calendar/promotion-pauses/${id}`, method: 'DELETE' }),
+      invalidatesTags: CALENDAR_CHANGED,
+    }),
+
     bulkCreateCohortsFromPartitions: builder.mutation<BulkCohortsFromPartitionsResult, BulkCreateCohortsFromPartitionsRequest>({
       query: (body) => ({ url: '/cohorts/from-partitions', method: 'POST', body }),
       invalidatesTags: (_r, _e, { mappings }) =>
@@ -2088,6 +2143,11 @@ export const {
   useUpdateHolidayMutation,
   useDeleteHolidayMutation,
   useSeedNationalHolidaysMutation,
+  useGetPromotionPausesQuery,
+  usePreviewPromotionPauseMutation,
+  useDeclarePromotionPauseMutation,
+  useCorrectPromotionPauseMutation,
+  useRevokePromotionPauseMutation,
   useCreateRegistrationMutation,
   useUpdateRegistrationMutation,
   useGetServicePeriodsQuery,

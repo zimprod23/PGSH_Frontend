@@ -226,7 +226,7 @@ export default function RotationCyclePage() {
    * Everything stays editable afterwards — a real calendar has irregularities no rule captures.
    */
   const generateWindows = async () => {
-    if (!autoStart || timeline === 0) return;
+    if (!autoStart || timeline === 0 || levelId == null) return;
 
     try {
       const res = await fetchAxis({
@@ -234,6 +234,12 @@ export default function RotationCyclePage() {
         startDate: autoStart,
         unit,
         length: columnLength,
+        // ⚠ The promotion, always. The columns are laid on *its* calendar — the faculty's holidays plus
+        // the exam weeks this promotion declared — so that the grid and the rotations published from it
+        // step over the same days. Omitted, the axis is laid on the faculty calendar alone and lands a
+        // column squarely on a week the promotion is sitting exams, with nothing on either side saying so.
+        levelId,
+        academicYearId: currentYearId ?? undefined,
       }).unwrap();
 
       setAxis(res);
@@ -243,6 +249,16 @@ export default function RotationCyclePage() {
         notify.info(
           'Aucun jour férié enregistré sur cette période — les jours ouvrables ne comptent donc que '
           + 'les week-ends. Renseignez le calendrier pour un décompte juste.',
+        );
+
+      // Said only when a window was actually stepped over: the columns are already right, and the point
+      // of saying so is that their dates will not match a table drawn on the faculty calendar.
+      const paused = res.columns.filter((c) => c.pauses.length > 0);
+      if (paused.length > 0)
+        notify.info(
+          `${paused.length} colonne(s) enjambent une suspension de la promotion `
+          + `(${[...new Set(res.columns.flatMap((c) => c.pauses))].join(', ')}) : elles sont plus `
+          + 'longues sur le calendrier que leur durée en jours ouvrables.',
         );
     } catch {
       // The error middleware toasts the API's own message.
@@ -635,7 +651,10 @@ export default function RotationCyclePage() {
                 loading={generatingAxis}
                 leftSection={<IconCalendarPlus size={14} />}
                 onClick={generateWindows}
-                disabled={!autoStart || timeline === 0}
+                /* ⚠ The promotion is a precondition, not a detail: the columns are laid on *its*
+                   calendar. Generating without one would quietly produce an axis that steps over no
+                   exam week — see generateWindows. */
+                disabled={!autoStart || timeline === 0 || levelId == null}
               >
                 Générer les {timeline} fenêtre(s)
               </Button>

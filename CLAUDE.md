@@ -326,6 +326,24 @@ There is one academic-year selector, in `AdminLayout`, exposed by `useAcademicYe
   Médecine, 2026-2027 » is **833** students, while « inscrit en 2026-2027 » ∧ « a été en 5ᵉ année »
   is **2 127**. Filtering the fetched page client-side is worse still: it narrows 15 rows, not 5 930.
 
+### 1c-bis ⚠ Un écran qui *pose* des dates envoie la portée dont le calendrier dépend
+
+Même famille que §1c, et l'axe de rotation en est le cas : depuis la session 49 une promotion peut
+déclarer ses **semaines d'examens** (`PromotionPause`), et `GET /stages/axis-windows` pose ses
+colonnes sur le calendrier de la promotion — jours fériés de la faculté **plus** les fenêtres que
+*cette* promotion a déclarées.
+
+- **`levelId` n'est pas un détail du formulaire, c'est une précondition de l'acte.** Omis, la requête
+  réussit, rend des colonnes plausibles, et en pose une en plein sur une semaine d'examens sans que
+  rien sur l'écran ne le dise. `RotationCyclePage` **désactive** « Générer les fenêtres » tant
+  qu'aucune promotion n'est choisie, plutôt que de générer sur le calendrier facultaire.
+- **Le repère** : la réponse change-t-elle selon une portée que la page connaît déjà ? Alors cette
+  portée appartient à la requête. C'est la règle de §1c (l'année) étendue au niveau — et le défaut
+  qu'elle évite est le même : agir sur la bonne route avec la mauvaise promotion.
+- **Le champ qui distingue les deux sources reste distinct.** `GeneratedAxisColumn` porte `holidays`
+  *et* `pauses` : un jour férié est celui de tout le monde, une suspension appartient à une promotion,
+  et les fondre rendrait fausse, pour la promotion voisine, l'explication d'une colonne.
+
 ### 1d ⚠ Never dispatch before `next(action)` in a middleware
 
 `loadingMiddleware` did, for the whole life of the file, and it silently staled data across the app:

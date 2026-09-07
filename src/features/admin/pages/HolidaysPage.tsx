@@ -41,6 +41,7 @@ import type { Holiday, HolidayKind } from '../types/admin.types';
 import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
+import { PromotionPausesPanel } from '../components/PromotionPausesPanel';
 
 const KIND_LABEL: Record<HolidayKind, string> = {
   National: 'Nationale',
@@ -337,6 +338,10 @@ export default function HolidaysPage() {
             )}
           </Stack>
         </Card>
+
+        {/* The second, narrower calendar. On this page rather than on a stage screen because that is
+            what it is: an exam week is a fact about a promotion, and a stage only happens to name one. */}
+        <PromotionPausesPanel />
       </Stack>
 
       <Modal

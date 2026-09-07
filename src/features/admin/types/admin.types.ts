@@ -1825,9 +1825,16 @@ export interface GeneratedAxisColumn {
   endDate: string;
   calendarDays: number;
   workingDays: number;
+  /** The faculty's own closures inside the column — jours fériés, vacances. */
   holidays: string[];
   /** A lunar date inside can still move, so the window may have to be reprinted. */
   hasProvisionalDates: boolean;
+  /**
+   * This promotion's own windows inside the column — an exam session. Separate from `holidays`
+   * because they are not the same fact: a holiday is everyone's, and the promotion rotating through
+   * the same service the same morning does not have this one. Empty when the request named no level.
+   */
+  pauses: string[];
 }
 
 export interface GeneratedAxisResponse {
@@ -1844,6 +1851,13 @@ export interface GenerateAxisWindowsRequest {
   startDate: string;
   unit: AxisColumnUnit;
   length: number;
+  /**
+   * ⚠ **Always send it.** Without it the columns are laid on the faculty calendar alone and step over
+   * no exam week, so the grid and the rotations published from it disagree with the promotion's own
+   * calendar from the first day.
+   */
+  levelId?: number;
+  academicYearId?: number;
 }
 
 // ── Partitions ────────────────────────────────────────────────────────────────────────────────────
@@ -1948,6 +1962,144 @@ export interface UpdateHolidayResult {
   datesMoved: boolean;
   /** Slots over the span it left *or* the span it arrived at, counted once. 0 when `datesMoved` is false. */
   slotsSpanning: number;
+}
+
+// ── Suspensions de promotion ──────────────────────────────────────────────────────────────────────
+
+// `PauseKind` is declared above, with the internship statuses: a promotion window and a stage-scoped
+// period pause share the vocabulary, and two copies of it would be two chances to disagree.
+
+/**
+ * A window during which **one promotion** — (année, niveau) — is not in its services, an exam session
+ * most often.
+ *
+ * ⚠ It is a calendar fact, not a second date-pushing mechanism: declaring one moves no date by itself.
+ * The window joins that promotion's working-day calendar, and the axis laid afterwards steps over it on
+ * its own, in jours ouvrables. A window declared *after* the grid was laid leaves the créneaux where
+ * they are — the preview counts what they then lose, and re-laying the axis is the act that catches up.
+ */
+export interface PromotionPause {
+  id: number;
+  academicYearId: number;
+  academicYearLabel: string;
+  levelId: number;
+  levelLabel: string;
+  startDate: string;
+  endDate: string;
+  dayCount: number;
+  /** Worked days it actually costs, on the faculty calendar — zero for a window over a weekend. */
+  workingDaysLost: number;
+  kind: PauseKind;
+  reason: string;
+  isConfirmed: boolean;
+  recordedOn: string;
+}
+
+export interface PromotionPauseInput {
+  levelId: number;
+  startDate: string;
+  endDate: string;
+  kind: PauseKind;
+  reason: string;
+  isConfirmed: boolean;
+  academicYearId?: number;
+}
+
+export interface PromotionPauseSlotImpact {
+  stageSlotId: number;
+  stageId: number;
+  stageName: string;
+  periodNumber: number;
+  label: string | null;
+  startDate: string;
+  endDate: string;
+  /** The column's worked days without the window… */
+  workingDaysBefore: number;
+  /** …and with it. The difference comes out of the stage, not off the end of the column. */
+  workingDaysAfter: number;
+  cellsSpanning: number;
+}
+
+export interface PromotionPauseStageImpact {
+  stageId: number;
+  name: string;
+  statedDurationInDays: number;
+  slotsSpanning: number;
+  workingDaysLost: number;
+  minWorkingDaysAfter: number;
+  maxWorkingDaysAfter: number;
+}
+
+/**
+ * What declaring the window would cost the plan already laid. Writes nothing, and the numbers are the
+ * ones the declaration itself reports — same reader on the server.
+ */
+export interface PromotionPauseImpact {
+  academicYearId: number;
+  academicYearLabel: string;
+  levelId: number;
+  levelLabel: string;
+  startDate: string;
+  endDate: string;
+  calendarDays: number;
+  workingDaysLost: number;
+  /** No faculty holiday anywhere across the window: « jours ouvrables » here means « hors week-end ». */
+  calendarIsEmpty: boolean;
+  slotsSpanning: number;
+  cellsSpanning: number;
+  cohortsSpanning: number;
+  periodsSpanning: number;
+  periodsPlanned: number;
+  /** Students standing in a service that week — the number that decides whether to re-lay the axis. */
+  periodsUnderway: number;
+  periodsClosed: number;
+  studentsAffected: number;
+  stages: PromotionPauseStageImpact[];
+  /** Bounded; `slotsSpanning` is the true count whatever this holds. */
+  slots: PromotionPauseSlotImpact[];
+  slotsTruncated: boolean;
+  /**
+   * Cells of the promotion's whole grid that a période was published from.
+   *
+   * ⚠ **Non-zero means the axis cannot be re-laid at all** — the apply refuses on it — so the shortfall
+   * above has no remedy today beyond accepting it. Measured on the live base 2026-09-06: the 3ᵉ MED
+   * holds 804. Moving a published column is not built yet.
+   */
+  publishedCellsInGrid: number;
+  warnings: string[];
+}
+
+export interface PromotionPauseDeclaredResult {
+  id: number;
+  startDate: string;
+  endDate: string;
+  workingDaysLost: number;
+  slotsSpanning: number;
+  periodsSpanning: number;
+  periodsUnderway: number;
+}
+
+export interface PromotionPauseCorrectedResult {
+  id: number;
+  reason: string;
+  startDate: string;
+  endDate: string;
+  /** False when only the reason, kind or confirmation flag changed — no worked day moves. */
+  datesMoved: boolean;
+  slotsSpanning: number;
+  periodsSpanning: number;
+  periodsUnderway: number;
+}
+
+export interface PromotionPauseRevokedResult {
+  reason: string;
+  startDate: string;
+  endDate: string;
+  /** ⚠ Prospective either way: nothing was pushed, so nothing is walked back. */
+  hadBegun: boolean;
+  slotsSpanning: number;
+  periodsSpanning: number;
+  periodsUnderway: number;
 }
 
 /**
