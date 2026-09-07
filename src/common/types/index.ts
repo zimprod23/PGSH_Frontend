@@ -83,9 +83,18 @@ export interface ApiError {
   title?: string;
   status?: number;
   detail?: string;
-  extensions?: {
-    errors?: Array<{ code: string; description: string }>;
-  };
+  /**
+   * The per-rule refusals behind a validation failure.
+   *
+   * ⚠ **Top-level, not nested under `extensions`.** The server hands them to
+   * `Results.Problem(extensions: …)`, and `ProblemDetails.Extensions` is `[JsonExtensionData]` — the
+   * members are written flat into the problem document, exactly as RFC 7807 specifies for extension
+   * members. Typed as `extensions.errors` the array was never found, so every validation refusal
+   * fell back to `detail`, which for a `ValidationError` is the fixed sentence
+   * « One or more validation errors occurred » — a toast that says a rule was broken without ever
+   * saying which. `StagesPage` had always read the real shape; the global middleware had not.
+   */
+  errors?: Array<{ code: string; description: string }>;
 }
 
 // ─── Bulk operations ─────────────────────────────────────────────────────────

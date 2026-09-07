@@ -14,6 +14,9 @@ const LABELS: Record<string, string> = {
   GROUP_DELETED: 'Suppression d’un groupe',
   GROUP_EMPTIED: 'Groupe vidé',
   YEAR_GROUPS_EMPTIED: 'Tous les groupes de l’année vidés',
+  PROMOTION_GROUPS_EMPTIED: 'Groupes d’une promotion vidés',
+  YEAR_GROUPS_DELETED: 'Tous les groupes de l’année supprimés',
+  PROMOTION_GROUPS_DELETED: 'Groupes d’une promotion supprimés',
   PARTITIONS_ASSIGNED: 'Découpage en partitions',
   PARTITIONS_CLEARED: 'Partitions supprimées',
   STUDENT_ASSIGNED_TO_GROUP: 'Étudiant affecté à un groupe',
@@ -67,7 +70,9 @@ export function isUnlabelledAction(action: string): boolean {
  * premier quand quelque chose a mal tourné.
  */
 const DESTRUCTIVE = new Set([
-  'GROUP_DELETED', 'GROUP_EMPTIED', 'YEAR_GROUPS_EMPTIED', 'PARTITIONS_CLEARED',
+  'GROUP_DELETED', 'GROUP_EMPTIED', 'YEAR_GROUPS_EMPTIED', 'PROMOTION_GROUPS_EMPTIED',
+  'YEAR_GROUPS_DELETED', 'PROMOTION_GROUPS_DELETED',
+  'PARTITIONS_CLEARED',
   'ROTATION_CYCLE_DELETED', 'ACADEMIC_YEAR_DELETED', 'BACKUP_POINT_DELETED',
 ]);
 

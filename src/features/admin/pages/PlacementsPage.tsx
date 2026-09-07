@@ -18,6 +18,7 @@ import { PATHS } from '../../../routes/paths';
 import { HospitalCoveragePanel } from '../components/placements/HospitalCoveragePanel';
 import { RosterPlacementCard } from '../components/placements/RosterPlacementCard';
 import type { PlacementMatch, RosterPlacementSummary } from '../types/placement.types';
+import { MAX_PAGE_SIZE } from '../../../common/constants/pagination';
 
 /**
  * « Placements » — quel groupe va déjà là où cet étudiant doit aller.
@@ -111,8 +112,8 @@ export default function PlacementsPage() {
   const match: PlacementMatch = filters.exclusive === '1' ? 'Exclusively' : 'Anywhere';
 
   const { data: levels = [] } = useGetPromotionLevelsQuery(undefined);
-  const { data: hospitals } = useGetHospitalsQuery({ pageNumber: 1, pageSize: 200 });
-  const { data: services } = useGetServicesQuery({ pageNumber: 1, pageSize: 200 });
+  const { data: hospitals } = useGetHospitalsQuery({ pageNumber: 1, pageSize: MAX_PAGE_SIZE });
+  const { data: services } = useGetServicesQuery({ pageNumber: 1, pageSize: MAX_PAGE_SIZE });
 
   // Le catalogue des stages est borné par la promotion : sans elle la liste n'a pas de sens ici.
   const { data: stages } = useGetStagesQuery(

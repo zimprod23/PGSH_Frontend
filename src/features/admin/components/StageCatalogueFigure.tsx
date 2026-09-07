@@ -17,6 +17,10 @@ interface Props {
 const format = (figure: Figure, value: number) =>
   figure === 'durationInDays' ? `${value}j` : String(value);
 
+/** Carries its own agreement: « durée » is feminine and « coefficient » is not. */
+const disagreementPhrase = (figure: Figure) =>
+  figure === 'durationInDays' ? 'durée différente du catalogue' : 'coefficient différent du catalogue';
+
 /**
  * The catalogue's figure, and — when a CNPN states a different one — what each text says.
  *
@@ -30,6 +34,12 @@ const format = (figure: Figure, value: number) =>
  * Silent when every text agrees, and silent when no text mentions the stage at all: a marker that
  * fires whatever the data says is noise, and noise is dismissed — which puts the real one out of
  * sight. « Aucun texte ne le mentionne » is also not « un texte dit 0 », so absence draws nothing.
+ *
+ * ⚠ **The marker names the texts that disagree, and marks them in the list.** Reported 07/09/2026:
+ * the durations of MED3 were aligned inside 1650.25 and the warning stayed — correctly, because it
+ * was *2174.18* that still said 66 j.o. and the coefficient that 1650.25 still put at 1. A marker
+ * that says only « un texte dit autre chose » leaves the reader unable to tell a rule they have yet
+ * to satisfy from one that is not theirs to satisfy, so they go round the edit again.
  */
 export function StageCatalogueFigure({ value, figure, textFigures, monospace }: Props) {
   const disagreeing = textFigures.filter((t) => t[figure] !== value);
@@ -46,21 +56,27 @@ export function StageCatalogueFigure({ value, figure, textFigures, monospace }: 
     <Tooltip
       withArrow
       multiline
-      w={300}
+      w={320}
       label={
         <Stack gap={2}>
           <Text size="xs" fw={600}>
-            Valeur du catalogue : {format(figure, value)}
+            {disagreeing.map((t) => t.cnpnCode).join(', ')} — {disagreementPhrase(figure)}
           </Text>
-          <Text size="xs">Ce que dit chaque CNPN de ce stage :</Text>
-          {textFigures.map((t) => (
-            <Text key={t.cnpnVersionId} size="xs">
-              • {t.cnpnCode} ({t.levelLabel}) : {format(figure, t[figure])}
-            </Text>
-          ))}
-          <Text size="xs" c="dimmed">
+          <Text size="xs" mt={4}>
+            Catalogue : {format(figure, value)}. Ce que dit chaque CNPN de ce stage :
+          </Text>
+          {textFigures.map((t) => {
+            const differs = t[figure] !== value;
+            return (
+              <Text key={t.cnpnVersionId} size="xs" fw={differs ? 600 : 400} c={differs ? undefined : 'dimmed'}>
+                {differs ? '≠' : '='} {t.cnpnCode} ({t.levelLabel}) : {format(figure, t[figure])}
+              </Text>
+            );
+          })}
+          <Text size="xs" c="dimmed" mt={4}>
             Aucune des deux n'est fausse : un étudiant qui revalide un stage sous l'ancien texte
-            reste régi par ses chiffres. Le catalogue n'est pas la référence d'un texte donné.
+            reste régi par ses chiffres. Le catalogue n'est pas la référence d'un texte donné, donc
+            aligner un seul CNPN ne fait pas disparaître le repère si un autre diverge encore.
           </Text>
         </Stack>
       }

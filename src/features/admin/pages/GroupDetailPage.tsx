@@ -62,6 +62,7 @@ import { useNotify } from '../../../common/hooks/useNotify';
 import { RegistrationBadge } from '../../student/components/RegistrationBadge';
 
 import { PATHS } from '../../../routes/paths';
+import { MAX_PAGE_SIZE } from '../../../common/constants/pagination';
 
 // ─── Transfer modal ───────────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ function TransferModal({ student, academicYearId, levelId, currentGroupId, opene
 
   // A temporary transfer moves one stage only, so list this student's still-movable assignments.
   const { data: assignments } = useGetInternshipAssignmentsQuery(
-    student ? { registrationId: student.registrationId, pageSize: 200 } : skipToken
+    student ? { registrationId: student.registrationId, pageSize: MAX_PAGE_SIZE } : skipToken
   );
 
   const stageOptions = (assignments?.items ?? [])
@@ -529,7 +530,7 @@ function DelocalizeModal({ student, opened, onClose }: {
   // thing it refuses is a stage already carrying a mark, and those are excluded here rather than
   // offered and then refused.
   const { data: assignments } = useGetInternshipAssignmentsQuery(
-    student ? { registrationId: student.registrationId, pageSize: 200 } : skipToken
+    student ? { registrationId: student.registrationId, pageSize: MAX_PAGE_SIZE } : skipToken
   );
   const stageOptions = (assignments?.items ?? [])
     .filter((a) => !a.isDelocalized && !a.allPeriodsEvaluated && a.status !== 'Validated')

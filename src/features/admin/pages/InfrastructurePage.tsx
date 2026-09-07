@@ -48,6 +48,7 @@ import { ServiceFormModal } from '../components/ServiceFormModal';
 import { LocalizationFields } from '../components/LocalizationFields';
 import { coordinatePayload, EMPTY_COORDINATES } from '../components/localization';
 import { PATHS } from '../../../routes/paths';
+import { MAX_PAGE_SIZE } from '../../../common/constants/pagination';
 
 const PAGE_SIZE = 15;
 
@@ -468,7 +469,7 @@ function ServicesTab() {
   const [debouncedSearch] = useDebouncedValue(search, 350);
   const [page, setPage] = usePagedFilters(debouncedSearch, hospitalFilter);
 
-  const { data: allHospitals = { items: [] } } = useAllHospitals({ pageSize: 200 });
+  const { data: allHospitals = { items: [] } } = useAllHospitals({ pageSize: MAX_PAGE_SIZE });
   const { data, isLoading, isFetching } = useGetServicesQuery({ hospitalId: hospitalFilter ? Number(hospitalFilter) : undefined, searchTerm: debouncedSearch || undefined, pageNumber: page, pageSize: PAGE_SIZE });
   const [deleteService] = useDeleteServiceMutation();
 

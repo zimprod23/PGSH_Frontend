@@ -134,7 +134,7 @@ API call fails  (queries AND mutations — the middleware does not distinguish)
         → Network error: toast "Impossible de contacter le serveur"
         → 401: keycloak.logout()
         → 403: redirect to /no-profile when title = "Profile Not Found", else toast "Accès refusé"
-        → 400/422: toast "Données invalides" — extensions.errors joined, else detail
+        → 400/422: toast "Données invalides" — top-level errors[] joined, else detail
         → 409: toast "Conflit" with detail
         → 404 on a QUERY: nothing  ← the one deliberate gap
         → anything else / 500+: toast
@@ -146,8 +146,13 @@ own `notify.error` and printing every refusal twice. It happened again on 2026-0
 button). **A component must not toast a rejected request**; see `CLAUDE.md` §1e for the rule and for
 the single exception (a 404 on a query, which nothing else reports).
 
-A form may still read `error?.data?.extensions?.errors` to place **field-level** messages beside the
-inputs — that is a different job from announcing the failure, and it does not need a second toast.
+A form may still read `error?.data?.errors` to place **field-level** messages beside the inputs —
+that is a different job from announcing the failure, and it does not need a second toast.
+
+⚠ **Top-level `errors`, not `extensions.errors`.** Both this document and the `ApiError` type said
+the latter until 2026-09-07, and the array was therefore never found: every refusal fell back to
+`detail`, which for a validation failure is the fixed « One or more validation errors occurred ». The
+server writes extension members flat, as RFC 7807 prescribes. See `API.md`.
 
 ---
 

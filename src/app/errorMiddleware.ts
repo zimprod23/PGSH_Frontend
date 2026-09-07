@@ -63,7 +63,11 @@ export const errorMiddleware: Middleware = () => (next) => (action) => {
   }
 
   if (status === 400 || status === 422) {
-    const validationErrors = error?.extensions?.errors;
+    // ⚠ `errors` sits at the top level of the problem document, not under `extensions` — see the
+    // note on `ApiError`. Read from the wrong place it was always undefined, so every refusal
+    // showed « Données invalides · One or more validation errors occurred », which names no field
+    // and no rule. A refusal the server took the trouble to explain has to be shown.
+    const validationErrors = error?.errors;
     const detail = validationErrors?.length
       ? validationErrors.map((e) => e.description).join(' · ')
       : message;

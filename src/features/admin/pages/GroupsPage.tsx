@@ -1042,10 +1042,15 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
   const handleDeleteAllConfirm = async () => {
     if (!selectedYear) return;
     try {
-      const res = await deleteAllGroups(Number(selectedYear)).unwrap();
+      const res = await deleteAllGroups({
+        academicYearId: Number(selectedYear),
+        levelId: selectedLevel ? Number(selectedLevel) : undefined,
+      }).unwrap();
       notify.success(`${res.deleted} groupe${res.deleted !== 1 ? 's' : ''} supprimé${res.deleted !== 1 ? 's' : ''}`);
     } catch {
-      notify.error('Impossible de supprimer les groupes — des étudiants sont affectés ou des affectations ont démarré');
+      // ⚠ No notify.error here. The refusal names the scope, the number of rosters and the number
+      // of students still in them; a generic sentence written on the client replaced all of that
+      // with a guess — and printed a second toast on top of the middleware's.
     }
     closeDeleteAll();
   };
@@ -1082,7 +1087,10 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
   const handleEmptyAllConfirm = async () => {
     if (!selectedYear) return;
     try {
-      const res = await emptyAllGroups(Number(selectedYear)).unwrap();
+      const res = await emptyAllGroups({
+        academicYearId: Number(selectedYear),
+        levelId: selectedLevel ? Number(selectedLevel) : undefined,
+      }).unwrap();
       notify.success(`${res.unassigned} étudiant${res.unassigned !== 1 ? 's' : ''} retiré${res.unassigned !== 1 ? 's' : ''} de leurs groupes`);
     } catch {
       // errorMiddleware toasts the refusal, which names the affectations still attached.
@@ -1091,6 +1099,15 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
   };
 
   const yearLabel = currentYear?.label ?? selectedYear ?? '';
+
+  // The toolbar's Niveau filter is the scope of the two bulk roster acts — « Vider » and
+  // « Supprimer » — so each button and its confirmation say which promotion it acts on. Unfiltered
+  // the act is year-wide, and the wording has to admit it: a year holds several promotions'
+  // planning, and the refusal would otherwise name someone else's.
+  const scopeLevelLabel = selectedLevel
+    ? levels.find((l) => String(l.id) === selectedLevel)?.label ?? 'la promotion sélectionnée'
+    : null;
+
   const pickedStudent = matches.find((s) => s.id === pickedStudentId);
   const searchReady = debouncedStudentSearch.length >= 2 && !searchingStudents;
   const highlightedGroupIds = new Set(studentGroups.map((g) => g.id));
@@ -1128,7 +1145,11 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
         </Button>
         {selectedYear && totalCount > 0 && (
           <Tooltip
-            label="Retire tous les étudiants de leurs groupes (les groupes et leurs cohortes restent)."
+            label={
+              scopeLevelLabel
+                ? `Retire tous les étudiants de ${scopeLevelLabel} de leurs groupes (les groupes et leurs cohortes restent).`
+                : "Retire tous les étudiants de l'année de leurs groupes, toutes promotions confondues (les groupes et leurs cohortes restent)."
+            }
             position="top"
             multiline
             w={280}
@@ -1139,13 +1160,17 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
               loading={emptyingAll}
               onClick={openEmptyAll}
             >
-              Vider toutes
+              {scopeLevelLabel ? 'Vider la promotion' : 'Vider toute l’année'}
             </Button>
           </Tooltip>
         )}
         {selectedYear && totalCount > 0 && (
           <Tooltip
-            label="Supprime tous les groupes et leurs cohortes. Bloqué si des étudiants sont affectés ou si des affectations ont démarré."
+            label={
+              scopeLevelLabel
+                ? `Supprime les groupes de ${scopeLevelLabel} et leurs cohortes. Bloqué si des étudiants y sont encore affectés ou si des affectations ont démarré. Videz-les d'abord.`
+                : "Supprime les groupes de toute l'année, toutes promotions confondues, et leurs cohortes. Bloqué si des étudiants sont affectés ou si des affectations ont démarré."
+            }
             position="top"
             multiline
             w={280}
@@ -1156,7 +1181,7 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
               loading={deletingAllGroups}
               onClick={openDeleteAll}
             >
-              Tout supprimer
+              {scopeLevelLabel ? 'Supprimer la promotion' : 'Tout supprimer'}
             </Button>
           </Tooltip>
         )}
@@ -1389,9 +1414,13 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
       <ConfirmModal
         opened={deleteAllOpen}
         onClose={closeDeleteAll}
-        title="Supprimer tous les groupes"
-        message={`Supprimer tous les groupes de l'année "${yearLabel}" (${totalCount} groupe${totalCount !== 1 ? 's' : ''}) ? Cette action supprime également toutes les cohortes associées. Elle est bloquée si des étudiants sont affectés aux groupes ou si des affectations ont déjà démarré.`}
-        confirmLabel="Tout supprimer"
+        title={scopeLevelLabel ? 'Supprimer les groupes de la promotion' : 'Supprimer les groupes de toute l’année'}
+        message={
+          scopeLevelLabel
+            ? `Supprimer les ${totalCount} groupe${totalCount !== 1 ? 's' : ''} de ${scopeLevelLabel} (${yearLabel}) ? Leurs cohortes partent avec eux. Les autres promotions de l'année ne sont pas touchées. Bloqué si des étudiants y sont encore affectés ou si des affectations ont démarré.`
+            : `Supprimer les ${totalCount} groupe${totalCount !== 1 ? 's' : ''} de l'année "${yearLabel}", toutes promotions confondues ? Cette action supprime également toutes les cohortes associées. Elle est bloquée si des étudiants sont affectés aux groupes ou si des affectations ont déjà démarré. Filtrez par niveau pour n'agir que sur une promotion.`
+        }
+        confirmLabel={scopeLevelLabel ? 'Supprimer la promotion' : 'Tout supprimer'}
         confirmColor="red"
         onConfirm={handleDeleteAllConfirm}
         loading={deletingAllGroups}
@@ -1412,9 +1441,13 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
       <ConfirmModal
         opened={emptyAllOpen}
         onClose={closeEmptyAll}
-        title="Vider tous les groupes"
-        message={`Retirer tous les étudiants de leurs groupes pour l'année "${yearLabel}" ? Les groupes et leurs cohortes sont conservés. Bloqué si des affectations existent : elles resteraient rattachées à des groupes affichés vides.`}
-        confirmLabel="Vider toutes"
+        title={scopeLevelLabel ? 'Vider les groupes de la promotion' : 'Vider les groupes de toute l’année'}
+        message={
+          scopeLevelLabel
+            ? `Retirer tous les étudiants de ${scopeLevelLabel} de leurs groupes, pour l'année "${yearLabel}" ? Les groupes et leurs cohortes sont conservés. Bloqué si cette promotion porte des affectations : elles resteraient rattachées à des groupes affichés vides.`
+            : `Retirer tous les étudiants de leurs groupes pour l'année "${yearLabel}", toutes promotions confondues ? Les groupes et leurs cohortes sont conservés. Bloqué si des affectations existent, dans n'importe quelle promotion : elles resteraient rattachées à des groupes affichés vides. Pour ne refaire qu'une promotion, filtrez d'abord par niveau.`
+        }
+        confirmLabel={scopeLevelLabel ? 'Vider la promotion' : 'Vider toute l’année'}
         confirmColor="orange"
         onConfirm={handleEmptyAllConfirm}
         loading={emptyingAll}

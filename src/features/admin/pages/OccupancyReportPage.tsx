@@ -14,6 +14,7 @@ import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useListParams } from '../../../common/hooks/useListParams';
 import { OccupancyDocument } from '../components/occupancy/OccupancyDocument';
 import { downloadPrintable, printPrintable } from '../../../common/utils/printableDocument';
+import { MAX_PAGE_SIZE } from '../../../common/constants/pagination';
 
 /**
  * «Charge des services» — every service's year at once, as a document.
@@ -49,7 +50,7 @@ export default function OccupancyReportPage() {
   const stage = filters.stage ?? '';
   const saturated = filters.saturated === '1';
 
-  const { data: hospitals } = useGetHospitalsQuery({ pageNumber: 1, pageSize: 200 });
+  const { data: hospitals } = useGetHospitalsQuery({ pageNumber: 1, pageSize: MAX_PAGE_SIZE });
   const { data: levels = [] } = useGetPromotionLevelsQuery(undefined);
   // Narrowed by the server, not by the rows the client happens to hold: the catalogue is paged at
   // 100 (the query's own ceiling) and a filter applied here would silently miss anything past it.

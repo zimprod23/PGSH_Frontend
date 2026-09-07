@@ -1,4 +1,5 @@
 import { apiSlice } from '../../../app/apiSlice';
+import { MAX_PAGE_SIZE } from '../../../common/constants/pagination';
 import type { PaginatedResponse, BulkResponse, RegistrationStatus, AcademicProgram } from '../../../common/types';
 import type {
   AssignStudentToGroupRequest,
@@ -377,12 +378,29 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     createStage: builder.mutation<number, CreateStageRequest>({
       query: (body) => ({ url: '/stages', method: 'POST', body }),
-      invalidatesTags: [{ type: 'Stage', id: 'LIST' }],
+      invalidatesTags: [
+        { type: 'Stage' as const, id: 'LIST' },
+        // ⚠ The other direction of the same coupling. `CurriculumStage` quotes the stage's name and
+        // is compared against its coefficient and duration, so a catalogue edit changes what every
+        // recorded set reads — and creating a stage is what makes it *requirable* at all, which is
+        // the list the CNPN editor's picker is built from.
+        { type: 'Level' as const, id: 'CURRICULUM' },
+        { type: 'Level' as const, id: 'CURRICULUM_DIFF' },
+      ],
     }),
 
     updateStage: builder.mutation<void, { id: number } & UpdateStageRequest>({
       query: ({ id, ...body }) => ({ url: `/stages/${id}`, method: 'PUT', body }),
-      invalidatesTags: (_r, _e, { id }) => [{ type: 'Stage', id }, { type: 'Stage', id: 'LIST' }],
+      invalidatesTags: (_r, _e, { id }) => [
+        { type: 'Stage' as const, id },
+        { type: 'Stage' as const, id: 'LIST' },
+        // ⚠ The other direction of the same coupling. `CurriculumStage` quotes the stage's name and
+        // is compared against its coefficient and duration, so a catalogue edit changes what every
+        // recorded set reads — and creating a stage is what makes it *requirable* at all, which is
+        // the list the CNPN editor's picker is built from.
+        { type: 'Level' as const, id: 'CURRICULUM' },
+        { type: 'Level' as const, id: 'CURRICULUM_DIFF' },
+      ],
     }),
 
     addAllowedService: builder.mutation<void, { stageId: number; service: AllowedServiceSummary }>({
@@ -463,7 +481,15 @@ export const adminApiSlice = apiSlice.injectEndpoints({
 
     deleteStage: builder.mutation<void, number>({
       query: (id) => ({ url: `/stages/${id}`, method: 'DELETE' }),
-      invalidatesTags: [{ type: 'Stage', id: 'LIST' }],
+      invalidatesTags: [
+        { type: 'Stage' as const, id: 'LIST' },
+        // ⚠ The other direction of the same coupling. `CurriculumStage` quotes the stage's name and
+        // is compared against its coefficient and duration, so a catalogue edit changes what every
+        // recorded set reads — and creating a stage is what makes it *requirable* at all, which is
+        // the list the CNPN editor's picker is built from.
+        { type: 'Level' as const, id: 'CURRICULUM' },
+        { type: 'Level' as const, id: 'CURRICULUM_DIFF' },
+      ],
     }),
 
     // ─── Cohorts ─────────────────────────────────────────────────────────────
@@ -607,6 +633,9 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       query: ({ levelId, cnpnVersionId }) => `/levels/${levelId}/curriculum/${cnpnVersionId}`,
       providesTags: (_r, _e, { levelId, cnpnVersionId }) => [
         { type: 'Level' as const, id: `curriculum-${levelId}-${cnpnVersionId}` },
+        // Coarse companion: a stage renamed or reweighted in the catalogue changes every recorded
+        // set that mentions it, and no caller knows which (level, texte) pairs those are.
+        { type: 'Level' as const, id: 'CURRICULUM' },
       ],
     }),
 
@@ -633,6 +662,11 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         { type: 'Level' as const, id: `curriculum-${levelId}-${cnpnVersionId}` },
         { type: 'Level' as const, id: 'CURRICULUM_DIFF' },
         { type: 'Level' as const, id: 'CNPN_VERSIONS' },
+        // ⚠ Each stage row carries `textFigures` — every text's own coefficient and duration — and
+        // that is what decides whether the row shows a « un texte dit autre chose » marker. Without
+        // this the marker survived the very edit that resolved it: align the text with the
+        // catalogue, go back to Stages, and the warning was still there off a stale page.
+        { type: 'Stage' as const, id: 'LIST' },
       ],
     }),
 
@@ -646,12 +680,18 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         { type: 'Level' as const, id: `curriculum-${levelId}-${cnpnVersionId}` },
         { type: 'Level' as const, id: 'CURRICULUM_DIFF' },
         { type: 'Level' as const, id: 'CNPN_VERSIONS' },
+        // Same reason as `saveCurriculum`: a cloned set gives the catalogue rows new figures to disagree with.
+        { type: 'Stage' as const, id: 'LIST' },
       ],
     }),
 
     seedCurriculaFromHistory: builder.mutation<CurriculumSeedReport, { dryRun: boolean }>({
       query: (body) => ({ url: '/curricula/seed-from-history', method: 'POST', body }),
-      invalidatesTags: [{ type: 'Level' as const, id: 'CURRICULUM_DIFF' }],
+      invalidatesTags: [
+        { type: 'Level' as const, id: 'CURRICULUM_DIFF' },
+        { type: 'Level' as const, id: 'CURRICULUM' },
+        { type: 'Stage' as const, id: 'LIST' },
+      ],
     }),
 
     getCohortsByStage: builder.query<
@@ -670,7 +710,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     getCohortOptionsByStage: builder.query<CohortResponse[], { stageId: number; academicYearId?: number }>({
       query: ({ stageId, academicYearId }) => ({
         url: `/stages/${stageId}/cohorts`,
-        params: { ...(academicYearId ? { academicYearId } : {}), pageNumber: 1, pageSize: 200 },
+        params: { ...(academicYearId ? { academicYearId } : {}), pageNumber: 1, pageSize: MAX_PAGE_SIZE },
       }),
       transformResponse: (res: PaginatedResponse<CohortResponse>) => res.items,
       providesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
@@ -1060,7 +1100,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
      * through the paged endpoint — it just asks for one large page rather than an unbounded one.
      */
     getAcademicGroupOptions: builder.query<AcademicGroupResponse[], { academicYearId?: number; levelId?: number; studentId?: string }>({
-      query: (params) => ({ url: '/groups', params: { ...params, pageNumber: 1, pageSize: 200 } }),
+      query: (params) => ({ url: '/groups', params: { ...params, pageNumber: 1, pageSize: MAX_PAGE_SIZE } }),
       transformResponse: (res: PaginatedResponse<AcademicGroupResponse>) => res.items,
       providesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
@@ -1467,13 +1507,29 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_r, _e, { stageId }) => [{ type: 'Stage' as const, id: `cohorts-${stageId}` }],
     }),
 
-    deleteAllYearGroups: builder.mutation<{ deleted: number }, number>({
-      query: (academicYearId) => ({ url: '/groups/all', method: 'DELETE', params: { academicYearId } }),
+    // `levelId` narrows the act to the promotion on screen, exactly as `emptyAllYearGroups` does —
+    // rosters are keyed (année, promotion, numéro) and this was the last roster act that jumped
+    // straight to the year, so it refused over other promotions' students.
+    deleteAllYearGroups: builder.mutation<
+      { deleted: number },
+      { academicYearId: number; levelId?: number }
+    >({
+      query: ({ academicYearId, levelId }) => ({
+        url: '/groups/all',
+        method: 'DELETE',
+        params: { academicYearId, ...(levelId ? { levelId } : {}) },
+      }),
       invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
 
-    emptyAllYearGroups: builder.mutation<{ unassigned: number }, number>({
-      query: (academicYearId) => ({ url: '/groups/all/students', method: 'DELETE', params: { academicYearId } }),
+    // `levelId` narrows the act to the promotion on screen. Omitted, it stays year-wide — and the
+    // caller must mean it, because a year holds several promotions' planning.
+    emptyAllYearGroups: builder.mutation<{ unassigned: number }, { academicYearId: number; levelId?: number }>({
+      query: ({ academicYearId, levelId }) => ({
+        url: '/groups/all/students',
+        method: 'DELETE',
+        params: { academicYearId, ...(levelId ? { levelId } : {}) },
+      }),
       invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
 

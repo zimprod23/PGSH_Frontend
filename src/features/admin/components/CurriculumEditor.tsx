@@ -36,6 +36,7 @@ import type {
   CurriculumResponse,
   CurriculumStageInput,
 } from '../types/admin.types';
+import { MAX_PAGE_SIZE } from '../../../common/constants/pagination';
 
 /**
  * Recording a CNPN: what one text requires of one level, submitted whole.
@@ -243,7 +244,7 @@ function CurriculumForm({
 
   // A level has a handful of stages, and the picker needs them all at once — one large page rather
   // than an unbounded fetch, the same shape as the other option queries.
-  const { data: stagesPage, isFetching: loadingStages } = useGetStagesQuery({ levelId, pageSize: 200 });
+  const { data: stagesPage, isFetching: loadingStages } = useGetStagesQuery({ levelId, pageSize: MAX_PAGE_SIZE });
   const levelStages = useMemo(() => stagesPage?.items ?? [], [stagesPage]);
 
   const [reference, setReference] = useState(curriculum?.reference ?? '');

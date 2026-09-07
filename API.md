@@ -19,11 +19,20 @@ All requests go through the Vite proxy at `/api` → backend. In production, rep
   "title": "Error.Code",
   "status": 400,
   "detail": "Human readable description",
-  "extensions": {
-    "errors": [{ "code": "Field.Rule", "description": "..." }]
-  }
+  "errors": [{ "code": "Field.Rule", "description": "..." }]
 }
 ```
+
+⚠ **`errors` is top-level, and this document said otherwise until 2026-09-07.** The server hands the
+array to `Results.Problem(extensions: …)`; `ProblemDetails.Extensions` is `[JsonExtensionData]`, so
+the members are written **flat** — which is what RFC 7807 specifies for extension members. Typed as
+`extensions.errors`, the global middleware never found it and *every* validation refusal toasted
+« Données invalides · One or more validation errors occurred », the fixed sentence of
+`ValidationError`, which names no field and no rule.
+
+⚠ **`errors` exists only for a *validation* failure.** An ordinary refusal —
+`Error.Conflict("Schedule.AlreadyPublished", …)` — carries no array at all: its code is in `title`
+and its sentence in `detail`. Code that branches on which rule refused must read `title` first.
 
 ## Exports (.xlsx) — added 2026-08-31
 
@@ -207,7 +216,7 @@ interface GetStudentsQuery {
   academicYearId?: number;
   status?: RegistrationStatus;   // the verdict on THAT year's registration
   pageNumber?: number;   // default 1
-  pageSize?: number;     // default 10, max 100
+  pageSize?: number;     // default 10, max 200 (QueryableExtensions.MaxPageSize)
 }
 
 // Response: PaginatedResponse<StudentSummaryResponse>

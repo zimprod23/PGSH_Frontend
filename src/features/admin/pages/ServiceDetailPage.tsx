@@ -18,6 +18,7 @@ import { useAcademicYear } from '../contexts/useAcademicYear';
 import { ServiceFormModal } from '../components/ServiceFormModal';
 import { ServiceOccupancyTimeline } from '../components/service/ServiceOccupancyTimeline';
 import { PATHS } from '../../../routes/paths';
+import { MAX_PAGE_SIZE } from '../../../common/constants/pagination';
 
 /**
  * Everything about one service: what it holds, who may send students to it, who leads it.
@@ -43,7 +44,7 @@ export default function ServiceDetailPage() {
 
   const { data: stages = [] } = useGetServiceStagesQuery(serviceId, { skip: !serviceId });
 
-  const { data: hospitals } = useGetHospitalsQuery({ pageNumber: 1, pageSize: 200 });
+  const { data: hospitals } = useGetHospitalsQuery({ pageNumber: 1, pageSize: MAX_PAGE_SIZE });
   const hospitalOptions = useMemo(
     () => (hospitals?.items ?? []).map((h) => ({ value: String(h.id), label: h.name })),
     [hospitals],

@@ -132,9 +132,18 @@ export default function StageDetailPage() {
     if (activePartition && !partitions.includes(activePartition)) setActivePartition(null);
   }, [partitions, activePartition]);
 
+  /**
+   * The refusal's own code, so a branch can react to *which* rule refused.
+   *
+   * ⚠ Two shapes, and this used to read a third that never existed. An ordinary
+   * `Result.Failure(Error.Conflict("Schedule.AlreadyPublished", …))` carries its code in `title`;
+   * only a FluentValidation failure carries per-rule codes, in a top-level `errors[]`. Reading
+   * `extensions.errors` found neither, so both branches below were dead and every refusal fell
+   * through to « Erreur lors de la publication du planning ».
+   */
   const extractErrorCode = (err: unknown): string | null => {
-    const data = (err as { data?: { extensions?: { errors?: Array<{ code: string }> } } })?.data;
-    return data?.extensions?.errors?.[0]?.code ?? null;
+    const data = (err as { data?: { title?: string; errors?: Array<{ code: string }> } })?.data;
+    return data?.title ?? data?.errors?.[0]?.code ?? null;
   };
 
   const [rotationOpen, { open: openRotation, close: closeRotation }] = useDisclosure(false);
