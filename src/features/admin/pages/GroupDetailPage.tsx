@@ -28,6 +28,7 @@ import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { usePagedFilters } from '../../../common/hooks/usePagedFilters';
 import { skipToken } from '@reduxjs/toolkit/query';
 import { ConfirmModal } from '../../../common/components/ConfirmModal';
+import { BulkRosterAssignmentModal } from '../components/BulkRosterAssignmentModal';
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -37,6 +38,7 @@ import {
   IconTrash,
   IconUserEdit,
   IconUsers,
+  IconUsersGroup,
 } from '@tabler/icons-react';
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -792,6 +794,7 @@ export default function GroupDetailPage() {
   const [changeOpen,  { open: openChange, close: closeChange }] = useDisclosure(false);
   const [swapOpen,    { open: openSwap,   close: closeSwap   }] = useDisclosure(false);
   const [emptyOpen,   { open: openEmpty,  close: closeEmpty  }] = useDisclosure(false);
+  const [assignOpen,  { open: openAssign, close: closeAssign }] = useDisclosure(false);
   // What emptying would strand, when the server refuses because the roster still holds affectations.
   // Confirming a second time re-sends with dropAffectations.
   const [emptyWarning, setEmptyWarning] = useState<string | null>(null);
@@ -856,9 +859,33 @@ export default function GroupDetailPage() {
               <Stack gap={2}>
                 <Title order={2} fw={700}>{group?.label}</Title>
                 <Text size="xs" c="dimmed">{group?.academicYearLabel}</Text>
+                {/* Why the roster exists, in the faculty's words. Nothing else records it: a year
+                    later, the only other evidence is the pattern of its cells. */}
+                {group?.purpose && (
+                  <Text size="xs" c="dimmed" fs="italic">{group.purpose}</Text>
+                )}
               </Stack>
             )}
           </Group>
+          <Group gap="xs">
+          {!isLoading && (
+            <Tooltip
+              label="Mettre dans ce groupe une liste d'étudiants — collée depuis un formulaire, ou des groupes entiers"
+              position="left"
+              multiline
+              w={260}
+            >
+              <Button
+                variant="light"
+                color="navy"
+                size="sm"
+                leftSection={<IconUsersGroup size={14} stroke={1.5} />}
+                onClick={openAssign}
+              >
+                Affectation nominative
+              </Button>
+            </Tooltip>
+          )}
           {!isLoading && (group?.studentCount ?? 0) > 0 && (
             <Tooltip label="Désassigner tous les étudiants du groupe" position="left">
               <Button
@@ -873,7 +900,19 @@ export default function GroupDetailPage() {
               </Button>
             </Tooltip>
           )}
+          </Group>
         </Group>
+
+        {group && (
+          <BulkRosterAssignmentModal
+            opened={assignOpen}
+            onClose={closeAssign}
+            targetGroupId={groupId}
+            targetGroupLabel={group.label}
+            academicYearId={group.academicYearId}
+            levelId={group.levelId ?? null}
+          />
+        )}
 
         {/* Students */}
         <Card padding="lg" radius="lg" withBorder shadow="sm">

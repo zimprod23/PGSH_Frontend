@@ -37,6 +37,7 @@ import {
   IconCircleX,
   IconGridDots,
   IconPlus,
+  IconPin,
   IconRocket,
   IconRocketOff,
   IconArrowsShuffle,
@@ -317,6 +318,17 @@ function CellFace({ cell, loading, disabled, onClick, onClear, ref, ...rest }: C
                     size={10}
                     stroke={1.5}
                     color="#16a34a"
+                    style={{ flexShrink: 0 }}
+                  />
+                )}
+                {/* ⚠ A pinned cell is not published — it is a plan somebody authored, and the
+                    rotation is what leaves it alone. Marked so that a grid where one cell kept its
+                    service while its neighbours changed reads as the act working, not as a bug. */}
+                {cell.isPinned && !cell.isPublished && (
+                  <IconPin
+                    size={10}
+                    stroke={1.5}
+                    color="#9333ea"
                     style={{ flexShrink: 0 }}
                   />
                 )}
@@ -923,12 +935,23 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
         }
       }
 
+      // ⚠ What the run deliberately left alone, said on every outcome — not only the happy one.
+      // A pinned placement surviving is the whole point of the marker, and an arrange that reports
+      // fewer cells than expected without explaining why reads as one that half failed.
+      const kept: string[] = [];
+      if (res.pinnedCellsKept > 0)
+        kept.push(`${res.pinnedCellsKept} cellule(s) épinglée(s) conservée(s)`);
+      if (res.reservedServices > 0)
+        kept.push(`${res.reservedServices} service(s) réservé(s), hors rotation`);
+      const keptSentence = kept.length > 0 ? ` ${kept.join(', ')}.` : '';
+
       if (problems.length > 0) {
-        notify.warning(`${res.assigned} affectation(s) générée(s). ${problems.join(' ')}`);
+        notify.warning(`${res.assigned} affectation(s) générée(s).${keptSentence} ${problems.join(' ')}`);
       } else if (res.assigned === 0) {
-        notify.info('Aucune cohorte non publiée à configurer');
+        notify.info(`Aucune cohorte non publiée à configurer.${keptSentence}`);
       } else {
-        notify.success(`${res.assigned} affectation(s) générée(s) — aucun service saturé`);
+        notify.success(
+          `${res.assigned} affectation(s) générée(s) — aucun service saturé.${keptSentence}`);
       }
     } catch (err: unknown) {
       const detail = (err as { data?: { detail?: string } })?.data?.detail;

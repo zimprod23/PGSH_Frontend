@@ -68,6 +68,10 @@ import type {
   RevalidateStageRequest,
   ApplyBulkDelocalizationRequest,
   BulkDelocalizationReport,
+  BulkRosterAssignmentReport,
+  PreviewBulkRosterAssignmentRequest,
+  ApplyBulkRosterAssignmentRequest,
+  ServicePlacementMode,
   CancelDelocalizationRequest,
   DelocalizeStudentRequest,
   PreviewBulkDelocalizationRequest,
@@ -452,6 +456,27 @@ export const adminApiSlice = apiSlice.injectEndpoints({
      * completing it, because a short list is far likelier to be a stale page than an intention to
      * leave a service last — and this order decides which run of group numbers each service gets.
      */
+    /**
+     * Holds an authorised service for named rosters, or gives it back to the rotation.
+     *
+     * ⚠ It rewrites nothing already placed — the next arrange is the act that reads it, exactly like
+     * the order. And it is not a pin: a service reserved and never pinned simply stands empty, which
+     * is visible on the grid and is a state somebody can correct.
+     */
+    setAllowedServicePlacementMode: builder.mutation<
+      void, { stageId: number; serviceId: number; placementMode: ServicePlacementMode }
+    >({
+      query: ({ stageId, serviceId, placementMode }) => ({
+        url: `/stages/${stageId}/allowed-services/${serviceId}/placement-mode`,
+        method: 'PUT',
+        body: { placementMode },
+      }),
+      invalidatesTags: (_r, _e, { stageId }) => [
+        { type: 'Stage' as const, id: stageId },
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+      ],
+    }),
+
     setAllowedServiceOrder: builder.mutation<void, { stageId: number; serviceIds: number[] }>({
       query: ({ stageId, serviceIds }) => ({
         url: `/stages/${stageId}/allowed-services/order`,
@@ -930,6 +955,18 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         totalCapacity: number;
         /** Cells skipped because the group was already placed in an overlapping period of another stage. */
         groupConflicts: number;
+        /**
+         * Cells left exactly as they were because a human had pinned them. ⚠ Say this number: an
+         * arrange that deliberately writes fewer cells than asked reads, unreported, as one that
+         * half failed — and its silent absence used to mean the placement had been destroyed.
+         */
+        pinnedCellsKept: number;
+        /**
+         * Authorised services withheld from the rotation because they are held for named rosters.
+         * ⚠ Their capacity left the ceiling with them, so « il manque N places » is measured against
+         * a smaller number on purpose.
+         */
+        reservedServices: number;
       },
       { stageId: number; academicYearId?: number; partitionCount?: number; partitionLabels?: string[]; periodNumbers?: number[] }
     >({
@@ -1105,7 +1142,36 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       providesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
 
-    createGroup: builder.mutation<number, { label: string; academicYearId: number; levelId?: number | null; geographicZone?: string; rotationGroup?: string | null }>({
+    /**
+     * ⚠ A **mutation** although it writes nothing: the selection is a body — whole rosters, named
+     * students and a pasted list — and not a query string. Nothing is invalidated, because nothing
+     * changed.
+     */
+    previewBulkRosterAssignment: builder.mutation<
+      BulkRosterAssignmentReport, PreviewBulkRosterAssignmentRequest
+    >({
+      query: (body) => ({ url: '/groups/assign/bulk/preview', method: 'POST', body }),
+    }),
+
+    /**
+     * ⚠ `confirmedCount` is the number the **preview** returned, sent back rather than re-derived.
+     * A registration created, transferred or evaluated in between changes what the act does without
+     * changing anything the operator saw; the server refuses on a mismatch.
+     */
+    applyBulkRosterAssignment: builder.mutation<
+      BulkRosterAssignmentReport, ApplyBulkRosterAssignmentRequest
+    >({
+      query: (body) => ({ url: '/groups/assign/bulk', method: 'POST', body }),
+      // Both rosters change size, and a student who joined from nowhere has just received his
+      // affectations — so the assignment list is stale too.
+      invalidatesTags: (_r, _e, { targetGroupId }) => [
+        { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Level' as const, id: `group-${targetGroupId}` },
+        { type: 'Assignment' as const, id: 'LIST' },
+      ],
+    }),
+
+    createGroup: builder.mutation<number, { label: string; academicYearId: number; levelId?: number | null; geographicZone?: string; rotationGroup?: string | null; purpose?: string | null }>({
       query: (body) => ({ url: '/groups', method: 'POST', body }),
       invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
@@ -1118,7 +1184,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       providesTags: (_r, _e, { id }) => [{ type: 'Level' as const, id: `group-${id}` }],
     }),
 
-    updateGroup: builder.mutation<void, { id: number; label: string; geographicZone?: string; rotationGroup?: string | null }>({
+    updateGroup: builder.mutation<void, { id: number; label: string; geographicZone?: string; rotationGroup?: string | null; purpose?: string | null }>({
       query: ({ id, ...body }) => ({ url: `/groups/${id}`, method: 'PUT', body }),
       invalidatesTags: (_r, _e, { id }) => [
         { type: 'Level' as const, id: 'GROUPS' },
@@ -2144,6 +2210,9 @@ export const {
   useDelocalizeStudentMutation,
   useCancelDelocalizationMutation,
   usePreviewBulkDelocalizationMutation,
+  usePreviewBulkRosterAssignmentMutation,
+  useApplyBulkRosterAssignmentMutation,
+  useSetAllowedServicePlacementModeMutation,
   useApplyBulkDelocalizationMutation,
   useAutoArrangeGroupsMutation,
   useAssignRotationGroupsMutation,

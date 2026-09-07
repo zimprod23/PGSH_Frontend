@@ -417,7 +417,11 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
         publish,
       }).unwrap();
       setResult(res);
-      notify.success(`Plan généré : ${res.cohortsCreated} cohorte(s), ${res.cellsArranged} affectation(s)`);
+      notify.success(
+        `Plan généré : ${res.cohortsCreated} cohorte(s), ${res.cellsArranged} affectation(s)`
+        + (res.pinnedCellsKept > 0
+            ? ` — ${res.pinnedCellsKept} cellule(s) épinglée(s) conservée(s)`
+            : ''));
     } catch (err: unknown) {
       const msg = (err as { data?: { detail?: string } })?.data?.detail;
       notify.error(msg ?? 'Erreur lors de la génération du plan');
@@ -745,6 +749,20 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
                       </Badge>
                     </Tooltip>
                   )}
+                  {/* ⚠ Its own badge, in a neutral colour: cells kept are not a problem, they are
+                      the act doing what somebody asked. Unshown, a plan that wrote fewer cells than
+                      the operator expected has no explanation on screen. */}
+                  {result.pinnedCellsKept > 0 && (
+                    <Tooltip
+                      label="Ces cellules ont été placées à la main : la répartition automatique ne les réécrit jamais."
+                      multiline
+                      w={280}
+                    >
+                      <Badge color="grape" variant="light">
+                        {result.pinnedCellsKept} épinglée(s) conservée(s)
+                      </Badge>
+                    </Tooltip>
+                  )}
                   {result.groupConflicts > 0 && (
                     <Tooltip
                       label="Ces cellules n'ont pas été écrites : le groupe est déjà affecté à un autre stage sur les mêmes dates. Vérifiez le croisement des partitions entre les stages."
@@ -807,6 +825,9 @@ function EditGroupModal({ group, opened, onClose }: {
   const notify = useNotify();
   const [label, setLabel]               = useState(group?.label ?? '');
   const [rotationGroup, setRotationGroup] = useState(group?.rotationGroup ?? '');
+  // ⚠ Seeded from the row, because the update is a full replace: a form that sent '' for a field it
+  // never showed is what erased every hospital's description.
+  const [purpose, setPurpose]           = useState(group?.purpose ?? '');
   const [updateGroup, { isLoading }]    = useUpdateGroupMutation();
 
   const handleSave = async () => {
@@ -816,6 +837,7 @@ function EditGroupModal({ group, opened, onClose }: {
         id: group.id,
         label: label.trim(),
         rotationGroup: rotationGroup.trim() || null,
+        purpose: purpose.trim() || null,
       }).unwrap();
       notify.success('Groupe mis à jour');
       onClose();
@@ -838,6 +860,14 @@ function EditGroupModal({ group, opened, onClose }: {
           value={rotationGroup}
           onChange={(e) => setRotationGroup(e.currentTarget.value)}
         />
+        <TextInput
+          label="Motif du groupe (optionnel)"
+          description="Pourquoi ce groupe existe — « Volontaires Kénitra (GST), formulaire du 12/09 ». Rien d'autre ne l'enregistre."
+          placeholder="Ex: Volontaires Kénitra (GST)"
+          value={purpose}
+          onChange={(e) => setPurpose(e.currentTarget.value)}
+          maxLength={300}
+        />
         <Group justify="flex-end">
           <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>
           <Button color="navy" loading={isLoading} disabled={!label.trim()} onClick={handleSave}>
@@ -859,6 +889,7 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
   const notify = useNotify();
   const [label, setLabel]               = useState('');
   const [rotationGroup, setRotationGroup] = useState('');
+  const [purpose, setPurpose]           = useState('');
   const [levelId, setLevelId]           = useState<string | null>(null);
   const [createGroup, { isLoading }]    = useCreateGroupMutation();
   const { data: levels = [] }           = useGetPromotionLevelsQuery(undefined);
@@ -879,10 +910,12 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
         academicYearId: Number(selectedYear),
         levelId: levelId ? Number(levelId) : null,
         rotationGroup: rotationGroup.trim() || null,
+        purpose: purpose.trim() || null,
       }).unwrap();
       notify.success(`Groupe "${label.trim()}" créé`);
       setLabel('');
       setRotationGroup('');
+      setPurpose('');
       setLevelId(null);
       onClose();
     } catch {
@@ -917,6 +950,14 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
           placeholder="Ex: A"
           value={rotationGroup}
           onChange={(e) => setRotationGroup(e.currentTarget.value)}
+        />
+        <TextInput
+          label="Motif du groupe (optionnel)"
+          description="Pourquoi ce groupe existe — « Volontaires Kénitra (GST), formulaire du 12/09 ». Rien d'autre ne l'enregistre."
+          placeholder="Ex: Volontaires Kénitra (GST)"
+          value={purpose}
+          onChange={(e) => setPurpose(e.currentTarget.value)}
+          maxLength={300}
         />
         <Group justify="flex-end">
           <Button variant="subtle" color="gray" onClick={onClose}>Annuler</Button>

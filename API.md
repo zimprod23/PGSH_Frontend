@@ -474,6 +474,22 @@ range cannot merge across the hole it leaves.
 page opened before somebody else authorised a service than an intention to leave one last. The
 refusal names which of missing / unknown / duplicated applies.
 
+#### PUT `/stages/{id}/allowed-services/{serviceId}/placement-mode` — `{ placementMode }`, `204`
+`'Rotation'` (le défaut) ou `'Reserved'`. **Réservé** sort le service du vivier de la répartition
+automatique : seule une cellule épinglée à la main y met quelqu'un. C'est ainsi que se dit « ces
+services sont réservés à ces étudiants » pour un hôpital partenaire.
+
+⚠ **Ne déplace rien de déjà écrit** — comme l'ordre, c'est la répartition suivante qui le lit.
+⚠ **La capacité retenue quitte le plafond du stage avec le service**, donc la répartition renvoie
+`reservedServices` à côté de `totalCapacity` : « il manque N places » est mesuré contre un plafond
+plus petit, volontairement.
+⚠ **Refus notables** : `409 Stages.ServiceNotAllowed` — le service existe mais ce stage ne
+l'autorise pas, donc il n'y a aucune ligne d'autorisation pour porter le mode. Distinct de
+`404 Services.NotFound`.
+Réserver **tous** les services autorisés fait ensuite refuser la répartition par
+`400 Schedule.AllServicesReserved`, jamais par `Schedule.NoServicesAdmitLevel` : les deux envoient à
+deux écrans différents.
+
 It writes no cell — the order is read by the **next** auto-arrange.
 
 ---
@@ -619,6 +635,45 @@ interface DelocalizeStudentRequest {
 }
 // 204. Refus notables : 409 Delocalizations.OverMark (une note est enregistrée — elle ne s'efface pas)
 ```
+
+#### POST `/groups/assign/bulk/preview` et `/groups/assign/bulk` — l'affectation nominative
+Met une liste nommée d'étudiants dans **un** groupe : des rosters entiers, des étudiants nommés, une
+liste collée depuis un formulaire — dans n'importe quelle combinaison, exactement comme la
+délocalisation de masse (`StudentTargets`, la même forme).
+
+⚠ **Deux verbes, décidés par étudiant.** Sans groupe → *rattaché*, et ses affectations sont créées ;
+déjà dans un groupe → *déplacé* **sans trace**, le dossier se lisant ensuite comme s'il y avait
+toujours été. Un étudiant dont une rotation a commencé est **refusé** et renvoyé vers le transfert,
+qui garde la trace.
+
+⚠ **`confirmedCount` est le nombre que l'aperçu a renvoyé**, réémis tel quel. Une inscription créée,
+déplacée ou évaluée entre les deux change ce que l'acte fait sans rien changer à ce que l'opérateur a
+vu : `409 RosterAssignment.CountMismatch`, qui nomme les deux nombres.
+
+```typescript
+interface BulkRosterAssignmentReport {
+  targetGroupId: number; targetGroupLabel: string;
+  academicYearId: number; academicYearLabel: string;
+  /** Refus d'abord, plafonnées à 200. */
+  rows: BulkRosterAssignmentRow[];
+  totalRowCount: number; rowsTruncated: boolean;
+  /** ⚠ **Mesurés avant le plafond.** Ne jamais les recompter depuis `rows`. */
+  applicableCount: number;    // le nombre à renvoyer en `confirmedCount`
+  joinCount: number;          // rattachés depuis aucun groupe
+  moveCount: number;          // déplacés depuis un autre groupe
+  alreadyThereCount: number;  // ⚠ ni travail ni refus — c'est ainsi que revient une liste déjà appliquée
+  refusedCount: number;
+  isEmpty: boolean;
+}
+// status : WillJoin · WillMove · AlreadyThere · Underway · TargetMissingStage
+//          · WrongPromotion · CursusEnded · NotFound · WrongYear
+```
+
+⚠ **Refus de l'acte entier** (par opposition à une ligne) : `409 RosterAssignment.TargetInAnotherYear`,
+`409 RosterAssignment.TargetIsUnassignedRoster` (« Non réparti » ne porte aucune cohorte),
+`400 RosterAssignment.NamesNobody` — une sélection vide est refusée plutôt que renvoyée comme un
+rapport vide, « personne n'est désigné » et « personne n'est concerné » étant le même zéro pour deux
+situations opposées.
 
 #### POST `/stages/delocalize/bulk/preview` — l'aperçu
 ⚠ **Un POST bien qu'il n'écrive rien** : la sélection est un corps — des rosters entiers, des étudiants

@@ -248,6 +248,12 @@ export interface AllowedServiceSummary {
    * 0 means nobody has authored an order for this stage; the arranger then falls back to id order.
    */
   rank: number;
+  /**
+   * How the service is filled. ⚠ Travels with the rank because they answer one question together: a
+   * screen showing the order without the mode lists a service in the rotation queue that the
+   * rotation will never choose, which reads as a service the arranger keeps skipping.
+   */
+  placementMode: ServicePlacementMode;
 }
 
 export interface StageDetailResponse {
@@ -646,6 +652,14 @@ export interface SlotCellResponse {
    * cells of which the key names 121.
    */
   isPublished: boolean;
+  /**
+   * A human chose this cell, so the rotation leaves it alone — never deleted, never rewritten.
+   *
+   * ⚠ Not the same as {@link isPublished}: a pin is still a plan and can be cleared or moved by hand.
+   * Shown because the grid cannot otherwise explain why a cell survived a run that rewrote its
+   * neighbours — and, before the marker existed, why it did *not*.
+   */
+  isPinned: boolean;
 }
 
 export interface CohortScheduleRow {
@@ -881,6 +895,12 @@ export interface AcademicGroupResponse {
   rotationGroup: string | null;
   levelId: number | null;
   levelLabel: string | null;
+  /**
+   * Why this roster exists, in the faculty's own words — « Volontaires Kénitra (GST), formulaire du
+   * 12/09 ». ⚠ Nothing else records it: a year later the only other evidence is the pattern of its
+   * cells, and a re-découpage dissolves it without anything saying what was lost.
+   */
+  purpose: string | null;
   /** Roster size, so the list shows it without fetching a single student. */
   studentCount: number;
 }
@@ -891,6 +911,12 @@ export interface GroupDetailResponse {
   groupNumber: number;
   geographicZone: string | null;
   rotationGroup: string | null;
+  /**
+   * Why this roster exists, in the faculty's own words — « Volontaires Kénitra (GST), formulaire du
+   * 12/09 ». ⚠ Nothing else records it: a year later the only other evidence is the pattern of its
+   * cells, and a re-découpage dissolves it without anything saying what was lost.
+   */
+  purpose: string | null;
   academicYearId: number;
   academicYearLabel: string;
   /**
@@ -1035,16 +1061,23 @@ export interface CancelDelocalizationRequest {
 // ─── Delocalization in bulk ───────────────────────────────────────────────────
 
 /**
- * Who goes. The three ways of naming students are unioned — « le G3 au complet, plus ces douze-là,
- * plus la liste du formulaire ». ⚠ Rosters are named by **id**: a partition label repeats in every
- * promotion.
+ * Who the operator meant. The three ways of naming students are unioned — « le G3 au complet, plus
+ * ces douze-là, plus la liste du formulaire ». ⚠ Rosters are named by **id**: a partition label
+ * repeats in every promotion.
+ *
+ * ⚠ Shared by the mass délocalisation and the nominative roster assignment, mirroring the server's
+ * `StudentTargets`. Two screens describing one selection separately is how they end up disagreeing
+ * about what a pasted line means.
  */
-export interface DelocalizationTargets {
+export interface StudentTargets {
   academicGroupIds?: number[];
   registrationIds?: string[];
   /** A CNE or an Apogée per line, pasted from the form. Matched on both columns, case-insensitively. */
   identifiers?: string[];
 }
+
+/** @deprecated Use {@link StudentTargets}; kept so no call site changes meaning silently. */
+export type DelocalizationTargets = StudentTargets;
 
 export type BulkDelocalizationRowStatus =
   | 'WillDelocalize'
@@ -1094,6 +1127,89 @@ export interface BulkDelocalizationReport {
   replacedCount: number;
   isEmpty: boolean;
 }
+
+// ─── Composing a roster from a named list ─────────────────────────────────────
+
+/**
+ * What the act would do to one student.
+ *
+ * ⚠ `AlreadyThere` is neither work nor a refusal. Re-sending a corrected list is the normal way the
+ * act is used, so most of a second run lands there; counted as a refusal it would read as a run that
+ * failed.
+ */
+export type BulkRosterAssignmentRowStatus =
+  | 'WillJoin'
+  | 'WillMove'
+  | 'AlreadyThere'
+  | 'Underway'
+  | 'TargetMissingStage'
+  | 'WrongPromotion'
+  | 'CursusEnded'
+  | 'NotFound'
+  | 'WrongYear';
+
+export interface BulkRosterAssignmentRow {
+  registrationId: string | null;
+  studentName: string;
+  cne: string | null;
+  appogee: string | null;
+  /** The roster the student is in today — null when he is in none. */
+  currentGroupLabel: string | null;
+  status: BulkRosterAssignmentRowStatus;
+  message: string;
+  /** The pasted line this row came from, so an unmatched one can be found in the file. */
+  sourceIdentifier: string | null;
+}
+
+export interface BulkRosterAssignmentReport {
+  targetGroupId: number;
+  targetGroupLabel: string;
+  academicYearId: number;
+  academicYearLabel: string;
+  /**
+   * The lines to show, refusals first. ⚠ **Capped server-side**, and every count below is measured
+   * *before* the cap — never recount from this array.
+   */
+  rows: BulkRosterAssignmentRow[];
+  totalRowCount: number;
+  applicableCount: number;
+  refusedCount: number;
+  joinCount: number;
+  moveCount: number;
+  alreadyThereCount: number;
+  rowsTruncated: boolean;
+  isEmpty: boolean;
+}
+
+export interface PreviewBulkRosterAssignmentRequest {
+  targetGroupId: number;
+  targets: StudentTargets;
+  academicYearId?: number;
+}
+
+export interface ApplyBulkRosterAssignmentRequest extends PreviewBulkRosterAssignmentRequest {
+  /** The number the **preview** returned, sent back rather than re-derived. */
+  confirmedCount: number;
+  reason?: string;
+}
+
+/**
+ * How an authorised service of a stage is filled.
+ *
+ * ⚠ `Reserved` holds it for named rosters: the rotation never chooses it, and only a pinned cell
+ * puts anybody there. Its capacity leaves the stage's ceiling with it, which is why an arrange
+ * reports how many services it withheld.
+ */
+export type ServicePlacementMode = 'Rotation' | 'Reserved';
+
+/**
+ * Who decided a cell of the planning grid.
+ *
+ * ⚠ `Pinned` is treated by the arranger exactly as a published cell — never deleted, never
+ * rewritten. Before the marker existed, a hand-authored placement was destroyed by the next
+ * auto-arrange with nothing on screen to say so.
+ */
+export type CellSource = 'Arranged' | 'Pinned';
 
 export interface PreviewBulkDelocalizationRequest {
   stageId: number;
@@ -1328,6 +1444,12 @@ export interface MacroPlanResult {
    * the line above: a stage that arranged nothing otherwise looks like it had nothing to do.
    */
   groupConflicts: number;
+  /**
+   * Cells the plan left exactly as they were because a human had pinned them — a nominative
+   * placement. ⚠ The matrix reaches every partition of the promotion, so this is the number that
+   * says a hand-authored placement survived the plan instead of being quietly overwritten by it.
+   */
+  pinnedCellsKept: number;
 }
 
 // ─── Stage timeline (calendar) ─────────────────────────────────────────────────

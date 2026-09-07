@@ -31,6 +31,7 @@ import {
   IconCalendarTime,
   IconCircleCheck,
   IconPlayerPlay,
+  IconLock,
   IconPlus,
   IconRefresh,
   IconRocket,
@@ -61,6 +62,7 @@ import {
   useGetServicesQuery,
   useAddAllowedServiceMutation,
   useRemoveAllowedServiceMutation,
+  useSetAllowedServicePlacementModeMutation,
   useSetAllowedServiceOrderMutation,
   useDeleteAllStageCohortsMutation,
 } from '../api/adminApi';
@@ -187,6 +189,25 @@ export default function StageDetailPage() {
   const handleRemoveService = async (serviceId: number) => {
     try { await removeAllowedService({ stageId, serviceId }).unwrap(); }
     catch { notify.error('Impossible de retirer ce service'); }
+  };
+
+  // ── Reserved services ────────────────────────────────────────────────────
+  // ⚠ Reserving a service does **not** pin anybody: it says « la rotation n'y va plus ». Who goes is
+  // then a fact of the cells somebody pins on the grid. A service reserved and never pinned simply
+  // stands empty — visible, and correctable — where a reservation that pinned by itself would be a
+  // placement nobody authored.
+  const [setPlacementMode, { isLoading: settingMode }] = useSetAllowedServicePlacementModeMutation();
+
+  const handleTogglePlacementMode = async (service: AllowedServiceSummary) => {
+    const next = service.placementMode === 'Reserved' ? 'Rotation' : 'Reserved';
+    try {
+      await setPlacementMode({ stageId, serviceId: service.id, placementMode: next }).unwrap();
+      notify.success(next === 'Reserved'
+        ? `« ${service.name} » est réservé : la répartition ne l'utilisera plus. Épinglez-y les groupes concernés.`
+        : `« ${service.name} » est rendu à la répartition automatique.`);
+    } catch {
+      // The server's own sentence — « autorisez-le d'abord » — comes through errorMiddleware.
+    }
   };
 
   // ── Rotation order ───────────────────────────────────────────────────────
@@ -605,6 +626,8 @@ export default function StageDetailPage() {
                         <Text size="xs" c="dimmed">
                           Ordre de rotation : le 1ᵉʳ service reçoit les premiers groupes de la 1ʳᵉ
                           période. Réordonnez pour placer une promotion sans retoucher la grille.
+                          Un service « réservé » sort de la rotation : seuls les groupes épinglés à la
+                          main y vont.
                         </Text>
 
                         {stage?.allowedServices.map((svc, index) => (
@@ -619,11 +642,42 @@ export default function StageDetailPage() {
                                 <Text size="xs" fw={700}>{index + 1}</Text>
                               </ThemeIcon>
                               <Stack gap={0} style={{ minWidth: 0 }}>
-                                <Text size="xs" fw={500} truncate>{svc.name}</Text>
+                                <Group gap={6} wrap="nowrap">
+                                  <Text size="xs" fw={500} truncate>{svc.name}</Text>
+                                  {/* ⚠ Said on the row, not only in the toggle: a reserved service
+                                      keeps its rank and simply never comes up, which without a word
+                                      reads as a service the arranger keeps skipping. */}
+                                  {svc.placementMode === 'Reserved' && (
+                                    <Badge size="xs" variant="light" color="grape" radius="xl">
+                                      Réservé
+                                    </Badge>
+                                  )}
+                                </Group>
                                 <Text size="xs" c="dimmed" truncate>{svc.hospitalName}</Text>
                               </Stack>
                             </Group>
                             <Group gap={2} wrap="nowrap">
+                              <Tooltip
+                                label={svc.placementMode === 'Reserved'
+                                  ? 'Rendre ce service à la répartition automatique'
+                                  : 'Réserver ce service : la répartition ne l’utilisera plus, seuls les groupes épinglés y iront'}
+                                position="left"
+                                multiline
+                                w={240}
+                              >
+                                <ActionIcon
+                                  size="xs" radius="sm"
+                                  variant={svc.placementMode === 'Reserved' ? 'filled' : 'subtle'}
+                                  color="grape"
+                                  aria-label={svc.placementMode === 'Reserved'
+                                    ? `Rendre ${svc.name} à la rotation`
+                                    : `Réserver ${svc.name}`}
+                                  loading={settingMode}
+                                  onClick={() => handleTogglePlacementMode(svc)}
+                                >
+                                  <IconLock size={12} stroke={1.5} />
+                                </ActionIcon>
+                              </Tooltip>
                               <ActionIcon
                                 size="xs" variant="subtle" color="gray" radius="sm"
                                 aria-label={`Monter ${svc.name}`}
@@ -675,7 +729,11 @@ export default function StageDetailPage() {
                         if (!v) return;
                         const svc = (servicesPage?.items ?? []).find((s) => s.id === Number(v));
                         // rank 0 is the optimistic placeholder; the server ranks it last and the refetch says where.
-                        if (svc) handleAddService({ id: svc.id, name: svc.name, hospitalName: svc.hospitalName, rank: 0 });
+                        // A service enters the rotation — reserving it is a second, deliberate act.
+                        if (svc) handleAddService({
+                          id: svc.id, name: svc.name, hospitalName: svc.hospitalName,
+                          rank: 0, placementMode: 'Rotation',
+                        });
                       }}
                       disabled={addingService}
                       leftSection={<IconPlus size={12} stroke={1.5} />}

@@ -388,7 +388,13 @@ export default function RotationCyclePage() {
       }).unwrap();
 
       notify.success(
-        `${res.cohortsCreated} cohorte(s), ${res.studentsAssigned} étudiant(s), ${res.cellsArranged} cellule(s).`,
+        `${res.cohortsCreated} cohorte(s), ${res.studentsAssigned} étudiant(s), ${res.cellsArranged} cellule(s).`
+        // ⚠ The matrix reaches every partition, so a plan run over a stage carrying a nominative
+        // placement writes fewer cells than asked — on purpose. Unsaid, that is indistinguishable
+        // from an arrange that silently failed.
+        + (res.pinnedCellsKept > 0
+            ? ` ${res.pinnedCellsKept} cellule(s) épinglée(s) conservée(s).`
+            : ''),
       );
 
       // ⚠ Never let a refused plan pass for a successful one. The macro plan reports every cell it
