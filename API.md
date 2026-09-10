@@ -685,7 +685,18 @@ Même corps, plus `reason` et `confirmedCount`.
 ```typescript
 interface BulkDelocalizationReport {
   // …stageId, stageName, serviceId, serviceName, serviceIsExternal, academicYearId,
-  //   academicYearLabel, startDate, endDate…
+  //   academicYearLabel…
+
+  /** ⚠ **La fenêtre commune à tout l'acte — `null` quand il n'y en a pas.** Une sélection qui
+   *  couvre deux partitions en a deux, et aucune paire de dates n'est vraie de l'ensemble.
+   *  `distinctWindowCount` distingue les trois états : 0 rien d'applicable, 1 ces dates régissent
+   *  chaque ligne, plus d'une → lire les dates **des lignes**. */
+  startDate: string | null;
+  endDate: string | null;
+  distinctWindowCount: number;
+  /** Parmi les lignes applicables, combien sont datées par **tout l'axe** faute de cellule. */
+  stageWideWindowCount: number;
+
   /** Les lignes à afficher, **refus d'abord**, et **plafonnées à 200**. Une sélection est une
    *  promotion entière quand on la demande (933 étudiants sur la 3ᵉ MED), et un objet unique portant
    *  une ligne par étudiant est exactement la forme qui a fait tomber le navigateur avec 4 725
@@ -700,7 +711,26 @@ interface BulkDelocalizationReport {
   replacedCount: number;     // déjà délocalisés, la période est remplacée
   isEmpty: boolean;
 }
+
+interface BulkDelocalizationRow {
+  // …registrationId, studentName, cne, appogee, groupLabel, status, message, sourceIdentifier…
+
+  /** ⚠ **Les dates sont sur la ligne, pas seulement sur l'en-tête.** Deux groupes traversent le même
+   *  stage à des périodes différentes ; une paire de dates affichée comme si elle régissait chaque
+   *  ligne est exactement le mensonge corrigé le 10/09/2026. `null` sur une ligne qui n'a jamais
+   *  atteint de cohorte (`NotFound`, `WrongYear`, `NoRoster`, `NoCohort`). */
+  startDate: string | null;
+  endDate: string | null;
+  /** `'Named'` (saisies par la scolarité) · `'Cohort'` (le passage du groupe — la bonne réponse) ·
+   *  `'StageAxis'` (⚠ **tout l'axe**, faute de cellule : plus large que n'importe quel passage). */
+  windowSource: 'Named' | 'Cohort' | 'StageAxis' | null;
+  windowIsStageWide: boolean;
+}
 ```
+
+⚠ **Ne jamais retomber sur les dates de l'en-tête pour afficher une ligne.** C'est la substitution que
+le serveur a cessé de faire : le passage d'un groupe remplacé par l'axe entier, six fois trop long sur
+un axe croisé, et qui chevauche alors tous les autres stages de l'étudiant.
 
 ⚠ **`confirmedCount` est le nombre que l'aperçu a renvoyé, jamais recalculé.** L'acte tombe sur des
 étudiants dont personne n'a tapé le nom&nbsp;; une inscription créée, transférée ou évaluée entre

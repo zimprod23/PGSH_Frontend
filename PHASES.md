@@ -726,6 +726,12 @@ rapportées sur papier.
   pour empêcher, dans l'autre sens.
 - **`BulkDelocalizationModal`** — aperçu puis application, sélection par groupes + liste collée de
   CNE/Apogée. Le bouton porte **le nombre de l'aperçu** et n'est armé que par lui.
+  - ⚠ **Repris le 10/09/2026 : les dates sont sur la ligne, pas sur l'en-tête.** Une colonne
+    **Période** porte, pour chaque étudiant, la fenêtre de **son** groupe ; l'en-tête ne donne une
+    paire que si toutes les lignes la partagent (`distinctWindowCount === 1`) et dit sinon « n périodes
+    différentes selon le groupe ». Un badge **« tout le stage »** et un bandeau jaune signalent les
+    groupes datés par l'axe entier faute de cellule. ⚠ **Ne jamais retomber sur les dates de l'en-tête
+    pour rendre une ligne** — c'est la substitution que le serveur a cessé de faire.
 - **La modale de délocalisation d'un étudiant** accepte désormais une note /20 et porte **l'annulation
   à côté de l'acte** — un stage délocalisé par erreur se corrige là, par la personne qui vient de le
   faire.

@@ -28,9 +28,23 @@ import {
 } from '../api/adminApi';
 import type {
   BulkDelocalizationReport,
+  BulkDelocalizationRow,
   BulkDelocalizationRowStatus,
 } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
+
+/**
+ * One row's window, in words.
+ *
+ * ⚠ **Never falls back to the report's header dates.** The header carries a pair only when every
+ * applicable line shares one; borrowing it here is exactly the substitution the server stopped
+ * making — a group's passage replaced by the whole stage's axis, which on a stage crossed by six
+ * partitions is six times too long and overlaps every other stage of the student's year.
+ */
+function windowOf(row: BulkDelocalizationRow): string {
+  if (!row.startDate || !row.endDate) return '—';
+  return `${row.startDate} → ${row.endDate}`;
+}
 
 const STATUS_META: Record<BulkDelocalizationRowStatus, { color: string; label: string }> = {
   WillDelocalize:   { color: 'teal',   label: 'Sera délocalisé' },
@@ -285,8 +299,16 @@ export function BulkDelocalizationModal({
                 <Stat label="Rotations en cours supprimées" value={report.underwayCount} color={report.underwayCount ? 'orange' : 'gray'} />
                 <Stat label="Déjà délocalisés (remplacés)" value={report.replacedCount} color="blue" />
               </Group>
+              {/* ⚠ The dates are stated only when ONE window governs the whole act. A selection
+                  spanning two partitions has two, and printing either of them here would say
+                  something untrue of half the list — so the header defers to the column instead. */}
               <Text size="xs" c="dimmed" mt="xs">
-                {report.serviceName} · {report.academicYearLabel} · du {report.startDate} au {report.endDate}
+                {report.serviceName} · {report.academicYearLabel}
+                {report.distinctWindowCount === 1 && report.startDate
+                  ? ` · du ${report.startDate} au ${report.endDate}`
+                  : report.distinctWindowCount > 1
+                    ? ` · ${report.distinctWindowCount} périodes différentes selon le groupe (voir la colonne Période)`
+                    : ''}
               </Text>
             </Card>
 
@@ -295,6 +317,19 @@ export function BulkDelocalizationModal({
                 <Text size="sm">
                   Cette sélection ne désigne aucun étudiant. Vérifiez que les groupes appartiennent bien
                   à {report.academicYearLabel} et que les identifiants collés sont ceux de cette année.
+                </Text>
+              </Alert>
+            )}
+
+            {/* ⚠ Says what the dates mean rather than letting a four-month window pass for a
+                measurement. A group with no cell has not been placed on the grid yet, so PGSH has
+                nothing narrower than the stage's whole axis to date it by. */}
+            {report.stageWideWindowCount > 0 && (
+              <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={16} />}>
+                <Text size="sm">
+                  {report.stageWideWindowCount} étudiant(s) sont datés par <b>tout le stage</b> et non
+                  par le passage de leur groupe&nbsp;: ces groupes n’ont pas encore de cellule dans le
+                  planning. Répartissez-les d’abord, ou saisissez les dates réelles ci-dessus.
                 </Text>
               </Alert>
             )}
@@ -318,6 +353,7 @@ export function BulkDelocalizationModal({
                       <Table.Th>Groupe</Table.Th>
                       <Table.Th>Identifiant</Table.Th>
                       <Table.Th>État</Table.Th>
+                      <Table.Th>Période</Table.Th>
                       <Table.Th>Détail</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
@@ -335,6 +371,14 @@ export function BulkDelocalizationModal({
                           <Badge size="sm" variant="light" radius="xl" color={STATUS_META[r.status].color}>
                             {STATUS_META[r.status].label}
                           </Badge>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="xs" c="dimmed" ff="monospace">{windowOf(r)}</Text>
+                          {r.windowIsStageWide && (
+                            <Badge size="xs" variant="light" radius="xl" color="yellow">
+                              tout le stage
+                            </Badge>
+                          )}
                         </Table.Td>
                         <Table.Td><Text size="xs" c="dimmed">{r.message}</Text></Table.Td>
                       </Table.Tr>

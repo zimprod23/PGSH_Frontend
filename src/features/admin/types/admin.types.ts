@@ -1089,6 +1089,18 @@ export type BulkDelocalizationRowStatus =
   | 'NotFound'
   | 'WrongYear';
 
+/**
+ * Where a délocalisation's dates came from.
+ *
+ * - `Named` — scolarité typed them: the external hospital's own calendar, when it is known.
+ * - `Cohort` — the group's own passage through the stage, read off the cells it holds. The normal
+ *   answer, and the right one.
+ * - `StageAxis` — ⚠ **the whole stage's axis**, because the group holds no cell yet. On a stage the
+ *   promotion crosses in six partitions this is six times a passage, so the screen warns rather than
+ *   showing it as a measurement.
+ */
+export type DelocalizationWindowSource = 'Named' | 'Cohort' | 'StageAxis';
+
 export interface BulkDelocalizationRow {
   registrationId: string | null;
   studentName: string;
@@ -1099,6 +1111,16 @@ export interface BulkDelocalizationRow {
   message: string;
   /** The pasted line this row came from, so an unmatched one can be found in the file. */
   sourceIdentifier: string | null;
+  /**
+   * ⚠ **The dates are on the row, not only on the header.** A selection crosses partitions, and two
+   * groups pass through the same stage in different périodes — one pair of dates shown as if it
+   * governed every line is the lie this fixed. Null on a row that never reached a cohorte.
+   */
+  startDate: string | null;
+  endDate: string | null;
+  windowSource: DelocalizationWindowSource | null;
+  /** True when the dates are the whole stage's rather than this group's passage. */
+  windowIsStageWide: boolean;
 }
 
 export interface BulkDelocalizationReport {
@@ -1109,8 +1131,18 @@ export interface BulkDelocalizationReport {
   serviceIsExternal: boolean;
   academicYearId: number;
   academicYearLabel: string;
-  startDate: string;
-  endDate: string;
+  /**
+   * ⚠ **The window the whole act shares — null when it has none.** A selection spanning two
+   * partitions has two, and no single pair of dates is true of it. Read `distinctWindowCount` to
+   * tell the states apart: 0 means nothing applicable, 1 means these dates govern every line, more
+   * means the rows carry their own.
+   */
+  startDate: string | null;
+  endDate: string | null;
+  /** How many distinct windows the applicable rows fall into. */
+  distinctWindowCount: number;
+  /** Of the applicable rows, how many are dated by the stage's whole axis for want of a cell. */
+  stageWideWindowCount: number;
   /**
    * The lines to show, refusals first. ⚠ **Capped server-side** — a selection is a whole promotion
    * when the operator asks for one, and a single object carrying 900 rows is what took the browser
