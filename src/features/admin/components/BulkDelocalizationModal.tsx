@@ -258,10 +258,15 @@ export function BulkDelocalizationModal({
           autosize
         />
 
+        {/* ⚠ « les dates officielles du stage pour cette promotion » est ce que le serveur
+            répondait AVANT le 10/09/2026, et c'est exactement le défaut corrigé : sur un axe croisé
+            cela vaut tout l'axe, autant de fois le passage d'un groupe qu'il y a de partitions. La
+            phrase doit décrire ce qui est réellement calculé, sinon elle réapprend le défaut à
+            l'opérateur. */}
         <DatePickerInput
           type="range"
           label="Période enregistrée (facultatif)"
-          description="Laissez vide pour reprendre les dates officielles du stage pour cette promotion."
+          description="Laissez vide pour reprendre, pour chaque étudiant, la période que son groupe traverse sur ce stage. Un groupe sans cellule dans le planning est daté par tout le stage — l'aperçu le signale."
           placeholder="Dates du stage"
           value={range}
           onChange={(v) => { setRange(v); resetReport(); }}
