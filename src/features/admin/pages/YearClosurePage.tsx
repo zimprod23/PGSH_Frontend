@@ -53,7 +53,7 @@ import { SafePointBanner } from '../components/SafePointBanner';
 import { useSafePointGate } from '../hooks/useSafePointGate';
 import { useAcademicYear } from '../contexts/useAcademicYear';
 import { useNotify } from '../../../common/hooks/useNotify';
-import { problemMessage } from '../../../common/utils/problemMessage';
+import { isReportedByErrorMiddleware, problemMessage } from '../../../common/utils/problemMessage';
 
 /**
  * The academic year, in the three acts it really has.
@@ -153,7 +153,12 @@ export default function YearClosurePage() {
       link.click();
       URL.revokeObjectURL(url);
     } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'Impossible de générer le canevas.');
+      // ⚠ A download is one of the few controls allowed to speak for itself: it has no empty state
+      // to render, and the one rejection `errorMiddleware` stays silent about is a 404 on a *query*
+      // — which is exactly what a missing canvas is. Everywhere else it owns the sentence, so the
+      // guard is what keeps this from being the second banner.
+      if (!isReportedByErrorMiddleware(err))
+        notify.error(problemMessage(err) ?? 'Le canevas n\'a pas pu être généré.');
     }
   };
 
@@ -163,8 +168,8 @@ export default function YearClosurePage() {
     if (!picked) return;
     try {
       setReport(await preview({ ...scope, file: picked }).unwrap());
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'Fichier illisible.');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -182,8 +187,8 @@ export default function YearClosurePage() {
       notify.success(
         `${result.willRecord + result.willReplace + result.defaultedCount} décision(s) enregistrée(s).`,
       );
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'La clôture a été refusée.');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -197,8 +202,8 @@ export default function YearClosurePage() {
     try {
       setRolloverApplied(false);
       setRollover(await previewRollover(rolloverRequest).unwrap());
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'Simulation impossible.');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -208,8 +213,8 @@ export default function YearClosurePage() {
       setRollover(result);
       setRolloverApplied(true);
       notify.success(`${result.willRegister} inscription(s) créée(s) pour ${result.toYearLabel}.`);
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'La réinscription a été refusée.');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

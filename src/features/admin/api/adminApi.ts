@@ -1,4 +1,4 @@
-import { apiSlice } from '../../../app/apiSlice';
+﻿import { apiSlice } from '../../../app/apiSlice';
 import { MAX_PAGE_SIZE } from '../../../common/constants/pagination';
 import type { PaginatedResponse, BulkResponse, RegistrationStatus, AcademicProgram } from '../../../common/types';
 import type {
@@ -36,6 +36,7 @@ import type {
 } from '../types/inscription.types';
 import type { StudentSummaryResponse, GetStudentsQuery, UpdateStudentRequest } from '../../student/types/student.types';
 import type { OccupancyReportRequest, OccupancyReportResponse } from '../types/occupancyReport.types';
+import type { PromotionFitRequest, PromotionFitResponse } from '../types/promotionFit.types';
 import type { AuditLogPage, AuditLogRequest } from '../types/audit.types';
 import type {
   HospitalStageCoverageResponse,
@@ -1162,11 +1163,16 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       BulkRosterAssignmentReport, ApplyBulkRosterAssignmentRequest
     >({
       query: (body) => ({ url: '/groups/assign/bulk', method: 'POST', body }),
-      // Both rosters change size, and a student who joined from nowhere has just received his
-      // affectations — so the assignment list is stale too.
-      invalidatesTags: (_r, _e, { targetGroupId }) => [
+      // Every roster the act touches changes size, and a student who joined from nowhere has just
+      // received his affectations — so the assignment list is stale too.
+      //
+      // ⚠ The sources come from the **report**, not from the request: a selection can name a whole
+      // promotion, so the client never knew which rosters it was emptying. `sourceGroupIds` is
+      // measured server-side over every row, before the display cap.
+      invalidatesTags: (report, _e, { targetGroupId }) => [
         { type: 'Level' as const, id: 'GROUPS' },
         { type: 'Level' as const, id: `group-${targetGroupId}` },
+        ...(report?.sourceGroupIds ?? []).map((id) => ({ type: 'Level' as const, id: `group-${id}` })),
         { type: 'Assignment' as const, id: 'LIST' },
       ],
     }),
@@ -1247,11 +1253,23 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // ⚠ The body is spelled out rather than spread: `sourceGroupId` exists for the cache alone and
+    // the endpoint binds a command that has no such field. Same shape as changeStudentGroup.
     transferStudent: builder.mutation<void, TransferStudentRequest>({
-      query: (body) => ({ url: '/groups/transfer-student', method: 'POST', body }),
-      invalidatesTags: (_r, _e, { registrationId }) => [
+      query: ({ registrationId, targetGroupId, reason, type, stageId, reschedule }) => ({
+        url: '/groups/transfer-student',
+        method: 'POST',
+        body: { registrationId, targetGroupId, reason, type, stageId, reschedule },
+      }),
+      // Both roster *detail* pages go stale, and `GROUPS` does not reach them: getGroupById provides
+      // `group-<id>`, a different tag from the list's. The same defect as changeStudentGroup, on the
+      // act beside it — measured in the browser 2026-09-08, the source page still listing 12 students
+      // where 11 remained.
+      invalidatesTags: (_r, _e, { registrationId, targetGroupId, sourceGroupId }) => [
         { type: 'Registration' as const, id: registrationId },
         { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Level' as const, id: `group-${targetGroupId}` },
+        ...(sourceGroupId ? [{ type: 'Level' as const, id: `group-${sourceGroupId}` }] : []),
         { type: 'Assignment' as const, id: 'LIST' },
       ],
     }),
@@ -1297,12 +1315,22 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // ⚠ **No `group-<id>` on either of these, and that is correct**: a délocalisation leaves the
+    // student in his cohorte and in his roster — the two roster detail pages read the same rows
+    // before and after. What moves is **where he stands**: a délocalisé stops occupying the service
+    // he left, so it is the stage's grid and the services' occupancy that go stale.
+    // See `docs/delocalization.md`.
+    //
+    // ⚠ The outbound act had forgotten the grid while its own undo remembered it — so sending a
+    // promotion away left the saturation the operator was reading exactly as it was, which is the
+    // client-side twin of the defect the server fixed in session 48.
     delocalizeStudent: builder.mutation<void, DelocalizeStudentRequest>({
       query: (body) => ({ url: '/stages/delocalize', method: 'POST', body }),
-      invalidatesTags: (_r, _e, { registrationId }) => [
+      invalidatesTags: (_r, _e, { registrationId, stageId }) => [
         { type: 'Registration' as const, id: registrationId },
-        { type: 'Level' as const, id: 'GROUPS' },
         { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Service' as const, id: 'LIST' },
       ],
     }),
 
@@ -1310,9 +1338,9 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: '/stages/delocalize/cancel', method: 'POST', body }),
       invalidatesTags: (_r, _e, { registrationId, stageId }) => [
         { type: 'Registration' as const, id: registrationId },
-        { type: 'Level' as const, id: 'GROUPS' },
         { type: 'Assignment' as const, id: 'LIST' },
         { type: 'Stage' as const, id: `schedule-${stageId}` },
+        { type: 'Service' as const, id: 'LIST' },
       ],
     }),
 
@@ -1346,8 +1374,16 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // ⚠ This invalidated **nothing**, and it is the act that makes rosters exist. Measured in the
+    // browser 2026-09-10: after « Lancer la répartition » the Groupes tab read « Aucun groupe pour
+    // cette année. Lancez d'abord la répartition automatique » while the base held the twelve it had
+    // just created — and because « Vider » and « Supprimer » are rendered only when the list is
+    // non-empty, the screen advised replaying the act *and* withdrew the means of undoing it.
+    //
+    // Only the list: the rosters are new, so no `group-<id>` entry can be cached for them yet.
     autoArrangeGroups: builder.mutation<BulkResponse<string, number>, AutoArrangeRequest>({
       query: (body) => ({ url: '/groups/auto-arrange', method: 'POST', body }),
+      invalidatesTags: [{ type: 'Level' as const, id: 'GROUPS' }],
     }),
 
     /**
@@ -1743,6 +1779,22 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     }),
 
     /**
+     * « Cette promotion tient-elle ? » — the capacity read that needs no plan.
+     *
+     * ⚠ Tagged on `Service` and on `Stage`, and deliberately **not** on the planning tags: nothing
+     * here is computed from cells, so arranging or publishing changes not one number. What moves it
+     * is the catalogue — a service's capacity or quota, a stage's allowed services, a duration — and
+     * the roll, which is why `Registration` is in the list too.
+     */
+    getPromotionFit: builder.query<PromotionFitResponse, PromotionFitRequest>({
+      query: (params) => ({ url: '/services/promotion-fit', params }),
+      providesTags: [
+        { type: 'Service' as const, id: 'promotion-fit' },
+        { type: 'Stage' as const, id: 'LIST' },
+      ],
+    }),
+
+    /**
      * What a student owes at ONE level, folded across every registration he holds there — the
      * question a repeating student's several registrations make impossible to read one at a time.
      */
@@ -2125,10 +2177,13 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         method: 'POST',
         body: { registrationId, academicGroupId, reason },
       }),
-      invalidatesTags: (_r, _e, { registrationId, studentId }) => [
+      // ⚠ No source: joining is precisely the registration that was in no roster. Only the target's
+      // detail page goes stale, and `GROUPS` does not refresh it — getGroupById provides its own tag.
+      invalidatesTags: (_r, _e, { registrationId, studentId, academicGroupId }) => [
         { type: 'Registration' as const, id: registrationId },
         ...(studentId ? [{ type: 'Registration' as const, id: studentId }] : []),
         { type: 'Level' as const, id: 'GROUPS' },
+        { type: 'Level' as const, id: `group-${academicGroupId}` },
         { type: 'Assignment' as const, id: 'LIST' },
       ],
     }),
@@ -2167,6 +2222,7 @@ export const {
   useGetStudentsQuery,
   useDeleteStudentMutation,
   useGetOccupancyReportQuery,
+  useGetPromotionFitQuery,
   useGetStudentLevelDossierQuery,
   useGetOutstandingStagesQuery,
   useGetAcademicYearsQuery,

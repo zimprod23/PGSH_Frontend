@@ -210,14 +210,16 @@ export default function EmployeesPage() {
       }
       handleClose();
     } catch {
-      notify.error('Erreur lors de l\'enregistrement');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     try { await deleteEmployee(deleteTarget.id).unwrap(); notify.success('Employé supprimé'); }
-    catch { notify.error('Impossible de supprimer cet employé'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
     closeDeleteModal();
     setDeleteTarget(null);
   };

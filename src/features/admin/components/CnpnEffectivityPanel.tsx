@@ -119,8 +119,8 @@ export function CnpnEffectivityPanel({ version }: Props) {
       notify.success('Entrée en vigueur enregistrée');
       setLevelChoice(null);
       setNote('');
-    } catch (err: unknown) {
-      notify.error((err as { data?: { detail?: string } })?.data?.detail ?? 'Enregistrement impossible');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -133,16 +133,16 @@ export function CnpnEffectivityPanel({ version }: Props) {
           ? `Règle supprimée — les ${result.registrationsGoverned} inscription(s) déjà rattachées gardent leur texte.`
           : 'Règle supprimée',
       );
-    } catch (err: unknown) {
-      notify.error((err as { data?: { detail?: string } })?.data?.detail ?? 'Suppression impossible');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
   const handlePreview = async (id: number) => {
     try {
       setPreview(await runPreview(id).unwrap());
-    } catch (err: unknown) {
-      notify.error((err as { data?: { detail?: string } })?.data?.detail ?? 'Simulation impossible');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -158,8 +158,8 @@ export function CnpnEffectivityPanel({ version }: Props) {
 
       setPreview(null);
       notify.success(`${result.willMove} inscription(s) re-rattachée(s) au CNPN ${result.cnpnVersionCode}`);
-    } catch (err: unknown) {
-      notify.error((err as { data?: { detail?: string } })?.data?.detail ?? 'Application impossible');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

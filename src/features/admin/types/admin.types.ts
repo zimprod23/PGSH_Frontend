@@ -1,4 +1,4 @@
-import type { AcademicProgram, PaginatedResponse, RegistrationStatus } from '../../../common/types';
+﻿import type { AcademicProgram, PaginatedResponse, RegistrationStatus } from '../../../common/types';
 import type {
   EvaluationMode,
   ObjectiveScoreDto,
@@ -967,6 +967,14 @@ export interface TransferStudentRequest {
   stageId?: number;
   // Forced mid-stage hand-off: re-route the in-flight rotation to the target group's services.
   reschedule?: boolean;
+  /**
+   * Client-side only, for cache invalidation — the same field and the same reason as
+   * {@link ChangeStudentGroupRequest.sourceGroupId}. ⚠ The request names only the destination, so the
+   * roster being left is known to the caller and to nobody else: without it, the page the transfer
+   * was launched from goes on listing the student. Measured in the browser 2026-09-08 — 12 shown
+   * where 11 remained.
+   */
+  sourceGroupId?: number;
 }
 
 // ─── Changement de groupe ──────────────────────────────────────────────────────
@@ -1187,6 +1195,8 @@ export interface BulkRosterAssignmentRow {
   appogee: string | null;
   /** The roster the student is in today — null when he is in none. */
   currentGroupLabel: string | null;
+  /** ⚠ The same roster by id: a label repeats in every promotion and identifies nothing. */
+  currentGroupId: number | null;
   status: BulkRosterAssignmentRowStatus;
   message: string;
   /** The pasted line this row came from, so an unmatched one can be found in the file. */
@@ -1208,6 +1218,12 @@ export interface BulkRosterAssignmentReport {
   refusedCount: number;
   joinCount: number;
   moveCount: number;
+  /**
+   * The rosters the act takes students **out** of, measured server-side over **every** row — never
+   * over the capped `rows`. ⚠ The client cannot derive this: a selection can name a whole promotion,
+   * and only the server read each registration's roster. Each one names a detail page gone stale.
+   */
+  sourceGroupIds: number[];
   alreadyThereCount: number;
   rowsTruncated: boolean;
   isEmpty: boolean;
@@ -1542,11 +1558,19 @@ export interface YearTimelineResponse {
 
 // ─── Groups ──────────────────────────────────────────────────────────────────
 
+/**
+ * ⚠ **Exactly one of `groupSize` and `groupCount`** — the server's validator refuses both and
+ * neither. They are two ways of naming the same cut: one holds the size fixed, the other the number
+ * of rosters. The faculty uses both (« des groupes de 20 », « la 5ᵉ MED en 100 groupes »).
+ */
 export interface AutoArrangeRequest {
   levelId: number;
   /** Groups are arranged within one promotion — `AutoArrangeGroupsCommand` binds `AcademicYearId`. */
   academicYearId: number;
-  groupSize: number;
+  /** The **maximum** per roster. The students are then spread evenly across the resulting rosters. */
+  groupSize?: number;
+  /** How many rosters to make. Refused when it exceeds the promotion's plannable population. */
+  groupCount?: number;
 }
 
 export interface CreateRegistrationRequest {

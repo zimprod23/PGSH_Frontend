@@ -177,7 +177,7 @@ function EmptyCurriculum({
       }).unwrap();
       notify.success(`CNPN ${cnpnVersionLabel} ouvert depuis ${sources.find((s) => s.value === source)?.label}`);
     } catch {
-      notify.error("Impossible de cloner ce texte — le CNPN source n’a peut-être aucune exigence pour ce niveau");
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -332,7 +332,7 @@ function CurriculumForm({
       notify.success(`CNPN ${cnpnVersionLabel} enregistré`);
       onDone();
     } catch {
-      notify.error("Erreur lors de l'enregistrement du CNPN");
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

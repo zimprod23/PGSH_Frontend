@@ -36,7 +36,7 @@ import {
   type EvaluationImportScope,
 } from '../types/import.types';
 import { useNotify } from '../../../common/hooks/useNotify';
-import { problemMessage } from '../../../common/utils/problemMessage';
+import { isReportedByErrorMiddleware, problemMessage } from '../../../common/utils/problemMessage';
 
 interface Props {
   stageId: number;
@@ -108,8 +108,13 @@ export function EvaluationImportModal({
       link.download = `notes-stage-${stageId}${academicYearId ? `-${academicYearId}` : ''}${suffix}.xlsx`;
       link.click();
       URL.revokeObjectURL(url);
-    } catch {
-      notify.error('Impossible de générer le modèle.');
+    } catch (err: unknown) {
+      // ⚠ A download is one of the few controls allowed to speak for itself: it has no empty state
+      // to render, and the one rejection `errorMiddleware` stays silent about is a 404 on a *query*
+      // — which is exactly what a missing canvas is. Everywhere else it owns the sentence, so the
+      // guard is what keeps this from being the second banner.
+      if (!isReportedByErrorMiddleware(err))
+        notify.error(problemMessage(err) ?? 'Le modèle n\'a pas pu être généré.');
     }
   };
 
@@ -119,8 +124,8 @@ export function EvaluationImportModal({
     if (!picked) return;
     try {
       setReport(await preview({ ...request, file: picked }).unwrap());
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'Fichier illisible.');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -131,8 +136,8 @@ export function EvaluationImportModal({
       setReport(result);
       setApplied(true);
       notify.success(`${result.periodCount} note(s) enregistrée(s).`);
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? "L'import a été refusé.");
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

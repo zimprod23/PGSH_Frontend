@@ -28,6 +28,7 @@ export const PATHS = {
     TIMELINE:        'timeline',
     REPARTITION:     'repartition',
     OCCUPANCY:       'charge-services',
+    PROMOTION_FIT:   'faisabilite',
     ROTATION_CYCLE:  'rotation-cycle',
     HOLIDAYS:        'holidays',
     LEVELS:          'levels',

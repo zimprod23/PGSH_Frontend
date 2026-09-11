@@ -1,4 +1,4 @@
-# CLAUDE.md — PGSH Frontend
+﻿# CLAUDE.md — PGSH Frontend
 
 This file provides guidance to Claude Code when working in `PGSH.Frontend/`.
 
@@ -394,6 +394,28 @@ export button 2026-08-31, and the same one session 31b removed from four teardow
   and the real messages in `errors[]`. Four files had each rolled their own `detailOf` reading only
   `detail`, so they showed the useless half of every validation refusal.
 
+#### ✅ Balayé le 11/09/2026 — **89 appels à `notify.error`, il en reste 11**
+
+62 étaient la même phrase une seconde fois. Ce qui part est remplacé par un `catch` commenté : la
+capture reste — elle avale le rejet et remet l'état local — c'est la *phrase* qui s'en va.
+
+- ⚠ **Le critère, et il est net** : un `catch` autour d'un `.unwrap()` dont le message est soit une
+  réimpression de `detail`, soit une reformulation générique de l'acte (« Impossible de X », « Erreur
+  lors de X ») est un doublon. Les deux disent moins que ce que le middleware affiche déjà.
+- **Ce qui reste, et pourquoi** : les trois téléchargements protégés par
+  `isReportedByErrorMiddleware` ; l'échec d'ouverture d'une pop-up et la fiche indisponible dans
+  `StudentRecordModal` (une 404 sur une *query*, la seule que le middleware avale) ; et les deux
+  messages de `RotationCyclePage`, qui ne sont pas des `catch` du tout mais des **résultats
+  d'acte** — ils portent des nombres (`publishedCells`, `groupConflicts`) que le serveur ne met pas
+  dans son refus.
+- ⚠ **`StagesPage` lisait `errors[]` elle-même** et avait raison de le faire : le middleware cherchait
+  le tableau sous `extensions` et ne le trouvait jamais. **Il a été corrigé en session 51**, donc
+  cette lecture était devenue la seconde — c'est le cas à retenir, parce que rien dans le fichier ne
+  le disait.
+- ⚠ **En retirant, ne pas rendre un bouton muet.** Trois téléchargements ont d'abord été balayés avec
+  le reste, ce qui les laissait sans un mot sur la seule rejection que le middleware ne montre pas.
+  Un contrôle sans état vide à dessiner garde son message, sous le garde.
+
 ### 1f. A download comes from the server named, and goes out through one helper
 
 `common/utils/downloadBlob.ts` + `common/components/ExportButton.tsx`.
@@ -510,6 +532,41 @@ journal réseau : `POST … 200` suivi d'un refetch de `/api/groups` **et d'aucu
   masque exactement ce défaut ; ce qui le prouve est la liste des requêtes après le `POST`.
 - Même famille que §1d : une donnée périmée qui se corrige presque partout — ici, dès qu'on quitte la
   page et qu'on y revient — donc qu'on ne voit que dans le cas où elle ne se corrige pas.
+
+#### ✅ Balayé le 11/09/2026 — les quatre actes restants
+
+- **`autoArrangeGroups` n'invalidait *rien du tout***, et c'est l'acte qui fait exister les rosters.
+  Mesuré à l'écran le 10/09 : après « Lancer la répartition », l'onglet *Groupes* affichait « Aucun
+  groupe pour cette année. Lancez d'abord la répartition automatique » pendant que la base en portait
+  douze. ⚠ **Et les deux boutons destructeurs disparaissent avec la liste vide** — l'écran conseille
+  donc de rejouer l'acte *et* retire le moyen de le défaire. Le pire symptôme de la famille.
+- **`transferStudent`** nommait `GROUPS` seul : la page de départ continuait de lister l'étudiant,
+  12 au lieu de 11. Il prend `sourceGroupId` en champ client-only, comme `changeStudentGroup` — et
+  son corps est **épelé** plutôt que répandu, pour que le champ ne parte pas au serveur.
+- **`assignStudentToGroup`** nommait la liste mais pas la fiche de la cible. Pas de source : rejoindre,
+  c'est précisément l'inscription qui n'était dans aucun roster.
+- **`applyBulkRosterAssignment`** : ⚠ **les sources sont plurielles et le client ne les connaît pas.**
+  Une sélection peut nommer une promotion entière par ids de roster ou par une liste collée, et c'est
+  le serveur qui a lu l'`AcademicGroupId` de chaque inscription. Elles remontent donc dans le
+  **rapport** (`sourceGroupIds`), mesurées sur **toutes** les lignes et non sur `rows`, qui est
+  plafonné — même piège que les compteurs, pris par l'autre bout.
+- ⚠ **Et deux actes qui ne doivent *pas* nommer de roster** : `delocalizeStudent` /
+  `cancelDelocalization`. Une délocalisation laisse l'étudiant dans sa cohorte et dans son roster ; ce
+  qui bouge est **où il se tient**. C'est la grille du stage et l'occupation des services qui
+  périment. L'aller avait oublié la grille alors que son propre retour s'en souvenait — donc envoyer
+  une promotion dehors laissait la saturation affichée exactement comme elle était.
+
+#### …et les 39 codes d'acte qui s'affichaient en SCREAMING_SNAKE
+
+Mesuré le 11/09/2026 : **39 des 68 codes du serveur n'avaient aucun libellé** dans `auditActions.ts`,
+dont les dix ajoutés la veille. Deux autres libellés visaient des codes que le serveur ne produit plus
+(`REGISTRATION_OUTCOME_RECORDED`, `REGISTRATION_YEAR_REOPENED` — renommés `YEAR_OUTCOME_*`). ⚠ **Aucun
+des deux sens de la dérive ne casse quoi que ce soit**, ce qui est exactement ce qui les rend
+durables : un code sans libellé s'affiche brut, un libellé sans code ne s'affiche jamais.
+
+Le repli est bon et il n'excuse rien. La table est à jour ; **la vérifier fait partie de l'ajout d'un
+`IAuditableCommand`**, et le contrôle reste manuel à dessein — un test C# qui lirait ce fichier
+`.ts` traverserait la frontière de deux dépôts pour épingler une table de traduction.
 
 #### …et un code d'acte nouveau a besoin de son libellé le jour même
 

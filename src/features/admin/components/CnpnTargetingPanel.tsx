@@ -81,8 +81,8 @@ export function CnpnTargetingPanel({ version }: Props) {
     try {
       setPreview(await runPreview(criteria).unwrap());
       setApplied(false);
-    } catch (err: unknown) {
-      notify.error((err as { data?: { detail?: string } })?.data?.detail ?? 'Simulation impossible');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -91,8 +91,8 @@ export function CnpnTargetingPanel({ version }: Props) {
       setPreview(await runApply(criteria).unwrap());
       setApplied(true);
       notify.success('Rattachement enregistré');
-    } catch (err: unknown) {
-      notify.error((err as { data?: { detail?: string } })?.data?.detail ?? 'Rattachement impossible');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

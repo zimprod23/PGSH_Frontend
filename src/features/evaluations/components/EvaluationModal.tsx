@@ -218,9 +218,8 @@ function EvaluationForm({
         notify.success('Évaluation soumise');
       }
       onClose();
-    } catch (err: unknown) {
-      const detail = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(detail ?? 'Erreur lors de la soumission');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

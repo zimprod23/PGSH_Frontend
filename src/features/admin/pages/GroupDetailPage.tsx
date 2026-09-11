@@ -1,4 +1,4 @@
-import {
+﻿import {
   ActionIcon,
   Alert,
   Badge,
@@ -128,12 +128,14 @@ function TransferModal({ student, academicYearId, levelId, currentGroupId, opene
         type,
         stageId:        type === 'Temporary' ? Number(stageId) : undefined,
         reschedule,
+        // Cache-only, and known nowhere else: the request names the destination alone.
+        sourceGroupId:  currentGroupId,
       }).unwrap();
       notify.success(`${student.fullName} transféré(e)`);
       reset();
       onClose();
     } catch {
-      notify.error('Impossible de transférer cet étudiant');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

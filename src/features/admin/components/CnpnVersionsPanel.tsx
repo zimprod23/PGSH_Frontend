@@ -122,8 +122,8 @@ export function CnpnVersionsPanel({ versions, program }: Props) {
         notify.success(`CNPN ${body.code} enregistré`);
         setCreating(false);
       }
-    } catch (err: unknown) {
-      notify.error((err as { data?: { detail?: string } })?.data?.detail ?? 'Enregistrement impossible');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -142,8 +142,8 @@ export function CnpnVersionsPanel({ versions, program }: Props) {
       );
       setCloneInto(null);
       setCloneFrom(null);
-    } catch (err: unknown) {
-      notify.error((err as { data?: { detail?: string } })?.data?.detail ?? 'Reprise impossible');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -156,8 +156,8 @@ export function CnpnVersionsPanel({ versions, program }: Props) {
         (r.curriculaRemoved > 0 ? ` — ${r.curriculaRemoved} niveau(x) d’exigences retirés` : ''),
       );
       setDeleting(null);
-    } catch (err: unknown) {
-      notify.error((err as { data?: { detail?: string } })?.data?.detail ?? 'Suppression impossible');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

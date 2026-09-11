@@ -509,7 +509,9 @@ export default function AssignmentsPage() {
         cohortIds: selectedIds, periodNumbers: periodArg,
       }).unwrap();
       notify.success(`${res.started} période(s) démarrée(s)`);
-    } catch { notify.error('Impossible de démarrer'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
   const handleBulkComplete = async () => {
     if (!stageId) return;
@@ -519,7 +521,9 @@ export default function AssignmentsPage() {
         cohortIds: selectedIds, periodNumbers: periodArg,
       }).unwrap();
       notify.success(`${res.completed} période(s) clôturée(s)`);
-    } catch { notify.error('Impossible de clôturer'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
   const handleBulkValidate = () => runForSelected('validation', (id) => validateCohort(id).unwrap(),  'validated');
   const handleBulkPause = async () => {
@@ -533,7 +537,9 @@ export default function AssignmentsPage() {
       notify.success(`${res.paused} rotation(s) en pause`);
       setPauseReason('');
       closePause();
-    } catch { notify.error('Impossible de mettre en pause'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
   const handleBulkResume = async () => {
     if (!stageId) return;
@@ -543,22 +549,30 @@ export default function AssignmentsPage() {
         cohortIds: selectedIds, periodNumbers: periodArg,
       }).unwrap();
       notify.success(`${res.resumed} rotation(s) reprise(s)`);
-    } catch { notify.error('Impossible de reprendre'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   const handleStartOne = async (a: InternshipAssignmentSummaryResponse) => {
     try { await startOne(a.id).unwrap(); notify.success(`${a.studentFullName} — démarrée`); }
-    catch { notify.error('Impossible de démarrer'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
   const handleValidateOne = async () => {
     if (!target) return;
     try { await validateOne(target.id).unwrap(); notify.success(`${target.studentFullName} — validé`); closeValidate(); }
-    catch { notify.error('Impossible de valider'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
   const handleRejectOne = async () => {
     if (!target) return;
     try { await rejectOne(target.id).unwrap(); notify.success(`${target.studentFullName} — rejeté`); closeReject(); }
-    catch { notify.error('Impossible de rejeter'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   const someChecked = selectedIds.length > 0;

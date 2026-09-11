@@ -132,7 +132,7 @@ export default function LevelsPage() {
       notify.success('Niveau créé');
       closeCreate();
     } catch {
-      notify.error('Impossible de créer le niveau');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -143,7 +143,7 @@ export default function LevelsPage() {
       notify.success('Niveau mis à jour');
       setEditTarget(null);
     } catch {
-      notify.error('Impossible de mettre à jour le niveau');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

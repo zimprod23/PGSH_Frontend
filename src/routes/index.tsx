@@ -41,6 +41,7 @@ const GroupDetailPage         = lazy(() => import('../features/admin/pages/Group
 const StageTimelinePage       = lazy(() => import('../features/admin/pages/StageTimelinePage'));
 const RepartitionPage         = lazy(() => import('../features/admin/pages/RepartitionPage'));
 const OccupancyReportPage     = lazy(() => import('../features/admin/pages/OccupancyReportPage'));
+const PromotionFitPage        = lazy(() => import('../features/admin/pages/PromotionFitPage'));
 const RotationCyclePage       = lazy(() => import('../features/admin/pages/RotationCyclePage'));
 const HolidaysPage            = lazy(() => import('../features/admin/pages/HolidaysPage'));
 const StagesPage              = lazy(() => import('../features/admin/pages/StagesPage'));
@@ -140,6 +141,7 @@ export const router = createBrowserRouter([
               { path: PATHS.ADMIN.TIMELINE,    element: wrap(<StageTimelinePage />) },
               { path: PATHS.ADMIN.REPARTITION, element: wrap(<RepartitionPage />)   },
               { path: PATHS.ADMIN.OCCUPANCY, element: wrap(<OccupancyReportPage />) },
+              { path: PATHS.ADMIN.PROMOTION_FIT, element: wrap(<PromotionFitPage />) },
               { path: PATHS.ADMIN.PLACEMENTS, element: wrap(<PlacementsPage />) },
               { path: PATHS.ADMIN.AUDIT_LOG, element: wrap(<AuditLogPage />) },
               { path: PATHS.ADMIN.ROTATION_CYCLE, element: wrap(<RotationCyclePage />) },

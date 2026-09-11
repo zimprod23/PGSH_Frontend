@@ -179,16 +179,16 @@ export default function StageDetailPage() {
   const handleAddService = async (service: AllowedServiceSummary) => {
     setServiceSearch('');
     try { await addAllowedService({ stageId, service }).unwrap(); }
-    catch (err: unknown) {
-      // The server names the promotions the service does take; that is far more useful than a
-      // generic failure, so it is surfaced when present.
-      const detail = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(detail ?? 'Impossible d\'ajouter ce service');
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur — et c'est la sienne qui nomme les
+      // promotions que ce service accepte, ce qu'aucune phrase écrite ici ne saurait dire.
     }
   };
   const handleRemoveService = async (serviceId: number) => {
     try { await removeAllowedService({ stageId, serviceId }).unwrap(); }
-    catch { notify.error('Impossible de retirer ce service'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   // ── Reserved services ────────────────────────────────────────────────────
@@ -229,9 +229,8 @@ export default function StageDetailPage() {
     [ids[index], ids[target]] = [ids[target], ids[index]];
 
     try { await setAllowedServiceOrder({ stageId, serviceIds: ids }).unwrap(); }
-    catch (err: unknown) {
-      const detail = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(detail ?? 'Impossible de réordonner les services');
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
   // The cohort-creation modal keeps its own year — provisioning next year's cohorts while looking at
@@ -291,7 +290,9 @@ export default function StageDetailPage() {
       const res = await assignAll({ stageId, academicYearId: currentYearId ?? undefined }).unwrap();
       if (res.successCount === 0) notify.info('Tous les étudiants sont déjà affectés.');
       else notify.success(`${res.successCount} étudiant(s) affecté(s) à toutes les cohortes`);
-    } catch { notify.error('Erreur lors de l\'affectation globale'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   const handleAssignStudents = async (cohortId: number, label: string) => {
@@ -300,7 +301,9 @@ export default function StageDetailPage() {
       const res = await assignStudents({ cohortId, stageId }).unwrap();
       if (res.successCount === 0) notify.info(`Tous les étudiants de "${label}" sont déjà affectés.`);
       else notify.success(`${res.successCount} étudiant(s) affecté(s) à "${label}"`);
-    } catch { notify.error('Impossible d\'affecter les étudiants'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
     finally { setAssigningCohortId(null); }
   };
 
@@ -331,8 +334,8 @@ export default function StageDetailPage() {
         notify.info('Le planning de cette cohorte est déjà publié');
       else if (extractErrorCode(err) === 'Schedule.NotConfigured')
         notify.warning('Aucune affectation de créneau configurée — ouvrez la grille de planning');
-      else
-        notify.error('Erreur lors de la publication du planning');
+      // Anything else: errorMiddleware a déjà affiché la phrase du serveur. The two branches above
+      // stay because they turn a known refusal into an instruction the server does not give.
     } finally { setPublishingCohortId(null); }
   };
 
@@ -361,7 +364,7 @@ export default function StageDetailPage() {
         setUnpublishingCohortId(null);
         return;   // modal stays open, now showing what the deletion would cost
       }
-      notify.error(detail ?? 'Impossible de dépublier ce planning');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     } finally { setUnpublishingCohortId(null); }
     closeUnpublishDialog();
   };
@@ -444,9 +447,8 @@ export default function StageDetailPage() {
         if (res.cohortsSkippedUnderway > 0) notify.warning(parts.join(' · '));
         else notify.success(parts.join(' · '));
       }
-    } catch (err: unknown) {
-      const detail = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(detail ?? 'Impossible de dépublier les répartitions de ce stage');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     } finally {
       setUnpublishingAll(false);
     }
@@ -457,7 +459,9 @@ export default function StageDetailPage() {
     try {
       const res = await startAssignments({ cohortId }).unwrap();
       notify.success(`${res.started} affectation(s) démarrée(s) pour "${label}"`);
-    } catch { notify.error('Impossible de démarrer les affectations — vérifiez que le plan est publié'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
     finally { setStartingCohortId(null); }
   };
 

@@ -1,4 +1,4 @@
-import {
+﻿import {
   ActionIcon,
   Alert,
   Badge,
@@ -14,6 +14,7 @@ import {
   Pagination,
   Anchor,
   ScrollArea,
+  SegmentedControl,
   Select,
   SimpleGrid,
   Skeleton,
@@ -75,13 +76,20 @@ import { ConfirmModal } from '../../../common/components/ConfirmModal';
 
 // ─── Auto-arrange tab ────────────────────────────────────────────────────────
 
+/** Which unit the operator is cutting in. Both are a cut; they differ in what is held fixed. */
+type CutBy = 'size' | 'count';
+
 interface FormState {
   academicYearId: string | null;
   levelId: string | null;
+  cutBy: CutBy;
   groupSize: number;
+  groupCount: number;
 }
 
-const EMPTY: FormState = { academicYearId: null, levelId: null, groupSize: 20 };
+const EMPTY: FormState = {
+  academicYearId: null, levelId: null, cutBy: 'size', groupSize: 20, groupCount: 12,
+};
 
 function AutoArrangeTab() {
   const notify = useNotify();
@@ -100,28 +108,50 @@ function AutoArrangeTab() {
     }, {})
   ).map(([group, items]) => ({ group, items }));
 
-  const canSubmit = currentYearId && form.levelId && form.groupSize >= 2;
+  const byCount = form.cutBy === 'count';
+  const canSubmit = Boolean(
+    currentYearId && form.levelId && (byCount ? form.groupCount >= 1 : form.groupSize >= 2),
+  );
 
   const handleArrange = async () => {
     if (!canSubmit) return;
     setResult(null);
     try {
+      // ⚠ One field or the other, never both: the server refuses a request carrying the two, and
+      // sending the unused one as 0 would be a third meaning nobody asked for.
       const res = await arrange({
         academicYearId: currentYearId!,
         levelId: Number(form.levelId),
-        groupSize: form.groupSize,
+        ...(byCount ? { groupCount: form.groupCount } : { groupSize: form.groupSize }),
       }).unwrap();
       setResult(res);
       notify.success(`${res.successCount} étudiant(s) réparti(s) en groupes`);
-    } catch (err: unknown) {
-      const msg = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(msg ?? 'Erreur lors de la répartition');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
   const groupCount = result
     ? new Set(result.items.filter((i) => i.isSuccess).map((i) => i.data)).size
     : null;
+
+  // ⚠ The **achieved** shape, read back from what the server returned — never recomputed from the
+  // request. « 12 groupes » is true of a cut that left a group of 12 beside eleven of 20 and of one
+  // that made four of 20 and eight of 19, and only one of those is what was asked for. Two texts at
+  // a level, or a count the promotion could not honour, make the difference visible here first.
+  const shape = (() => {
+    if (!result) return null;
+    const bySize = new Map<number, number>();
+    for (const size of [...result.items.filter((i) => i.isSuccess)
+      .reduce((m, i) => m.set(i.data, (m.get(i.data) ?? 0) + 1), new Map<number, number>())
+      .values()])
+      bySize.set(size, (bySize.get(size) ?? 0) + 1);
+
+    return [...bySize.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([size, n]) => `${n} × ${size}`)
+      .join(', ');
+  })();
 
   // The failed items carry the server's own sentence per student — for a signalement, the evidence
   // the flag was raised on. Listed, not just counted: « 60 non assigné(s) » tells the operator the
@@ -149,10 +179,29 @@ function AutoArrangeTab() {
           <Select label="Niveau" placeholder="Sélectionner un niveau"
             data={levelOptions} value={form.levelId}
             onChange={(v) => setForm((p) => ({ ...p, levelId: v }))} searchable required />
-          <NumberInput label="Taille de groupe"
-            description="Nombre maximum d'étudiants par groupe"
-            value={form.groupSize} onChange={(v) => setForm((p) => ({ ...p, groupSize: Number(v) || 20 }))}
-            min={2} max={60} required />
+          <SegmentedControl
+            fullWidth
+            value={form.cutBy}
+            onChange={(v: string) => setForm((p) => ({ ...p, cutBy: v as CutBy }))}
+            data={[
+              { value: 'size', label: 'Par taille de groupe' },
+              { value: 'count', label: 'Par nombre de groupes' },
+            ]}
+          />
+
+          {byCount ? (
+            <NumberInput label="Nombre de groupes"
+              description="Les étudiants sont répartis également entre eux, à un près"
+              value={form.groupCount}
+              onChange={(v) => setForm((p) => ({ ...p, groupCount: Number(v) || 1 }))}
+              min={1} max={2000} required />
+          ) : (
+            <NumberInput label="Taille de groupe"
+              description="Nombre maximum d'étudiants par groupe"
+              value={form.groupSize}
+              onChange={(v) => setForm((p) => ({ ...p, groupSize: Number(v) || 20 }))}
+              min={2} max={60} required />
+          )}
 
           <Alert icon={<IconAlertTriangle size={16} stroke={1.5} />} color="warning" variant="light">
             Seuls les étudiants sans groupe assigné seront répartis.
@@ -191,6 +240,18 @@ function AutoArrangeTab() {
                 </Card>
               ))}
             </SimpleGrid>
+            {/*
+              ⚠ The shape, beside the count. « 12 groupes » is true of a cut that left a group of 12
+              next to eleven of 20 and of one that made four of 20 and eight of 19 — the number alone
+              cannot tell them apart, and it is the shape that goes into the rotation. It also shows,
+              without a word of explanation, when a promotion carrying two CNPN texts could not be
+              cut into exactly the number asked for.
+            */}
+            {shape && (
+              <Text size="xs" c="dimmed">
+                Répartition : <Text span fw={600} c="dark">{shape}</Text> étudiant(s) par groupe
+              </Text>
+            )}
             {/*
               ⚠ The reason, not just the count. The server sends one error per student — the
               signalement's own evidence for a held registration — and printing only « 60 non
@@ -369,9 +430,8 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
           `${res.plannedCellsAffected} cellule(s) planifiée(s) sur l'ancien découpage — relancez la `
           + 'répartition automatique.',
         );
-    } catch (err: unknown) {
-      const msg = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(msg ?? 'Erreur lors de l\'assignation des partitions');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -393,9 +453,8 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
           `${res.plannedCellsAffected} cellule(s) planifiée(s) conservée(s), mais elles ne décrivent plus `
           + 'aucune partition — une répartition automatique est à relancer.',
         );
-    } catch (err: unknown) {
-      const msg = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(msg ?? 'Erreur lors de la suppression des partitions');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -422,9 +481,8 @@ function MacroPlanTab({ selectedYear }: { selectedYear: string | null }) {
         + (res.pinnedCellsKept > 0
             ? ` — ${res.pinnedCellsKept} cellule(s) épinglée(s) conservée(s)`
             : ''));
-    } catch (err: unknown) {
-      const msg = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(msg ?? 'Erreur lors de la génération du plan');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -842,7 +900,7 @@ function EditGroupModal({ group, opened, onClose }: {
       notify.success('Groupe mis à jour');
       onClose();
     } catch {
-      notify.error('Impossible de mettre à jour le groupe');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -919,7 +977,7 @@ function CreateGroupModal({ opened, onClose, selectedYear }: {
       setLevelId(null);
       onClose();
     } catch {
-      notify.error('Impossible de créer ce groupe');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -1074,7 +1132,7 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
       await deleteGroup(deleteTarget.id).unwrap();
       notify.success('Groupe supprimé');
     } catch {
-      notify.error('Impossible de supprimer ce groupe (des cohortes y sont peut-être associées)');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
     closeDelete();
     setDeleteTarget(null);

@@ -149,25 +149,15 @@ function StageFormDrawer({
       }
       onSaved();
       onClose();
-    } catch (err: unknown) {
-      // ⚠ A bare `catch` here hid the reason. Every stage in the base carries zero objectives, the
-      // validator demanded one, and the save was refused with a message naming a field the user was
-      // not editing — but all that reached the screen was « Erreur lors de l'enregistrement », so a
-      // rotation-mode switch looked like a broken button. A refusal the server took the trouble to
-      // explain has to be shown.
+    } catch {
+      // ⚠ A bare `catch` here once hid the reason: every stage in the base carries zero objectives,
+      // the validator demanded one, and the refusal named a field nobody was editing — but all that
+      // reached the screen was « Erreur lors de l'enregistrement ».
       //
-      // Validation failures carry their messages in `errors[]`; `detail` is the generic
-      // « One or more validation errors occurred ». Every other refusal says it in `detail`.
-      const problem = (err as {
-        data?: { detail?: string; errors?: { description?: string }[] };
-      })?.data;
-
-      const validation = (problem?.errors ?? [])
-        .map((e) => e.description)
-        .filter(Boolean)
-        .join(' · ');
-
-      notify.error(validation || problem?.detail || "Erreur lors de l'enregistrement");
+      // This page answered by reading `errors[]` itself, because `errorMiddleware` looked for the
+      // array under `extensions` and never found it. **The middleware was corrected in session 51**
+      // and now prints that same sentence — so what stood here had become the second banner, not the
+      // only one. errorMiddleware owns it.
     }
   };
 
@@ -366,7 +356,7 @@ export default function StagesPage() {
       await deleteStage(deleteTarget.id).unwrap();
       notify.success('Stage supprimé');
     } catch {
-      notify.error('Impossible de supprimer ce stage');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
     closeDeleteModal();
     setDeleteTarget(null);

@@ -114,13 +114,17 @@ function CentersTab() {
       if (editTarget) { await updateCenter({ id: editTarget.id, ...payload }).unwrap(); notify.success('Centre mis à jour'); }
       else { await createCenter(payload).unwrap(); notify.success('Centre créé'); }
       close();
-    } catch { notify.error('Erreur lors de l\'enregistrement'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     try { await deleteCenter(deleteTarget.id).unwrap(); notify.success('Centre supprimé'); }
-    catch { notify.error('Impossible de supprimer ce centre'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
     closeDeleteModal();
     setDeleteTarget(null);
   };
@@ -231,13 +235,17 @@ function HospitalsTab() {
       if (editTarget) { await updateHospital({ id: editTarget.id, ...payload }).unwrap(); notify.success('Hôpital mis à jour'); }
       else { await createHospital(payload).unwrap(); notify.success('Hôpital créé'); }
       close();
-    } catch { notify.error('Erreur lors de l\'enregistrement'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     try { await deleteHospital(deleteTarget.id).unwrap(); notify.success('Hôpital supprimé'); }
-    catch { notify.error('Impossible de supprimer cet hôpital'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
     closeDeleteModal();
     setDeleteTarget(null);
   };
@@ -351,25 +359,33 @@ function StaffDrawer({ serviceId, onClose }: { serviceId: number | null; onClose
   const handleAdd = async () => {
     if (!selectedEmployee || !serviceId) return;
     try { await assignStaff({ serviceId, employeeId: selectedEmployee }).unwrap(); setSelectedEmployee(null); notify.success('Personnel ajouté'); }
-    catch { notify.error('Erreur lors de l\'ajout'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   const handleRemove = async (member: StaffMemberResponse) => {
     if (!serviceId) return;
     try { await removeStaff({ serviceId, employeeId: member.id }).unwrap(); notify.success('Personnel retiré'); }
-    catch { notify.error('Impossible de retirer ce membre'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   const handleSetChef = async (member: StaffMemberResponse) => {
     if (!serviceId) return;
     try { await assignChef({ serviceId, employeeId: member.id }).unwrap(); notify.success('Chef de service mis à jour'); }
-    catch { notify.error('Erreur lors de l\'assignation'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   const handleRemoveChef = async () => {
     if (!serviceId) return;
     try { await removeChef(serviceId).unwrap(); notify.success('Chef de service retiré'); }
-    catch { notify.error('Erreur lors de la suppression'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   const chefId = service?.serviceChef?.id ?? null;
@@ -488,7 +504,9 @@ function ServicesTab() {
     const s = deleteTarget;
     if (!s) return;
     try { await deleteService(s.id).unwrap(); notify.success('Service supprimé'); }
-    catch { notify.error('Impossible de supprimer ce service'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
     closeDeleteModal();
     setDeleteTarget(null);
   };

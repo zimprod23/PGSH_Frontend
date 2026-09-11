@@ -74,7 +74,6 @@ import {
   formatGender, formatCivilStatus, formatNationality,
   formatDate, initials,
 } from '../../../student/utils/format';
-import { problemMessage } from '../../../../common/utils/problemMessage';
 
 // ─── Registration card: the year's verdict, and the roster ────────────────────
 
@@ -114,8 +113,8 @@ function RegistrationCard({
       notify.success(
         `Décision enregistrée : ${YEAR_OUTCOMES.find((o) => o.value === outcome)?.label}`,
       );
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? "Impossible d'enregistrer la décision.");
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -129,8 +128,8 @@ function RegistrationCard({
           ? "Décision retirée. L'inscription de l'année suivante existe toujours : supprimez-la si elle n'a plus lieu d'être."
           : 'Décision retirée, année remise en cours.',
       );
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'Impossible de rouvrir cette année.');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -337,8 +336,8 @@ function JoinGroupModal({
       );
       setGroupId(null);
       onClose();
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? "Impossible d'affecter cet étudiant.");
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -421,7 +420,7 @@ function CreateRegistrationModal({
       setStatus('Pending');
       onClose();
     } catch {
-      notify.error("Impossible de créer l'inscription.");
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -632,7 +631,7 @@ function EditStudentForm({ onClose, student }: { onClose: () => void; student: S
       notify.success('Profil étudiant mis à jour');
       onClose();
     } catch {
-      notify.error('Erreur lors de la mise à jour');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

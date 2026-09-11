@@ -429,7 +429,6 @@ interface ServicePickerProps {
 }
 
 function ServicePicker({ cell, stageId, slotId, cohortId, allowedServiceIds = [], onClose, onClear }: ServicePickerProps) {
-  const notify = useNotify();
   const [opened, setOpened] = useState(true);
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebouncedValue(search, 300);
@@ -447,8 +446,10 @@ function ServicePicker({ cell, stageId, slotId, cohortId, allowedServiceIds = []
       await setAssignment({ stageId, slotId, cohortId, serviceId }).unwrap();
       setOpened(false);
       setSearch('');
-    } catch { notify.error('Impossible de définir ce service'); }
-  }, [stageId, slotId, cohortId, setAssignment, notify]);
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
+  }, [stageId, slotId, cohortId, setAssignment]);
 
   const handlePopoverChange = (o: boolean) => {
     setOpened(o);
@@ -559,7 +560,9 @@ function AddSlotModal({ opened, onClose, stageId, academicYearId, nextPeriodNumb
       notify.success(`Créneau P${nextPeriodNumber} ajouté`);
       setForm({ label: '', startDate: '', endDate: '' });
       onClose();
-    } catch { notify.error('Impossible d\'ajouter ce créneau'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
   };
 
   const canSubmit = form.startDate && form.endDate && form.endDate >= form.startDate;
@@ -605,7 +608,9 @@ function SlotHeader({ slot, stageId }: { slot: StageSlotResponse; stageId: numbe
     try {
       await deleteSlot({ stageId, slotId: slot.id }).unwrap();
       notify.success(`Créneau P${slot.periodNumber} supprimé`);
-    } catch { notify.error('Impossible de supprimer ce créneau'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
     closeDelete();
   };
 
@@ -616,7 +621,9 @@ function SlotHeader({ slot, stageId }: { slot: StageSlotResponse; stageId: numbe
         notify.info(`${res.cleared} affectation(s) vidée(s) · ${res.skipped} ignorée(s) (publiées)`);
       else
         notify.success(`${res.cleared} affectation(s) vidée(s)`);
-    } catch { notify.error('Impossible de vider ce créneau'); }
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
     closeClear();
   };
 
@@ -731,9 +738,8 @@ function PublishAllButton(
         allowOverCapacity,
       }).unwrap();
       notify.success(`${res.publishedCohorts} cohorte(s) publiée(s) · ${res.periodsCreated} période(s)`);
-    } catch (err: unknown) {
-      const detail = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(detail ?? 'Erreur lors de la publication');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -865,9 +871,8 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
       // stage page, which shows that message and asks a second time.
       const res = await unpublish({ cohortId: unpublishTarget, stageId }).unwrap();
       notify.success(`${res.periodsRemoved} période(s) supprimée(s)`);
-    } catch (error) {
-      const problem = error as { data?: { detail?: string } };
-      notify.error(problem.data?.detail ?? 'Erreur lors de la dépublication');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
     finally { setUnpublishTarget(null); }
   }, [unpublishTarget, unpublish, stageId, notify]);
@@ -880,9 +885,11 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
   const handleClearCell = useCallback(async (cohortId: number, slotId: number) => {
     setClearingKey(`${cohortId}:${slotId}`);
     try { await clearAssignment({ stageId, slotId, cohortId }).unwrap(); }
-    catch { notify.error('Impossible de supprimer cette affectation'); }
+    catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
+    }
     finally { setClearingKey(null); }
-  }, [stageId, clearAssignment, notify]);
+  }, [stageId, clearAssignment]);
 
   // The stage's partitions, from the server and never narrowed by the active filter — they are what
   // the user filters *with*, so deriving them from the filtered rows would leave no way back.
@@ -953,9 +960,8 @@ export function ScheduleGridModal({ opened, onClose, stageId, academicYearId, al
         notify.success(
           `${res.assigned} affectation(s) générée(s) — aucun service saturé.${keptSentence}`);
       }
-    } catch (err: unknown) {
-      const detail = (err as { data?: { detail?: string } })?.data?.detail;
-      notify.error(detail ?? 'Erreur lors de la répartition automatique');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

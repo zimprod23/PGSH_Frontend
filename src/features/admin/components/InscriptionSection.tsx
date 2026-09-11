@@ -40,7 +40,7 @@ import {
 import type { AdminLevelResponse } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { InscribeStudentModal } from './InscribeStudentModal';
-import { problemMessage } from '../../../common/utils/problemMessage';
+import { isReportedByErrorMiddleware, problemMessage } from '../../../common/utils/problemMessage';
 
 interface Props {
   levels: AdminLevelResponse[];
@@ -104,7 +104,12 @@ export function InscriptionSection({ levels, academicYearId, yearLabel }: Props)
       link.click();
       URL.revokeObjectURL(url);
     } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'Impossible de générer le canevas.');
+      // ⚠ A download is one of the few controls allowed to speak for itself: it has no empty state
+      // to render, and the one rejection `errorMiddleware` stays silent about is a 404 on a *query*
+      // — which is exactly what a missing canvas is. Everywhere else it owns the sentence, so the
+      // guard is what keeps this from being the second banner.
+      if (!isReportedByErrorMiddleware(err))
+        notify.error(problemMessage(err) ?? 'Le canevas n\'a pas pu être généré.');
     }
   };
 
@@ -114,8 +119,8 @@ export function InscriptionSection({ levels, academicYearId, yearLabel }: Props)
     if (!picked || !ready) return;
     try {
       setReport(await preview({ ...scope, file: picked }).unwrap());
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'Fichier illisible.');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -134,8 +139,8 @@ export function InscriptionSection({ levels, academicYearId, yearLabel }: Props)
       notify.success(
         `${result.willRegister} inscription(s) — ${result.willCreateStudents} étudiant(s) créé(s).`,
       );
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? "L'inscription a été refusée.");
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

@@ -118,8 +118,8 @@ export function ReinscriptionSheetSection({ fromYearId, fromYearLabel, targetYea
     if (!picked || !ready) return;
     try {
       setReport(await preview({ ...request, file: picked }).unwrap());
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'Fichier illisible.');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 
@@ -140,8 +140,8 @@ export function ReinscriptionSheetSection({ fromYearId, fromYearLabel, targetYea
         + `${result.willRecordOutcome} décision(s) et ${result.willGraduate} diplôme(s) `
         + `enregistré(s) sur ${result.fromYearLabel}.`,
       );
-    } catch (err: unknown) {
-      notify.error(problemMessage(err) ?? 'La réinscription a été refusée.');
+    } catch {
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

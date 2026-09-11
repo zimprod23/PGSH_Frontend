@@ -154,7 +154,7 @@ function ServiceForm({
       }
       onDone();
     } catch {
-      notify.error('Erreur lors de l\'enregistrement');
+      // errorMiddleware a déjà affiché la phrase du serveur.
     }
   };
 

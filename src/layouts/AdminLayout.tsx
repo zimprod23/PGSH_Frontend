@@ -35,6 +35,7 @@ import {
   IconCalendarOff,
   IconTable,
   IconChartBar,
+  IconScale,
   IconDatabaseExport,
   IconRefresh,
   IconClipboardCheck,
@@ -122,6 +123,9 @@ const NAV: NavEntry[] = [
     items: [
       { kind: 'leaf', label: 'Centres / Hôpitaux / Services', icon: IconBuildingHospital, path: `${ROOT}/hospitals` },
       { kind: 'leaf', label: 'Charge des services', icon: IconChartBar, path: `${ROOT}/charge-services` },
+      // Beside it deliberately: the two answer the same question at the two moments it can be
+      // asked — before the répartition exists, and after.
+      { kind: 'leaf', label: 'Faisabilité des promotions', icon: IconScale, path: `${ROOT}/faisabilite` },
     ],
   },
   {
