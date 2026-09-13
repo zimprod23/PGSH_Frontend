@@ -18,6 +18,14 @@ import type {
 } from '../types/yearClosure.types';
 import { fileNameFromDisposition, type DownloadedFile } from '../../../common/utils/downloadBlob';
 import type {
+  AffectationImportReversalReport,
+  AffectationImportSummary,
+  AffectationSheetApplyRequest,
+  AffectationSheetReport,
+  AffectationSheetTemplateRequest,
+  AffectationSheetUploadRequest,
+} from '../types/affectationSheet.types';
+import type {
   RegistrationHold,
   RegistrationHoldsRequest,
   ReleaseHoldRequest,
@@ -1963,6 +1971,89 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     // has to be a POST. The `response.ok` branch is the same and matters for the same reason — read
     // unconditionally, `.blob()` turns a problem-details refusal into an opaque Blob and the user
     // gets « une erreur » where the server had written a sentence.
+    // ─── Le canevas des affectations ────────────────────────────────────────
+    //
+    // ⚠ Trois routes pour l'aller, trois pour le retour, et la même forme des deux côtés : on lit ce
+    // qui existe, on simule, on applique avec le nombre qu'on a vu. Rien ici ne recalcule ce que le
+    // serveur a annoncé — le rapport de l'aperçu *est* le plan que l'application exécute.
+
+    getAffectationSheetTemplate: builder.query<DownloadedFile, AffectationSheetTemplateRequest>({
+      query: (params) => ({
+        url: '/affectations/sheet/template',
+        params,
+        // ⚠ Le nom vient de Content-Disposition, jamais reconstruit ici : le serveur nomme le
+        // document d'après la portée qu'il a réellement résolue, année comprise.
+        responseHandler: async (response) => {
+          if (!response.ok) return response.json().catch(() => undefined);
+          return {
+            blob: await response.blob(),
+            fileName: fileNameFromDisposition(
+              response.headers.get('content-disposition'), 'affectations.xlsx'),
+          };
+        },
+        cache: 'no-cache',
+      }),
+    }),
+
+    // Un essai à blanc n'écrit rien, donc il n'invalide rien.
+    previewAffectationSheet: builder.mutation<AffectationSheetReport, AffectationSheetUploadRequest>({
+      query: ({ file, ...params }) => ({
+        url: '/affectations/sheet/preview',
+        method: 'POST',
+        params,
+        body: fileBody(file),
+      }),
+    }),
+
+    applyAffectationSheet: builder.mutation<AffectationSheetReport, AffectationSheetApplyRequest>({
+      query: ({ file, ...params }) => ({
+        url: '/affectations/sheet',
+        method: 'POST',
+        params,
+        body: fileBody(file),
+      }),
+      // Il écrit des cohortes, des affectations et des périodes : la liste des affectations, les
+      // cohortes d'un stage et le dossier de chaque étudiant touché sont périmés d'un coup. Et la
+      // liste des imports, qui vient d'en gagner un.
+      invalidatesTags: [
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: 'REPARTITION' },
+        { type: 'Stage' as const, id: 'TIMELINE' },
+        { type: 'History' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: 'IMPORTS' },
+      ],
+    }),
+
+    getAffectationImports: builder.query<
+      PaginatedResponse<AffectationImportSummary>,
+      { levelId?: number; academicYearId?: number; pageNumber?: number; pageSize?: number }
+    >({
+      query: (params) => ({ url: '/affectations/imports', params }),
+      providesTags: [{ type: 'Stage' as const, id: 'IMPORTS' }],
+    }),
+
+    previewAffectationImportReversal: builder.query<AffectationImportReversalReport, string>({
+      query: (id) => ({ url: `/affectations/imports/${id}/reversal` }),
+    }),
+
+    reverseAffectationImport: builder.mutation<
+      AffectationImportReversalReport, { id: string; confirmedCount: number }
+    >({
+      query: ({ id, confirmedCount }) => ({
+        url: `/affectations/imports/${id}/reversal`,
+        method: 'POST',
+        params: { confirmedCount },
+      }),
+      // Elle supprime des affectations et en rétablit d'autres — les mêmes lectures que l'aller.
+      invalidatesTags: [
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: 'REPARTITION' },
+        { type: 'Stage' as const, id: 'TIMELINE' },
+        { type: 'History' as const, id: 'LIST' },
+        { type: 'Stage' as const, id: 'IMPORTS' },
+      ],
+    }),
+
     exportReinscriptionSheetReport: builder.mutation<DownloadedFile, ReinscriptionSheetUploadRequest>({
       query: ({ file, ...params }) => ({
         url: '/reinscription/sheet/export',
@@ -2364,6 +2455,12 @@ export const {
   usePreviewReinscriptionSheetMutation,
   useApplyReinscriptionSheetMutation,
   useExportReinscriptionSheetReportMutation,
+  useLazyGetAffectationSheetTemplateQuery,
+  usePreviewAffectationSheetMutation,
+  useApplyAffectationSheetMutation,
+  useGetAffectationImportsQuery,
+  useLazyPreviewAffectationImportReversalQuery,
+  useReverseAffectationImportMutation,
   useGetSafePointStatusQuery,
   useGetBackupPointsQuery,
   useCreateBackupPointMutation,

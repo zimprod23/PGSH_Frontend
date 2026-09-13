@@ -34,6 +34,7 @@ import {
   IconCalendarEvent,
   IconCalendarOff,
   IconTable,
+  IconTableImport,
   IconChartBar,
   IconScale,
   IconDatabaseExport,
@@ -113,6 +114,9 @@ const NAV: NavEntry[] = [
       { kind: 'leaf', label: 'Calendrier', icon: IconCalendarEvent, path: `${ROOT}/timeline` },
       { kind: 'leaf', label: 'Répartition annuelle', icon: IconTable, path: `${ROOT}/repartition` },
       { kind: 'leaf', label: 'Bloc de rotation', icon: IconRefresh, path: `${ROOT}/rotation-cycle` },
+      // Sous la répartition et le bloc, délibérément : c'est la voie parallèle à celle qu'ils
+      // décrivent — planifier depuis un tableur au lieu de générer depuis la grille.
+      { kind: 'leaf', label: 'Affectations par fichier', icon: IconTableImport, path: `${ROOT}/affectations-fichier` },
       { kind: 'leaf', label: 'Jours fériés', icon: IconCalendarOff, path: `${ROOT}/holidays` },
     ],
   },
