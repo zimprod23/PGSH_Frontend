@@ -170,7 +170,12 @@ function AutoArrangeTab() {
             </ThemeIcon>
             <Stack gap={0}>
               <Text fw={600} size="sm">Arrangement automatique</Text>
-              <Text size="xs" c="dimmed">Distribue les inscriptions sans groupe assigné</Text>
+              {/* ⚠ Dit à l'écran, parce que c'est une propriété de l'acte et non un détail : la
+                  composition des groupes est tirée au sort, elle ne suit plus l'alphabet. Le numéro
+                  du tirage part au registre avec l'acte. */}
+              <Text size="xs" c="dimmed">
+                Distribue les inscriptions sans groupe assigné · composition tirée au sort
+              </Text>
             </Stack>
           </Group>
 
@@ -1295,7 +1300,7 @@ function GroupsListTab({ selectedYear, selectedLevel, onLevelChange }: {
               <Text fw={600} size="sm">Trouver le groupe d'un étudiant</Text>
             </Group>
             <TextInput
-              placeholder="Nom, CNE ou Apogée de l'étudiant (min. 2 car.)…"
+              placeholder="Nom complet, CNE ou Apogée de l'étudiant (min. 2 car.)…"
               value={studentSearch}
               onChange={(e) => setStudentSearch(e.currentTarget.value)}
               leftSection={<IconSearch size={14} stroke={1.5} />}

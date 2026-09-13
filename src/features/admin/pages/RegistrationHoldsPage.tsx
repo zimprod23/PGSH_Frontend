@@ -192,7 +192,7 @@ export default function RegistrationHoldsPage() {
               size="xs"
               w={260}
               leftSection={<IconSearch size={14} />}
-              placeholder="Nom, CNE ou Apogée…"
+              placeholder="Nom complet, CNE ou Apogée…"
               value={search}
               onChange={(e) => {
                 setSearch(e.currentTarget.value);

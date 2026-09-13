@@ -55,7 +55,7 @@ export function ServiceOccupantsTable({ serviceId, startDate, endDate, total }: 
         <TextInput
           size="xs"
           w={260}
-          placeholder="Nom, prénom ou CNE…"
+          placeholder="Nom complet, CNE ou Apogée…"
           leftSection={<IconSearch size={14} />}
           rightSection={isFetching ? <Loader size={12} /> : null}
           value={search}

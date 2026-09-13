@@ -423,7 +423,7 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
             <Stack gap="md">
               <Group gap="sm" wrap="wrap">
                 <TextInput
-                  placeholder="Rechercher un étudiant (nom, CNE, Apogée)…"
+                  placeholder="Nom complet, CNE ou Apogée de l'étudiant…"
                   leftSection={<IconSearch size={16} stroke={1.5} />}
                   rightSection={isFetching ? <Loader size="xs" /> : null}
                   value={search}

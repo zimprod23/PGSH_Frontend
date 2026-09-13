@@ -188,7 +188,7 @@ export default function StudentListPage() {
           <Stack gap="md">
             <Group gap="sm" wrap="wrap">
               <TextInput
-                placeholder="Rechercher par nom, email, CNE, Apogée…"
+                placeholder="Nom complet, e-mail, CNE, Apogée, CIN…"
                 leftSection={<IconSearch size={16} stroke={1.5} />}
                 value={search}
                 onChange={(e) => setSearch(e.currentTarget.value)}

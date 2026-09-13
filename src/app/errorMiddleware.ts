@@ -94,6 +94,24 @@ export const errorMiddleware: Middleware = () => (next) => (action) => {
     return next(action);
   }
 
+  // ⚠ 503 n'est pas « une erreur serveur » de plus : il dit que l'application est là et que ce dont
+  // elle dépend ne l'est pas — une base injoignable, typiquement. Il n'y a rien à corriger dans la
+  // demande, et la phrase du serveur est la seule qui dise où aller ; c'est pourquoi ce code est
+  // l'exception au masquage des ≥ 500 plus bas (un 500 peut porter n'importe quel interne, un 503
+  // est écrit exprès pour être lu). Vécu le 13/09/2026 : WSL s'est mis à jour, PostgreSQL est parti
+  // avec la machine Docker, et chaque écran affichait « Une erreur serveur est survenue ».
+  if (status === 503) {
+    notifications.show({
+      title:    'Service indisponible',
+      message,
+      color:    'red',
+      position: 'top-right',
+      autoClose: 8000,
+      styles:   notifStyles('#EF4444'),
+    });
+    return next(action);
+  }
+
   // A 404 from a *query* is "this does not exist yet", which is a state the screen renders itself —
   // the CNPN page shows an inline "aucune exigence enregistrée" panel and then used to stack two red
   // "Erreur 404" toasts on top of it. A 404 from a *mutation* is a real failure and still toasts:

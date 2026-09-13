@@ -237,7 +237,7 @@ export default function EmployeesPage() {
             <Group gap="sm" justify="space-between" wrap="wrap">
               <Group gap="sm" style={{ flex: 1 }} wrap="wrap">
                 <TextInput
-                  placeholder="Rechercher par nom, email, PPR…"
+                  placeholder="Nom complet, e-mail, PPR…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   radius="md"

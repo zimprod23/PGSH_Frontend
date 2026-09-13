@@ -929,7 +929,7 @@ export default function GroupDetailPage() {
                 {isFetching && !isLoading && <Loader size="xs" />}
               </Group>
               <TextInput
-                placeholder="Rechercher (nom, CNE, Apogée, e-mail)…"
+                placeholder="Nom complet, CNE, Apogée, e-mail…"
                 value={search}
                 onChange={(e) => setSearch(e.currentTarget.value)}
                 w={320}
