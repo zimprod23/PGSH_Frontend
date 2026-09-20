@@ -11,6 +11,9 @@ import {
   useApplyAxisRelayMutation, useGetPromotionLevelsQuery, useLazyPreviewAxisRelayQuery,
 } from '../api/adminApi';
 import { useAcademicYear } from '../contexts/useAcademicYear';
+import { problemMessage } from '../../../common/utils/problemMessage';
+import { SafePointBanner } from '../components/SafePointBanner';
+import { useSafePointGate } from '../hooks/useSafePointGate';
 import type { AxisRelayColumn, AxisRelayPreview, ServiceCrossing } from '../types/admin.types';
 
 /**
@@ -152,12 +155,28 @@ export default function AxisRelayPage() {
   const { data: levels } = useGetPromotionLevelsQuery(undefined);
 
   const [levelId, setLevelId] = useState<string | null>(null);
+
+  /**
+   * La promotion que l'aperçu affiché décrit — pas celle que le Select montre.
+   *
+   * ⚠ La requête est *lazy* : changer de promotion ne la relance pas, donc `data` continuerait de
+   * décrire l'ancienne sous le nom de la nouvelle. C'est §1i pris par l'autre bout — `currentData`
+   * ne sauve rien ici, puisque l'argument ne change qu'au clic. Un tableau de dates est une phrase
+   * fausse, pas une donnée en retard : on le retire jusqu'au prochain calcul.
+   */
+  const [previewedLevelId, setPreviewedLevelId] = useState<number | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [understood, setUnderstood] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
-  const [runPreview, { data: preview, isFetching, error, isError }] = useLazyPreviewAxisRelayQuery();
+  const [runPreview, { data, isFetching, error, isError }] = useLazyPreviewAxisRelayQuery();
   const [apply, { isLoading: applying }] = useApplyAxisRelayMutation();
+  const backup = useSafePointGate();
+
+  // Rien n'est montré tant que ce qui est affiché ne décrit pas la promotion choisie.
+  const preview = data && data.levelId === previewedLevelId && String(data.levelId) === levelId
+    ? data
+    : undefined;
 
   const levelOptions = useMemo(
     () => (levels ?? []).map((l) => ({ value: String(l.id), label: l.label ?? `Niveau ${l.id}` })),
@@ -169,7 +188,15 @@ export default function AxisRelayPage() {
   async function onPreview() {
     if (!ready) return;
     setDone(null);
-    await runPreview({ levelId: Number(levelId), academicYearId: currentYearId! });
+    const asked = Number(levelId);
+    await runPreview({ levelId: asked, academicYearId: currentYearId! });
+    setPreviewedLevelId(asked);
+  }
+
+  function onLevelChange(value: string | null) {
+    setLevelId(value);
+    setPreviewedLevelId(null);   // ⚠ §1i : l'aperçu ne décrit plus la promotion nommée à l'écran.
+    setDone(null);
   }
 
   async function onApply(p: AxisRelayPreview) {
@@ -197,7 +224,10 @@ export default function AxisRelayPage() {
     }
   }
 
-  const refusal = (error as { data?: { detail?: string } })?.data?.detail;
+  // ⚠ `problemMessage`, jamais un `detailOf` maison : un refus métier met sa phrase dans `detail`,
+  // un échec du pipeline de validation y met la phrase générique et les vraies dans `errors[]`.
+  // Quatre fichiers avaient chacun réécrit la moitié inutile.
+  const refusal = problemMessage(error);
 
   return (
     <Stack gap="lg">
@@ -233,7 +263,7 @@ export default function AxisRelayPage() {
             placeholder="Choisir"
             data={levelOptions}
             value={levelId}
-            onChange={setLevelId}
+            onChange={onLevelChange}
             searchable
             w={280}
           />
@@ -379,9 +409,20 @@ export default function AxisRelayPage() {
             )}
           </Paper>
 
+          {/* ⚠ §1g-bis — l'acte réécrit les dates de milliers de rotations : le point de reprise
+              s'offre depuis l'écran, parce qu'une sauvegarde qu'il faut penser à prendre dans un
+              terminal saute le jour où elle sert. Il ne bloque pas : sans retour exploitable, c'est
+              la case qui garde le bouton. */}
+          <SafePointBanner
+            actLabel="Avant un recalcul d'axe"
+            acknowledged={backup.acknowledged}
+            onAcknowledge={backup.setAcknowledged}
+          />
+
           <Group justify="flex-end">
             <Button
               color="orange"
+              disabled={backup.blocked}
               onClick={() => { setUnderstood(false); setConfirmOpen(true); }}
               leftSection={<IconCalendarStats size={16} />}
             >
