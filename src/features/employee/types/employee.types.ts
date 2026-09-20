@@ -62,10 +62,22 @@ export interface MyServicePeriodResponse {
   levelLabel: string | null;
   /** Set when the row reflects a group transfer rather than a live roster entry. */
   transfer: TransferMarker | null;
-  /** True while the rotation is suspended (e.g. an exam week); not actionable until resumed. */
+  /**
+   * A **stored** pause flag. ⚠ No act has set this since 18/09/2026; the only thing that can still
+   * produce it is an import reversal putting a période back as it stood. Not the same fact as
+   * `suspendedBy`.
+   */
   isPaused: boolean;
-  /** Free-text reason for the active pause, if any. */
+  /** Free-text reason for the active stored pause, if any. */
   pauseReason: string | null;
+  /**
+   * The window this student's promotion declared, covering **today** — null otherwise.
+   *
+   * ⚠ This is the one that matters on a chef's list, because it is what decides a gesture: marking a
+   * student absent on an exam morning is a mistake nothing else would flag, the student reading
+   * perfectly « en cours » everywhere.
+   */
+  suspendedBy: PromotionSuspension | null;
   /** Terminal: the rotation was cut short by a mid-stage transfer. Never evaluable. */
   isInterrupted: boolean;
   /**
@@ -153,3 +165,21 @@ export const WORKPLACE_LABELS: Record<WorkPlace, string> = {
   Hospital: 'Hôpital',
   Fmpr:     'Faculté (FMPR)',
 };
+
+/**
+ * What suspends a promotion on a given day: the motif the faculty declared, and until when.
+ *
+ * ⚠ Derived server-side from the promotion's calendar on every read, never stored. Revoking the
+ * window clears it for the whole promotion at once, with nothing written and nothing to undo.
+ */
+export interface PromotionSuspension {
+  pauseId: number;
+  kind: 'Exam' | 'Holiday' | 'Other';
+  /** The motif typed at declaration — this is what replaces the status on screen. */
+  reason: string;
+  startDate: string;
+  /** Until when, because a state with no end reads as a block. The student returns on his own. */
+  endDate: string;
+  /** False while the dates are still provisional — it counts, it can just still move. */
+  isConfirmed: boolean;
+}

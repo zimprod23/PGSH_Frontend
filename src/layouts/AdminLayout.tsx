@@ -39,6 +39,7 @@ import {
   IconScale,
   IconDatabaseExport,
   IconRefresh,
+  IconCalendarStats,
   IconClipboardCheck,
   IconBell,
   IconSearch,
@@ -114,6 +115,7 @@ const NAV: NavEntry[] = [
       { kind: 'leaf', label: 'Calendrier', icon: IconCalendarEvent, path: `${ROOT}/timeline` },
       { kind: 'leaf', label: 'Répartition annuelle', icon: IconTable, path: `${ROOT}/repartition` },
       { kind: 'leaf', label: 'Bloc de rotation', icon: IconRefresh, path: `${ROOT}/rotation-cycle` },
+      { kind: 'leaf', label: 'Recalcul de l’axe', icon: IconCalendarStats, path: `${ROOT}/recalcul-axe` },
       // Sous la répartition et le bloc, délibérément : c'est la voie parallèle à celle qu'ils
       // décrivent — planifier depuis un tableur au lieu de générer depuis la grille.
       { kind: 'leaf', label: 'Affectations par fichier', icon: IconTableImport, path: `${ROOT}/affectations-fichier` },

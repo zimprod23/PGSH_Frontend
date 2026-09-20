@@ -5,12 +5,12 @@ import {
   Button,
   Card,
   Checkbox,
+  Alert,
   Chip,
   Container,
   Divider,
   Drawer,
   Group,
-  Modal,
   Pagination,
   rem,
   ScrollArea,
@@ -20,7 +20,6 @@ import {
   Stack,
   Table,
   Text,
-  Textarea,
   TextInput,
   ThemeIcon,
   Title,
@@ -33,10 +32,11 @@ import {
   IconCircleCheck,
   IconCircleX,
   IconClipboardCheck,
+  IconAlertTriangle,
   IconEye,
+  IconInfoCircle,
   IconFileSpreadsheet,
   IconLayoutSidebar,
-  IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
   IconSearch,
@@ -54,18 +54,17 @@ import {
   useValidateAssignmentMutation,
   useRejectAssignmentMutation,
   useStartStagePeriodsMutation,
+  usePreviewStageStartQuery,
   useCompleteStagePeriodsMutation,
-  usePauseStagePeriodsMutation,
-  useResumeStagePeriodsMutation,
   useValidateCohortAssignmentsMutation,
 } from '../api/adminApi';
 import { StageRecordExportMenu } from '../components/StageRecordExportMenu';
 import type {
+  PauseKind,
   CohortDetailResponse,
   CohortResponse,
   InternshipAssignmentSummaryResponse,
   InternshipStatus,
-  PauseKind,
 } from '../types/admin.types';
 import { useNotify } from '../../../common/hooks/useNotify';
 import { useListParams } from '../../../common/hooks/useListParams';
@@ -86,12 +85,6 @@ const STATUS_CFG: Record<InternshipStatus, { label: string; color: string }> = {
   Rejected:  { label: 'Rejetée',    color: 'red'    },
 };
 
-const PAUSE_KIND_OPTIONS: { value: PauseKind; label: string }[] = [
-  { value: 'Exam',    label: 'Examens'   },
-  { value: 'Holiday', label: 'Vacances'  },
-  { value: 'Other',   label: 'Autre'     },
-];
-
 function StatusBadge({ status }: { status: InternshipStatus }) {
   const cfg = STATUS_CFG[status] ?? { label: status, color: 'gray' };
   return <Badge variant="light" color={cfg.color} size="sm" radius="xl">{cfg.label}</Badge>;
@@ -99,6 +92,16 @@ function StatusBadge({ status }: { status: InternshipStatus }) {
 
 // "2026-05-01" → "01/05"
 const fmtDM = (iso: string) => { const [, m, d] = iso.split('-'); return `${d}/${m}`; };
+
+const fr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR');
+
+// Ce qu'une fenêtre déclarée met à la place du statut. ⚠ Le motif saisi par la faculté est affiché
+// tel quel à côté : « Examens » seul ne distingue pas la session de janvier du rattrapage de juin.
+const SUSPENSION_LABEL: Record<PauseKind, string> = {
+  Exam:    'En examens',
+  Holiday: 'En congé',
+  Other:   'Suspendu',
+};
 
 // ─── Cohort sidebar card ──────────────────────────────────────────────────────
 
@@ -480,15 +483,21 @@ export default function AssignmentsPage() {
   const [rejectOne,      { isLoading: rejectingOne     }] = useRejectAssignmentMutation();
   const [startStage,     { isLoading: startingStage    }] = useStartStagePeriodsMutation();
   const [completeStage,  { isLoading: completingStage  }] = useCompleteStagePeriodsMutation();
-  const [pauseStage,     { isLoading: pausingStage     }] = usePauseStagePeriodsMutation();
-  const [resumeStage,    { isLoading: resumingStage    }] = useResumeStagePeriodsMutation();
   const [validateCohort, { isLoading: validatingCohort }] = useValidateCohortAssignmentsMutation();
-  const bulkLoading = startingStage || completingStage || pausingStage || resumingStage || validatingCohort;
+  const bulkLoading = startingStage || completingStage || validatingCohort;
 
-  // Pause modal (exam week etc.) — captures a reason kind + free text before suspending.
-  const [pauseOpen, { open: openPause, close: closePause }] = useDisclosure(false);
-  const [pauseKind, setPauseKind] = useState<PauseKind>('Exam');
-  const [pauseReason, setPauseReason] = useState('');
+  // ⚠ Ce que « Démarrer » va heurter, demandé **avant** l'acte et avec sa portée exacte. Démarrer une
+  // rotation qui traverse une semaine d'examens n'est pas une faute — l'étudiant sert avant et après —
+  // mais la fin de son séjour ne recule pas des jours que la fenêtre prend, donc le stage est court
+  // d'autant et rien ne le disait. C'est une phrase, jamais un refus : la règle de cette maison est
+  // qu'un manque mesuré se **montre**.
+  const { data: startPreview } = usePreviewStageStartQuery(
+    {
+      stageId: Number(stageId), academicYearId: currentYearId ?? undefined,
+      cohortIds: selectedIds, periodNumbers: periodArg,
+    },
+    { skip: !stageId || selectedIds.length === 0 },
+  );
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   // Validate still loops (cohort-scoped); start/close act on the whole selection in one round-trip.
@@ -526,34 +535,6 @@ export default function AssignmentsPage() {
     }
   };
   const handleBulkValidate = () => runForSelected('validation', (id) => validateCohort(id).unwrap(),  'validated');
-  const handleBulkPause = async () => {
-    if (!stageId) return;
-    try {
-      const res = await pauseStage({
-        stageId: Number(stageId), academicYearId: currentYearId ?? undefined,
-        kind: pauseKind, reason: pauseReason.trim() || undefined,
-        cohortIds: selectedIds, periodNumbers: periodArg,
-      }).unwrap();
-      notify.success(`${res.paused} rotation(s) en pause`);
-      setPauseReason('');
-      closePause();
-    } catch {
-      // errorMiddleware a déjà affiché la phrase du serveur.
-    }
-  };
-  const handleBulkResume = async () => {
-    if (!stageId) return;
-    try {
-      const res = await resumeStage({
-        stageId: Number(stageId), academicYearId: currentYearId ?? undefined,
-        cohortIds: selectedIds, periodNumbers: periodArg,
-      }).unwrap();
-      notify.success(`${res.resumed} rotation(s) reprise(s)`);
-    } catch {
-      // errorMiddleware a déjà affiché la phrase du serveur.
-    }
-  };
-
   const handleStartOne = async (a: InternshipAssignmentSummaryResponse) => {
     try { await startOne(a.id).unwrap(); notify.success(`${a.studentFullName} — démarrée`); }
     catch {
@@ -605,6 +586,11 @@ export default function AssignmentsPage() {
   const stageOptions  = stages.map((s) => ({ value: String(s.id), label: s.name }));
   // 'Paused' is a per-period count bucket, not a persisted assignment status — filtering by it
   // would return nothing, so it's excluded from the status filter (it still shows in the card).
+  // ⚠ Et depuis le 18/09/2026 plus aucun acte ne suspend une rotation : la pause par étape a été
+  // retirée (elle rallongeait le stage en jours calendaires, laissait la grille derrière elle et
+  // s'accumulait au rejeu). Une semaine d'examens se déclare dans « Jours fériés » — la fenêtre
+  // n'écrit aucune date et se révoque — puis les colonnes qu'elle coupe se déplacent une à une.
+  // Le badge reste parce qu'une annulation de téléversement remet le drapeau tel qu'il était.
   const statusOptions = (Object.entries(STATUS_CFG) as [InternshipStatus, { label: string }][])
     .filter(([value]) => value !== 'Paused')
     .map(([value, { label }]) => ({ value, label }));
@@ -760,6 +746,44 @@ export default function AssignmentsPage() {
                   px={{ base: 'md', sm: 'xl' }} py="sm"
                   style={{ background: '#EBF4FF', borderBottom: '1px solid #BFDBFE' }}
                 >
+                    {startPreview && startPreview.periodsCrossing > 0 && (
+                      <Alert
+                        variant="light" color="orange" radius="md" mb="sm"
+                        icon={<IconAlertTriangle size={16} />}
+                        title={`${startPreview.periodsCrossing} des ${startPreview.periodsToStart} rotation(s) à démarrer traversent une fenêtre déclarée`}
+                      >
+                        <Stack gap={4}>
+                          {startPreview.windows.map((w) => (
+                            <Text size="xs" key={w.pauseId}>
+                              <b>{w.reason}</b> ({w.levelLabel}) — {fmtDM(w.startDate)}→{fmtDM(w.endDate)},{' '}
+                              <b>{w.workingDaysLost} jour(s) ouvrable(s)</b> pris à {w.periodsCrossing} rotation(s)
+                              {!w.isConfirmed && ' · dates provisoires'}
+                            </Text>
+                          ))}
+                          {/* ⚠ Dire le remède, pas seulement le constat : déclarer n'écrit aucune date,
+                              donc les fins de séjour ne rattrapent rien d'elles-mêmes. */}
+                          <Text size="xs" c="dimmed">
+                            Déclarer une fenêtre ne déplace aucune date : ces jours restent perdus tant
+                            que les colonnes concernées ne sont pas déplacées. Démarrer reste possible.
+                          </Text>
+                        </Stack>
+                      </Alert>
+                    )}
+
+                    {/* ⚠ « 0 traversée » et « personne n'a rien déclaré » sont deux réponses opposées,
+                        et sur cette base la seconde est l'ordinaire : 2026-2027 n'a porté qu'une seule
+                        fenêtre. Se taire dans ce cas ferait lire l'ignorance comme un feu vert. */}
+                    {startPreview && startPreview.periodsToStart > 0
+                      && startPreview.windowsDeclaredForPromotion === 0 && (
+                      <Alert variant="light" color="gray" radius="md" mb="sm" icon={<IconInfoCircle size={16} />}>
+                        <Text size="xs">
+                          Aucune semaine d'examens n'est déclarée pour cette promotion :
+                          rien ne dit que ces {startPreview.periodsToStart} rotation(s) sont libres, seulement
+                          que la faculté n'a encore rien transmis.
+                        </Text>
+                      </Alert>
+                    )}
+
                     <ScrollArea type="never">
                       <Group gap="sm" wrap="nowrap" align="center" style={{ minWidth: 0 }}>
                         <Text size="xs" fw={600} c="navy.7" style={{ flexShrink: 0 }}>
@@ -776,18 +800,6 @@ export default function AssignmentsPage() {
                           loading={completingStage} disabled={bulkLoading || !selectionHasTargetPeriod}
                           onClick={handleBulkComplete}>
                           Clôturer
-                        </Button>
-                        <Button size="xs" color="orange" variant="light" radius="md" style={{ flexShrink: 0 }}
-                          leftSection={<IconPlayerPause size={12} stroke={1.5} />}
-                          disabled={bulkLoading || !selectionHasTargetPeriod}
-                          onClick={openPause}>
-                          Pause
-                        </Button>
-                        <Button size="xs" color="orange" variant="subtle" radius="md" style={{ flexShrink: 0 }}
-                          leftSection={<IconPlayerPlay size={12} stroke={1.5} />}
-                          loading={resumingStage} disabled={bulkLoading || !selectionHasTargetPeriod}
-                          onClick={handleBulkResume}>
-                          Reprendre
                         </Button>
                         {!selectionHasTargetPeriod && (
                           <Text size="xs" c="dimmed" fs="italic" style={{ flexShrink: 0 }}>
@@ -977,7 +989,30 @@ export default function AssignmentsPage() {
                                     )}
                                     <Table.Td>
                                       <Group gap={4} wrap="nowrap">
-                                        <StatusBadge status={a.status} />
+                                        {/* ⚠ Le motif **remplace** le statut, il ne s'y ajoute pas.
+                                            « En cours » est vrai du cycle de vie et faux de l'endroit
+                                            où l'étudiant est ce matin, et c'est la seconde question
+                                            que cette colonne sert à poser. Mesuré le 18/09/2026 :
+                                            472 rotations se lisaient « En cours » pendant une fenêtre
+                                            d'examens déclarée. */}
+                                        {a.suspendedBy ? (
+                                          <Tooltip
+                                            multiline w={280}
+                                            label={`${a.suspendedBy.reason} — jusqu'au ${fr(a.suspendedBy.endDate)}. La rotation reste « ${STATUS_CFG[a.status].label} » : elle reprend d'elle-même, rien n'est à rejouer.${a.suspendedBy.isConfirmed ? '' : ' Dates encore provisoires.'}`}
+                                          >
+                                            <Badge
+                                              variant="light"
+                                              color={a.suspendedBy.isConfirmed ? 'orange' : 'yellow'}
+                                              style={{ cursor: 'help' }}
+                                            >
+                                              {SUSPENSION_LABEL[a.suspendedBy.kind]} · {a.suspendedBy.reason}
+                                            </Badge>
+                                          </Tooltip>
+                                        ) : (
+                                          <StatusBadge status={a.status} />
+                                        )}
+                                        {/* Le drapeau stocké, que plus aucun acte ne pose : il ne
+                                            peut venir que d'une annulation de téléversement. */}
                                         {a.isPaused && <StatusBadge status="Paused" />}
                                       </Group>
                                     </Table.Td>
@@ -1077,37 +1112,6 @@ export default function AssignmentsPage() {
         onConfirm={handleRejectOne} loading={rejectingOne}
       />
 
-      <Modal opened={pauseOpen} onClose={closePause} title="Mettre la rotation en pause" radius="lg" size="sm">
-        <Stack gap="md">
-          <Text size="xs" c="dimmed">
-            Suspend les rotations en cours de la sélection ({selectedIds.length} cohorte(s)
-            {selectedPeriods.length ? ` · ${selectedPeriods.length} période(s)` : ''}). À la reprise,
-            les jours d'interruption sont reportés sur la fin de la période et décalent la suite du planning.
-          </Text>
-          <Select
-            label="Motif"
-            data={PAUSE_KIND_OPTIONS}
-            value={pauseKind}
-            onChange={(v) => setPauseKind((v as PauseKind) ?? 'Exam')}
-            allowDeselect={false}
-          />
-          <Textarea
-            label="Précision (optionnel)"
-            placeholder="Ex. examens du 1er semestre…"
-            value={pauseReason}
-            onChange={(e) => setPauseReason(e.currentTarget.value)}
-            minRows={2} maxRows={4} autosize
-          />
-          <Group justify="flex-end">
-            <Button variant="subtle" color="gray" onClick={closePause}>Annuler</Button>
-            <Button color="orange" loading={pausingStage}
-              leftSection={<IconPlayerPause size={16} stroke={1.5} />}
-              onClick={handleBulkPause}>
-              Mettre en pause
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
     </Container>
   );
 }

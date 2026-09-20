@@ -1325,8 +1325,25 @@ export interface InternshipAssignmentSummaryResponse {
   status: InternshipStatus;
   finalScore: number | null;
   result: StageAssignmentResult | null;
+  /**
+   * A **stored** pause flag. ⚠ No act has set this since 18/09/2026 — the only thing that can still
+   * produce it is an import reversal putting a période back exactly as it stood. It is *not*
+   * `suspendedBy`: that one is derived from the promotion's calendar. Keeping them apart is the point.
+   */
   isPaused: boolean;
   allPeriodsEvaluated: boolean;
+  /**
+   * The exam (or other) window this student's promotion declared, covering **today** — null otherwise.
+   *
+   * ⚠ Shown **instead of** the status, not beside it: « En cours » is true of the rotation's lifecycle
+   * and false about where the student actually is this morning, and the second is what the row is
+   * being read for. Measured 18/09/2026 on the live base: 472 rotations read « En cours » during a
+   * declared exam window, with nothing anywhere saying otherwise.
+   *
+   * ⚠ Derived server-side on every read, never stored — so revoking the window clears it for the whole
+   * promotion at once, with nothing written and nothing to undo.
+   */
+  suspendedBy: PromotionSuspension | null;
   /**
    * True when the stage is served outside the faculty. ⚠ The status cannot tell: a délocalisation is
    * `Completed`, exactly like a stage served here — and the two acts a screen can offer are
@@ -2144,8 +2161,10 @@ export interface UpdateHolidayResult {
 
 // ── Suspensions de promotion ──────────────────────────────────────────────────────────────────────
 
-// `PauseKind` is declared above, with the internship statuses: a promotion window and a stage-scoped
-// period pause share the vocabulary, and two copies of it would be two chances to disagree.
+// `PauseKind` is declared above, with the internship statuses. It was shared by two mechanisms until
+// 18/09/2026; the stage-scoped period pause has since been retired — it lengthened a stage in
+// *calendar* days, moved the student's dates without the grid, and doubled its shift on a replay —
+// so a promotion window is now the only thing that declares one, and this is the only vocabulary.
 
 /**
  * A window during which **one promotion** — (année, niveau) — is not in its services, an exam session
@@ -2167,6 +2186,16 @@ export interface PromotionPause {
   dayCount: number;
   /** Worked days it actually costs, on the faculty calendar — zero for a window over a weekend. */
   workingDaysLost: number;
+  /**
+   * Columns of this promotion's axis the window cuts.
+   *
+   * ⚠ **Zero is the good answer, not a missing one.** A window declared *before* the axis is laid
+   * crosses nothing, because the axis then steps over it — that is the mechanism working. A non-zero
+   * count is the opposite news: a plan already laid is being cut, and declaring moves none of it.
+   */
+  slotsSpanning: number;
+  /** Rotations open across the window — days inside a stay nobody will serve, with no end date moved. */
+  periodsSpanning: number;
   kind: PauseKind;
   reason: string;
   isConfirmed: boolean;
@@ -2239,11 +2268,20 @@ export interface PromotionPauseImpact {
   /**
    * Cells of the promotion's whole grid that a période was published from.
    *
-   * ⚠ **Non-zero means the axis cannot be re-laid at all** — the apply refuses on it — so the shortfall
-   * above has no remedy today beyond accepting it. Measured on the live base 2026-09-06: the 3ᵉ MED
-   * holds 804. Moving a published column is not built yet.
+   * ⚠ **Non-zero means the axis cannot be re-laid at all** — the apply refuses on it, for the whole
+   * year and not only for the columns this window crosses. Measured on the live base: the 3ᵉ MED holds
+   * 1 000. It does **not** mean the shortfall is unrepairable — see `slotsMovable`.
    */
   publishedCellsInGrid: number;
+  /**
+   * How many of `slotsSpanning` the column move would accept: those carrying no rotation that has
+   * begun, been marked or been pointed.
+   *
+   * ⚠ **This is what makes « reposer est refusé » actionable instead of final.** A published promotion
+   * is repaired by moving the crossed columns one at a time, not by re-laying. ⚠ And a move shifts one
+   * column only — nothing cascades to the ones after it.
+   */
+  slotsMovable: number;
   warnings: string[];
 }
 
@@ -2404,3 +2442,160 @@ export interface UnpublishStageResult {
   heaviestSkipped: SkippedCohort[];
 }
 
+/**
+ * What a « Démarrer » over a selection is about to walk into.
+ *
+ * ⚠ Starting a rotation that spans an exam window is not *wrong* — the student serves before it and
+ * after it. What is wrong is silent: the stay's end date does not grow to replace the days the window
+ * takes, so it is short by exactly that much. This is a sentence, never a refusal.
+ */
+export interface StagePauseCrossings {
+  stageId: number;
+  stageName: string;
+  academicYearId: number;
+  academicYearLabel: string;
+  /** The denominator. « 296 traversent » says nothing without « sur combien ». */
+  periodsToStart: number;
+  /** Rotations crossing at least one window, counted once each — never the sum of the rows. */
+  periodsCrossing: number;
+  /**
+   * Every window declared this year for the promotions in play, **including uncrossed ones**.
+   *
+   * ⚠ This is what stops silence being read as safety: `periodsCrossing === 0` means either « the
+   * promotion declared its exam weeks and this selection misses them » or « nobody declared anything
+   * at all », and on this base the second is the ordinary state.
+   */
+  windowsDeclaredForPromotion: number;
+  windows: CrossedWindow[];
+}
+
+export interface CrossedWindow {
+  pauseId: number;
+  levelId: number;
+  levelLabel: string;
+  startDate: string;
+  endDate: string;
+  kind: PauseKind;
+  reason: string;
+  isConfirmed: boolean;
+  workingDaysLost: number;
+  periodsCrossing: number;
+}
+
+/** What suspends a promotion on a given day: the motif the faculty wrote, and until when. */
+export interface PromotionSuspension {
+  pauseId: number;
+  kind: PauseKind;
+  /** The motif typed at declaration — this is what replaces the status on screen. */
+  reason: string;
+  startDate: string;
+  /** Until when, because a state with no end reads as a block. The student returns on his own. */
+  endDate: string;
+  /** False while the dates are still provisional — it counts, it can just still move. */
+  isConfirmed: boolean;
+}
+
+// ── Recalcul de l'axe d'une promotion ─────────────────────────────────────────────────────────────
+
+/**
+ * Ce qu'une colonne de l'axe devient si on le repose.
+ *
+ * ⚠ `anchored` n'est pas « n'a pas bougé » : c'est « n'a pas bougé **parce qu'un humain l'avait
+ * placée** ». Une colonne que rien ne poussait porte les mêmes dates des deux côtés et n'est pas
+ * ancrée — deux causes, deux mots.
+ */
+export interface AxisRelayColumn {
+  periodNumber: number;
+  fromStartDate: string;
+  fromEndDate: string;
+  toStartDate: string;
+  toEndDate: string;
+  fromWorkingDays: number;
+  toWorkingDays: number;
+  anchored: boolean;
+  moved: boolean;
+}
+
+/**
+ * Un service où la promotion recalculée rencontre les autres.
+ *
+ * ⚠ `increase` à 0 **ne veut pas dire « rien ne change »** : un service peut porter exactement
+ * autant de monde et le porter bien plus longtemps, ce que `busiestDaysBefore/After` disent. Mesuré
+ * sur la 4ᵉ MED le 20/09/2026, c'est le cas de tous les services concernés.
+ */
+export interface ServiceCrossing {
+  serviceId: number;
+  serviceName: string;
+  hospitalName: string;
+  peakBefore: number;
+  peakAfter: number;
+  increase: number;
+  peakStartDate: string;
+  peakEndDate: string;
+  busiestDaysBefore: number;
+  busiestDaysAfter: number;
+  staysBusyLonger: boolean;
+  otherPromotions: string[];
+}
+
+export interface AxisRelayCrossings {
+  servicesExamined: number;
+  servicesWherePeakRises: number;
+  servicesWhereBusyLasts: number;
+  /** Les vingt pires ; les totaux ci-dessus portent le compte réel. */
+  listed: ServiceCrossing[];
+}
+
+/**
+ * L'aperçu d'un recalcul d'axe. N'écrit rien.
+ *
+ * ⚠ `workingDaysChanged` est **signé** : positif, l'axe rattrape ce qu'une fenêtre déclarée lui a
+ * pris ; négatif, il revient d'une fenêtre supprimée. Zéro n'arrive pas — le serveur refuse en amont,
+ * parce que « rien à faire » et « rien fait » sont deux états.
+ */
+export interface AxisRelayPreview {
+  academicYearId: number;
+  levelId: number;
+  /** Dérivée de l'axe, pas demandée : la longueur d'une colonne en jours ouvrables. */
+  columnLength: number;
+  columnsAgreeingOnLength: number;
+  columnCount: number;
+  fromPeriodNumber: number;
+  columns: AxisRelayColumn[];
+  columnsMoved: number;
+  columnsAnchored: number;
+  slotsToRelay: number;
+  periodsToMove: number;
+  periodsToExtend: number;
+  periodsToShorten: number;
+  /** Closes, notées, pointées ou interrompues : l'acte les laisse et les compte. */
+  periodsBlocked: number;
+  workingDaysChanged: number;
+  axisEndsOn: string;
+  crossings: AxisRelayCrossings;
+  warnings: string[];
+  /** Le premier des deux nombres à confirmer — la grille. Calculé par le serveur. */
+  slotsAffected: number;
+  /** Le second — les dossiers. */
+  periodsAffected: number;
+  isRollingBack: boolean;
+}
+
+export interface AxisRelayApplyRequest {
+  levelId: number;
+  academicYearId: number;
+  /** ⚠ Deux comptes, pas un : ils bougent pour des raisons différentes. */
+  confirmedSlotCount: number;
+  confirmedPeriodCount: number;
+  fromPeriodNumber?: number;
+}
+
+export interface AxisRelayResult {
+  slotsRelaid: number;
+  periodsMoved: number;
+  periodsExtended: number;
+  periodsShortened: number;
+  periodsBlocked: number;
+  workingDaysChanged: number;
+  axisEndsOn: string;
+}

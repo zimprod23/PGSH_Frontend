@@ -306,7 +306,24 @@ function ServiceCard({ serviceId, serviceName, hospitalName }: {
       );
     }
     if (p.state === 'Underway') {
-      // Suspended mid-rotation (e.g. an exam week) — frozen until the administration resumes it.
+      // ⚠ La promotion est en examens aujourd'hui : l'étudiant n'est pas dans le service, et c'est la
+      // seule chose qui puisse empêcher un chef de pointer une absence à tort. Dérivé du calendrier,
+      // donc il disparaît de lui-même au lendemain de la fenêtre.
+      if (p.suspendedBy) {
+        const w = p.suspendedBy;
+        return (
+          <Tooltip
+            label={`${w.reason} — jusqu'au ${new Date(w.endDate).toLocaleDateString('fr-FR')}. La rotation n'est pas interrompue : elle reprend d'elle-même.${w.isConfirmed ? '' : ' Dates encore provisoires.'}`}
+            withArrow multiline w={260}
+          >
+            <Badge variant="light" color={w.isConfirmed ? 'orange' : 'yellow'} size="sm" radius="sm"
+              leftSection={<IconPlayerPause size={11} stroke={1.5} />}>
+              {w.kind === 'Exam' ? 'En examens' : w.kind === 'Holiday' ? 'En congé' : 'Suspendu'} · {w.reason}
+            </Badge>
+          </Tooltip>
+        );
+      }
+      // Suspended mid-rotation by a stored flag — only an import reversal can produce one now.
       if (p.isPaused) {
         return (
           <Tooltip

@@ -28,7 +28,7 @@ import {
   IconSchool,
   IconTrash,
 } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   useGetPromotionLevelsQuery,
   useGetPromotionPausesQuery,
@@ -87,9 +87,15 @@ const fr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR');
  * the preview counts exactly what they lose.
  *
  * ⚠ **And it never prescribes « reposez l'axe », because that button refuses once anything has been
- * published from the grid** — measured on the live base 2026-09-06, where the 3ᵉ MED holds 804 published
- * cells. The impact report carries `publishedCellsInGrid` and the server's warning branches on it: with a
- * published axis the days are simply lost, and saying otherwise sends the operator to a refusal.
+ * published from the grid** — measured on the live base, where the 3ᵉ MED holds 1 000 published cells.
+ * The impact report carries `publishedCellsInGrid` and the server's warning branches on it.
+ *
+ * ⚠ **But « refusé » is not « rien à faire », and showing only the first number said it was.** A
+ * published promotion is repaired by moving the crossed columns one at a time, so `slotsMovable` — how
+ * many of them that act would accept — sits beside `publishedCellsInGrid` and neither is rendered alone.
+ * Every sentence here comes from the server: the four-way split of what a rotation permits is one rule,
+ * and writing it again in TypeScript is two sides of a network boundary with nothing able to catch them
+ * disagreeing.
  */
 export function PromotionPausesPanel() {
   const notify = useNotify();
@@ -99,6 +105,12 @@ export function PromotionPausesPanel() {
   const [modalOpen, setModalOpen] = useState(false);
   const [pendingRevoke, setPendingRevoke] = useState<PromotionPause | null>(null);
   const [impact, setImpact] = useState<PromotionPauseImpact | null>(null);
+
+  // ⚠ Which impact request is still the current one. The auto-preview below is fired from openEdit and
+  // resolves over the network, while the effect that clears `impact` fires on every keystroke: without
+  // this, a slow answer for the window the user opened lands *after* they have edited the dates, and
+  // the screen then shows one window's numbers beside another's — the one thing this panel must not do.
+  const impactRequest = useRef(0);
 
   // ⚠ Promotion levels, not every level: « Retrait » is a withdrawal marker the import kept as a level
   // and it sits no exams. The server refuses it either way; offering it would only make the refusal a
@@ -125,11 +137,19 @@ export function PromotionPausesPanel() {
   useEffect(() => { setImpact(null); }, [form.levelId, form.range, form.reason]);
 
   const openCreate = () => {
+    impactRequest.current++;
     setForm(EMPTY);
     setImpact(null);
     setModalOpen(true);
   };
 
+  // ⚠ Opening a window that is already in force used to clear the impact and show nothing — the same
+  // blank as a fresh form, for the opposite situation. A declared window has consequences and this is
+  // where they are read, so the report is fetched rather than waited for.
+  //
+  // ⚠ The `useEffect` above clears `impact` whenever the form changes, and setting the form here *is*
+  // a change: the fetch is therefore started after it, and its result lands last. Clearing first is
+  // what keeps the previous window's numbers off this one's screen while it loads.
   const openEdit = (pause: PromotionPause) => {
     setForm({
       id: pause.id,
@@ -141,6 +161,22 @@ export function PromotionPausesPanel() {
     });
     setImpact(null);
     setModalOpen(true);
+
+    const token = ++impactRequest.current;
+
+    void preview({
+      levelId: pause.levelId,
+      startDate: pause.startDate.slice(0, 10),
+      endDate: pause.endDate.slice(0, 10),
+      kind: pause.kind,
+      reason: pause.reason,
+      isConfirmed: pause.isConfirmed,
+      academicYearId: currentYearId ?? undefined,
+      excludingPauseId: pause.id,
+    })
+      .unwrap()
+      .then((report) => { if (token === impactRequest.current) setImpact(report); })
+      .catch(() => { /* toasted by errorMiddleware */ });
   };
 
   const body = () => ({
@@ -155,6 +191,7 @@ export function PromotionPausesPanel() {
 
   const handlePreview = async () => {
     if (!canSubmit) return;
+    impactRequest.current++;
     try {
       // ⚠ The window being corrected is left out, or the impact is measured against a calendar that
       // already contains it — and every window then costs zero worked days.
@@ -289,6 +326,7 @@ export function PromotionPausesPanel() {
                     <Table.Th>Type</Table.Th>
                     <Table.Th>Jours</Table.Th>
                     <Table.Th>Ouvrables perdus</Table.Th>
+                    <Table.Th>Ce qu'elle coupe</Table.Th>
                     <Table.Th />
                   </Table.Tr>
                 </Table.Thead>
@@ -327,6 +365,28 @@ export function PromotionPausesPanel() {
                         <Badge variant="light" color={p.workingDaysLost === 0 ? 'gray' : 'grape'}>
                           {p.workingDaysLost}
                         </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        {/* ⚠ Ce qu'une fenêtre *coûte* et ce qu'elle *coupe* sont deux faits, et la
+                            ligne ne portait que le premier : « 29 ouvrables perdus » seul se lit comme
+                            une note comptable. Et zéro est ici la **bonne** nouvelle — déclarée avant
+                            que l'axe soit posé, une fenêtre ne traverse rien parce que l'axe l'enjambe.
+                            Les deux états ne doivent donc pas se ressembler. */}
+                        {p.slotsSpanning === 0 ? (
+                          <Tooltip label="Aucune colonne posée sur cette fenêtre — c'est ce que « déclarée à temps » donne">
+                            <Badge size="sm" variant="light" color="teal" style={{ cursor: 'help' }}>
+                              rien
+                            </Badge>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip
+                            label={`${p.slotsSpanning} colonne(s) et ${p.periodsSpanning} rotation(s) traversent cette fenêtre. Déclarer ne déplace rien : ces jours sont perdus tant que les colonnes ne sont pas déplacées.`}
+                          >
+                            <Badge size="sm" variant="light" color="orange" style={{ cursor: 'help' }}>
+                              {p.slotsSpanning} col. · {p.periodsSpanning} rot.
+                            </Badge>
+                          </Tooltip>
+                        )}
                       </Table.Td>
                       <Table.Td>
                         <Group gap={4} justify="flex-end">
@@ -475,7 +535,7 @@ function ImpactReport({ impact }: { impact: PromotionPauseImpact }) {
           {impact.levelLabel} — {fr(impact.startDate)} → {fr(impact.endDate)}
         </Text>
 
-        <SimpleGrid cols={{ base: 2, sm: 5 }} spacing="xs">
+        <SimpleGrid cols={{ base: 2, sm: 3, lg: 6 }} spacing="xs">
           {[
             { label: 'Ouvrables perdus', value: impact.workingDaysLost, color: 'grape' },
             { label: 'Créneaux traversés', value: impact.slotsSpanning, color: 'navy' },
@@ -485,11 +545,20 @@ function ImpactReport({ impact }: { impact: PromotionPauseImpact }) {
               color: impact.periodsUnderway > 0 ? 'orange' : 'dimmed',
             },
             { label: 'Étudiants concernés', value: impact.studentsAffected, color: 'dimmed' },
-            // ⚠ The number that says whether the shortfall above has a remedy at all.
+            // ⚠ « Cellules publiées » says the axis cannot be re-laid; on its own it reads as « rien à
+            // faire ». « Déplaçables » is the half that says what can still be done, so the two sit
+            // side by side and neither is shown alone.
             {
               label: 'Cellules publiées',
               value: impact.publishedCellsInGrid,
               color: impact.publishedCellsInGrid > 0 ? 'red' : 'dimmed',
+            },
+            {
+              label: 'Créneaux déplaçables',
+              value: `${impact.slotsMovable} / ${impact.slotsSpanning}`,
+              color: impact.slotsSpanning === 0 ? 'dimmed'
+                : impact.slotsMovable === 0 ? 'red'
+                  : impact.slotsMovable === impact.slotsSpanning ? 'teal' : 'orange',
             },
           ].map(({ label, value, color }) => (
             <Stack key={label} gap={0}>

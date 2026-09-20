@@ -43,6 +43,7 @@ const RepartitionPage         = lazy(() => import('../features/admin/pages/Repar
 const OccupancyReportPage     = lazy(() => import('../features/admin/pages/OccupancyReportPage'));
 const PromotionFitPage        = lazy(() => import('../features/admin/pages/PromotionFitPage'));
 const RotationCyclePage       = lazy(() => import('../features/admin/pages/RotationCyclePage'));
+const AxisRelayPage           = lazy(() => import('../features/admin/pages/AxisRelayPage'));
 const AffectationSheetPage    = lazy(() => import('../features/admin/pages/AffectationSheetPage'));
 const HolidaysPage            = lazy(() => import('../features/admin/pages/HolidaysPage'));
 const StagesPage              = lazy(() => import('../features/admin/pages/StagesPage'));
@@ -146,6 +147,7 @@ export const router = createBrowserRouter([
               { path: PATHS.ADMIN.PLACEMENTS, element: wrap(<PlacementsPage />) },
               { path: PATHS.ADMIN.AUDIT_LOG, element: wrap(<AuditLogPage />) },
               { path: PATHS.ADMIN.ROTATION_CYCLE, element: wrap(<RotationCyclePage />) },
+              { path: PATHS.ADMIN.AXIS_RELAY,    element: wrap(<AxisRelayPage />)     },
               { path: PATHS.ADMIN.AFFECTATION_SHEET, element: wrap(<AffectationSheetPage />) },
               { path: PATHS.ADMIN.HOLIDAYS,    element: wrap(<HolidaysPage />)       },
               { path: PATHS.ADMIN.HOSPITALS,    element: wrap(<InfrastructurePage />) },

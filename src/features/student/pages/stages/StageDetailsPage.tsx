@@ -175,7 +175,21 @@ function PeriodCard({ period }: { period: ServicePeriodSummary }) {
             </Stack>
           </Group>
           <Stack gap={4} align="flex-end">
-            {period.isPaused && !period.isComplete ? (
+            {/* ⚠ La fenêtre déclarée par sa promotion passe avant tout le reste : l'étudiant doit
+                lire « je suis en examens », pas « en cours », le matin où la faculté l'a écrit.
+                Dérivée du calendrier — elle s'éteint d'elle-même au lendemain. */}
+            {period.suspendedBy && period.isStarted && !period.isComplete ? (
+              <Tooltip
+                label={`${period.suspendedBy.reason} — jusqu'au ${new Date(period.suspendedBy.endDate).toLocaleDateString('fr-FR')}. Votre stage n'est pas interrompu : il reprend de lui-même.`}
+                withArrow multiline w={250}
+              >
+                <Badge size="xs" color={period.suspendedBy.isConfirmed ? 'orange' : 'yellow'} variant="light">
+                  {period.suspendedBy.kind === 'Exam'
+                    ? 'En examens'
+                    : period.suspendedBy.kind === 'Holiday' ? 'En congé' : 'Suspendu'}
+                </Badge>
+              </Tooltip>
+            ) : period.isPaused && !period.isComplete ? (
               <Tooltip
                 label={period.pauseReason ? `En pause : ${period.pauseReason}` : 'Rotation suspendue (examens)'}
                 withArrow multiline w={220}

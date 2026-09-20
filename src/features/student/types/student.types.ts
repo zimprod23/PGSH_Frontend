@@ -136,6 +136,8 @@ export interface InternshipAssignmentSummary {
   finalScore: number | null;
   result: string | null;
   isPaused: boolean;
+  /** The exam window this student's promotion declared, covering today — null otherwise. */
+  suspendedBy?: PromotionSuspension | null;
 }
 
 export interface InternshipAssignmentDetail extends InternshipAssignmentSummary {
@@ -153,6 +155,8 @@ export interface ServicePeriodSummary {
   hasEvaluation: boolean;
   isStarted: boolean;
   isPaused: boolean;
+  /** The exam window this student's promotion declared, covering today — null otherwise. */
+  suspendedBy?: PromotionSuspension | null;
   pauseReason: string | null;
 }
 
@@ -269,4 +273,22 @@ export interface GetStudentsQuery {
   status?: RegistrationStatus;
   pageNumber?: number;
   pageSize?: number;
+}
+
+/**
+ * What suspends a promotion on a given day: the motif the faculty declared, and until when.
+ *
+ * ⚠ Derived server-side from the promotion's calendar on every read, never stored. Revoking the
+ * window clears it for the whole promotion at once, with nothing written and nothing to undo.
+ */
+export interface PromotionSuspension {
+  pauseId: number;
+  kind: 'Exam' | 'Holiday' | 'Other';
+  /** The motif typed at declaration — this is what replaces the status on screen. */
+  reason: string;
+  startDate: string;
+  /** Until when, because a state with no end reads as a block. The student returns on his own. */
+  endDate: string;
+  /** False while the dates are still provisional — it counts, it can just still move. */
+  isConfirmed: boolean;
 }

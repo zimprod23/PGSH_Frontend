@@ -152,7 +152,6 @@ import type {
   DeleteRotationCycleResult,
   RotationCycleConfiguration,
   YearTimelineResponse,
-  PauseKind,
   LevelRepartitionResponse,
   GeneratedAxisResponse,
   GenerateAxisWindowsRequest,
@@ -162,12 +161,16 @@ import type {
   PromotionPartitioning,
   HolidayCoverage,
   HolidayInput,
+  StagePauseCrossings,
   PromotionPause,
   PromotionPauseInput,
   PromotionPauseImpact,
   PromotionPauseDeclaredResult,
   PromotionPauseCorrectedResult,
   PromotionPauseRevokedResult,
+  AxisRelayPreview,
+  AxisRelayApplyRequest,
+  AxisRelayResult,
   SeedNationalHolidaysResult,
   DeleteHolidayResult,
   UpdateHolidayResult,
@@ -820,21 +823,17 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
     }),
 
+    // ⚠ A POST that writes nothing, like calendar/promotion-pauses/preview: the selection is the same
+    // body « Démarrer » posts, and arrays of cohortes on a query string is where binding stops being a
+    // sentence. Invalidated by Assignment/LIST so starting a batch refreshes what is left to start.
+    previewStageStart: builder.query<StagePauseCrossings, { stageId: number; academicYearId?: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
+      query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/start/preview`, method: 'POST', body }),
+      providesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
+    }),
+
     completeStagePeriods: builder.mutation<{ completed: number }, { stageId: number; academicYearId?: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
       query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/complete`, method: 'POST', body }),
       invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }],
-    }),
-
-    // Suspend / resume an in-flight rotation (e.g. an exam week). Resume shifts the rotation forward
-    // by the paused days, so the timeline must refetch too.
-    pauseStagePeriods: builder.mutation<{ paused: number }, { stageId: number; academicYearId?: number; kind?: PauseKind; reason?: string; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
-      query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/pause`, method: 'POST', body }),
-      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }, { type: 'Stage' as const, id: 'TIMELINE' }],
-    }),
-
-    resumeStagePeriods: builder.mutation<{ resumed: number }, { stageId: number; academicYearId?: number; cohortIds?: number[]; partitionLabels?: string[]; periodNumbers?: number[] }>({
-      query: ({ stageId, ...body }) => ({ url: `/stages/${stageId}/schedule/resume`, method: 'POST', body }),
-      invalidatesTags: [{ type: 'Assignment' as const, id: 'LIST' }, { type: 'Stage' as const, id: 'TIMELINE' }],
     }),
 
     // ⚠ Paged, and the partition is filtered server-side. A promotion is ~105 cohortes over ten
@@ -1594,6 +1593,44 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     revokePromotionPause: builder.mutation<PromotionPauseRevokedResult, number>({
       query: (id) => ({ url: `/calendar/promotion-pauses/${id}`, method: 'DELETE' }),
       invalidatesTags: CALENDAR_CHANGED,
+    }),
+
+    /**
+     * Ce qu'un recalcul d'axe ferait de cette promotion. N'écrit rien, donc n'invalide rien.
+     *
+     * ⚠ Une query et non une mutation : c'est une lecture, et la garder en cache est ce qui permet
+     * de la relire après avoir fermé la fenêtre de confirmation sans la recalculer.
+     * `providesTags` la range avec le calendrier, parce que déclarer ou supprimer une suspension
+     * change exactement ce qu'elle répond.
+     */
+    previewAxisRelay: builder.query<
+      AxisRelayPreview,
+      { levelId: number; academicYearId?: number; fromPeriodNumber?: number }
+    >({
+      query: ({ levelId, ...params }) => ({ url: `/levels/${levelId}/axis-relay/preview`, params }),
+      providesTags: [{ type: 'Calendar' as const, id: 'AXIS' }],
+    }),
+
+    applyAxisRelay: builder.mutation<AxisRelayResult, AxisRelayApplyRequest>({
+      query: ({ levelId, ...body }) => ({
+        url: `/levels/${levelId}/axis-relay`,
+        method: 'POST',
+        body,
+      }),
+      /**
+       * Il réécrit les dates des créneaux **et** celles des périodes publiées : la grille, l'axe, la
+       * répartition, le calendrier et le dossier de chaque étudiant touché sont périmés d'un coup.
+       * Et le journal, qui vient d'en gagner une entrée.
+       */
+      invalidatesTags: [
+        { type: 'Calendar' as const, id: 'AXIS' },
+        { type: 'Calendar' as const, id: 'PAUSES' },
+        { type: 'Stage' as const, id: 'TIMELINE' },
+        { type: 'Stage' as const, id: 'REPARTITION' },
+        { type: 'Assignment' as const, id: 'LIST' },
+        { type: 'History' as const, id: 'LIST' },
+        { type: 'Audit' as const, id: 'LIST' },
+      ],
     }),
 
     bulkCreateCohortsFromPartitions: builder.mutation<BulkCohortsFromPartitionsResult, BulkCreateCohortsFromPartitionsRequest>({
@@ -2385,9 +2422,8 @@ export const {
   useCompleteCohortPeriodsMutation,
   useValidateCohortAssignmentsMutation,
   useStartStagePeriodsMutation,
+  usePreviewStageStartQuery,
   useCompleteStagePeriodsMutation,
-  usePauseStagePeriodsMutation,
-  useResumeStagePeriodsMutation,
   useGetStageScheduleQuery,
   useGetYearTimelineQuery,
   useCreateStageSlotMutation,
@@ -2420,6 +2456,8 @@ export const {
   useDeclarePromotionPauseMutation,
   useCorrectPromotionPauseMutation,
   useRevokePromotionPauseMutation,
+  useLazyPreviewAxisRelayQuery,
+  useApplyAxisRelayMutation,
   useCreateRegistrationMutation,
   useUpdateRegistrationMutation,
   useGetServicePeriodsQuery,

@@ -30,6 +30,7 @@ export const PATHS = {
     OCCUPANCY:       'charge-services',
     PROMOTION_FIT:   'faisabilite',
     ROTATION_CYCLE:  'rotation-cycle',
+    AXIS_RELAY:      'recalcul-axe',
     AFFECTATION_SHEET: 'affectations-fichier',
     HOLIDAYS:        'holidays',
     LEVELS:          'levels',
