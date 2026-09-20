@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+import { PATHS } from '../../../routes/paths';
 import {
   ActionIcon,
   Alert,
@@ -23,6 +25,7 @@ import {
 import { DatePickerInput } from '@mantine/dates';
 import {
   IconAlertTriangle,
+  IconArrowRight,
   IconInfoCircle,
   IconPencil,
   IconSchool,
@@ -379,10 +382,24 @@ export function PromotionPausesPanel() {
                             </Badge>
                           </Tooltip>
                         ) : (
+                          /* ⚠ Le compte est un **lien**, pas une note. Déclarer ne déplace rien —
+                             c'est ce qui rend la fenêtre révocable — donc l'écran qui rattrape est
+                             un autre acte, sur un autre écran, et jusqu'ici il fallait savoir qu'il
+                             existait. Nommer le dégât sans montrer le remède est ce que ce dépôt
+                             reproche ailleurs à ses propres rapports. La promotion part dans l'URL :
+                             arriver sur une liste vide à re-remplir soi-même est le même oubli. */
                           <Tooltip
-                            label={`${p.slotsSpanning} colonne(s) et ${p.periodsSpanning} rotation(s) traversent cette fenêtre. Déclarer ne déplace rien : ces jours sont perdus tant que les colonnes ne sont pas déplacées.`}
+                            label={`${p.slotsSpanning} colonne(s) et ${p.periodsSpanning} rotation(s) traversent cette fenêtre. Déclarer ne déplace rien : ouvrez « Recalcul de l'axe » pour les rattraper.`}
                           >
-                            <Badge size="sm" variant="light" color="orange" style={{ cursor: 'help' }}>
+                            <Badge
+                              size="sm"
+                              variant="light"
+                              color="orange"
+                              component={Link}
+                              to={`/admin/${PATHS.ADMIN.AXIS_RELAY}?levelId=${p.levelId}`}
+                              style={{ cursor: 'pointer' }}
+                              rightSection={<IconArrowRight size={12} />}
+                            >
                               {p.slotsSpanning} col. · {p.periodsSpanning} rot.
                             </Badge>
                           </Tooltip>

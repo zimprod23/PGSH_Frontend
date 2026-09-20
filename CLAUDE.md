@@ -576,6 +576,26 @@ pas nommer reste un acte qui a eu lieu). C'est le bon repli, et ce n'est pas une
 de l'application dont le journal est *l'unique* trace. Ajouter la ligne fait partie de l'ajout d'un
 `IAuditableCommand`, au même titre que le test.
 
+### 1m ⚠ Un écran qui nomme un dégât montre le chemin vers le remède
+
+Le panneau des suspensions comptait déjà « 10 col. · 1 535 rot. » sous une fenêtre déclarée trop
+tard, avec une infobulle disant que ces jours étaient perdus tant que les colonnes n'étaient pas
+déplacées. C'était **exact et sans issue** : l'écran qui les rattrape est un autre acte, sur une
+autre page, et il fallait savoir qu'il existait pour y aller.
+
+C'est le reproche que ce dépôt fait ailleurs à ses propres rapports — *« nommer aucun remède là où
+il en existe un se lit “les jours sont perdus” »* — arrivé par l'autre bout : ici le remède existait
+et l'écran n'y menait pas.
+
+- **Le compte devient le lien.** Un `Badge component={Link}` plutôt qu'une note, avec une flèche.
+- ⚠ **Et il emporte sa portée.** `?levelId=` : arriver sur un écran vide à re-choisir la promotion
+  qu'on vient de quitter est le même oubli, un cran plus loin. La page lit le paramètre **au
+  montage seulement** — ensuite le `Select` est la source, sinon revenir en arrière rouvrirait
+  l'ancienne.
+- **Le repère** : un écran qui affiche un nombre de choses cassées doit répondre « et maintenant ? ».
+  Si la réponse est un autre écran, c'est un lien ; si c'est un acte local, c'est un bouton ; si
+  c'est « rien, c'est normal », le nombre ne devrait pas être en orange.
+
 ### 2. Debounce every search / free-text-filtered query input
 
 Typing into a field that drives a server query must **not** fire a request per keystroke — it causes the

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert, Badge, Button, Card, Center, Checkbox, Group, Loader, Modal, Paper, ScrollArea,
   Select, SimpleGrid, Stack, Table, Text, Title, Tooltip,
@@ -154,7 +155,13 @@ export default function AxisRelayPage() {
   const { currentYear, currentYearId } = useAcademicYear();
   const { data: levels } = useGetPromotionLevelsQuery(undefined);
 
-  const [levelId, setLevelId] = useState<string | null>(null);
+  /**
+   * ⚠ La promotion peut arriver par l'URL — c'est ce qui permet au panneau des suspensions de
+   * pointer ici sans que l'opérateur ait à la retrouver dans une liste. Elle n'est lue qu'au
+   * montage : ensuite le Select est la source, sinon revenir en arrière rouvrirait l'ancienne.
+   */
+  const [params] = useSearchParams();
+  const [levelId, setLevelId] = useState<string | null>(() => params.get('levelId'));
 
   /**
    * La promotion que l'aperçu affiché décrit — pas celle que le Select montre.
