@@ -596,6 +596,23 @@ et l'écran n'y menait pas.
   Si la réponse est un autre écran, c'est un lien ; si c'est un acte local, c'est un bouton ; si
   c'est « rien, c'est normal », le nombre ne devrait pas être en orange.
 
+### 1n ⚠ Ne pas poursuivre un acte réussi avec son propre refus
+
+L'écran du recalcul d'axe relançait l'aperçu juste après une application réussie. Or l'acte venant
+de réussir, il n'y a **par construction** plus rien à rattraper : le serveur répond
+`NothingToRecover` — à raison — et l'écran affichait une réussite *et* un refus l'un sous l'autre.
+Signalé le 23/09/2026 par « on a un conflit mais j'ai l'impression que les dates ont été
+appliquées » : elles l'étaient, et l'écran disait le contraire juste en dessous.
+
+- **Après un acte, montrer ce qu'il a fait — pas ce qu'il reste à faire.** Relancer la lecture qui a
+  motivé l'acte pose une question dont on connaît déjà la réponse, et cette réponse est un refus.
+- ⚠ **Et retirer l'aperçu périmé avec.** Le tableau décrit un « avant » qui n'existe plus ; le
+  laisser est la même faute que §1i, atteinte par le temps plutôt que par le sujet.
+- ⚠ **Un « rien à faire » n'est pas une panne.** Le serveur a raison de refuser — « n'a rien trouvé à
+  faire » et « n'a rien fait » sont deux états — mais l'écran ne peint pas en rouge une promotion qui
+  va bien : c'est un état **vert**, et la phrase dit pourquoi c'est normal. Le code d'un refus
+  non-validation se lit dans `title`, jamais dans `errors[]`.
+
 ### 2. Debounce every search / free-text-filtered query input
 
 Typing into a field that drives a server query must **not** fire a request per keystroke — it causes the

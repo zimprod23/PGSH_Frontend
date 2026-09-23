@@ -225,7 +225,15 @@ export default function AxisRelayPage() {
         + `${result.periodsExtended} allongée(s), ${result.periodsShortened} raccourcie(s). `
         + `L’axe se termine le ${dmy(result.axisEndsOn)}.`,
       );
-      await onPreview();
+
+      // ⚠ **Ne pas relancer l'aperçu ici.** L'acte venant de réussir, il n'y a par construction plus
+      // rien à rattraper : le serveur répond `NothingToRecover`, et l'écran affichait donc une
+      // réussite *et* un refus l'un sous l'autre — ce qui se lit comme un échec. Signalé le
+      // 23/09/2026, les dates étant bel et bien écrites.
+      //
+      // ⚠ Et l'ancien tableau ne doit pas rester non plus : il décrit un « avant » qui n'existe plus.
+      // On le retire, et la ligne de résultat porte ce qui a été fait.
+      setPreviewedLevelId(null);
     } catch {
       // errorMiddleware montre la phrase du refus ; la fenêtre reste ouverte pour la relire.
     }
@@ -235,6 +243,16 @@ export default function AxisRelayPage() {
   // un échec du pipeline de validation y met la phrase générique et les vraies dans `errors[]`.
   // Quatre fichiers avaient chacun réécrit la moitié inutile.
   const refusal = problemMessage(error);
+
+  /**
+   * ⚠ <b>« Rien à rattraper » n'est pas une panne, c'est la bonne nouvelle.</b> Le serveur refuse —
+   * à raison, parce que « l'acte n'a rien trouvé à faire » et « l'acte n'a rien fait » sont deux
+   * états — mais l'écran ne doit pas peindre en rouge une promotion qui va bien.
+   *
+   * <p>⚠ Le code d'un refus non-validation voyage dans `title`, jamais dans `errors[]`.</p>
+   */
+  const nothingToRecover =
+    (error as { data?: { title?: string } })?.data?.title === 'RotationCycle.NothingToRecover';
 
   return (
     <Stack gap="lg">
@@ -295,9 +313,19 @@ export default function AxisRelayPage() {
       {done && <Alert color="teal" variant="light">{done}</Alert>}
 
       {isError && (
-        <Alert color={refusal ? 'orange' : 'red'} variant="light" icon={<IconAlertTriangle size={18} />}>
-          {refusal ?? 'L’aperçu n’a pas pu être calculé.'}
-        </Alert>
+        nothingToRecover ? (
+          <Alert color="teal" variant="light" icon={<IconInfoCircle size={18} />}>
+            <Text size="sm">
+              Toutes les colonnes de cette promotion tiennent leur compte de jours ouvrables&nbsp;:
+              il n’y a rien à rattraper. C’est l’état attendu après un recalcul, et celui d’une
+              promotion dont aucune fenêtre déclarée n’ampute l’axe.
+            </Text>
+          </Alert>
+        ) : (
+          <Alert color={refusal ? 'orange' : 'red'} variant="light" icon={<IconAlertTriangle size={18} />}>
+            {refusal ?? 'L’aperçu n’a pas pu être calculé.'}
+          </Alert>
+        )
       )}
 
       {isFetching && !preview && <Center h={200}><Loader color="navy" /></Center>}
